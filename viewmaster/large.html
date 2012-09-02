@@ -1,0 +1,153 @@
+<html>
+    <head>
+        <style>
+        body{
+            overflow: hidden;
+        }
+        .eyepiece{
+            position: relative;
+            margin: 100px auto;
+            width: 830px;
+            height: 600px;
+        }
+        .slides{
+            -webkit-transition: all 0.5s ease-in-out;
+            position: relative;
+            width: 600px;
+        }
+        .slide{
+            width: 800px;
+            height: 600px;
+            position: absolute;
+            left: 0px;
+            top: 0px;
+            background-color: rgb(0, 0, 0);
+            color: rgb(240, 240, 240);
+            padding: 10px;
+            line-height: 15px;
+            font-family: sans-serif;
+            overflow: hidden;
+            overflow: hidden;
+            text-align: center;
+            vertical-align: middle;
+            font-size: 600px;
+            line-height: 600px;
+            background: url('black.png');
+        }
+
+        .rotatable{
+            -webkit-transform-origin: 400px 8000px;
+        }
+
+        .rotatable.preview{
+            -webkit-transform-origin: 55px 800px;
+        }
+
+        .viewport{
+            overflow: hidden;
+            width: 800px;
+            height: 600px;
+            border: 0px solid #F33;
+            position: absolute;
+            background: #ddd;
+        }
+
+        .viewport.preview{
+            overflow: visible;
+            border: 0px solid #33F;
+            width: 110px;
+            height: 70px;
+            top: 300px;
+            left: 350px;
+        }
+
+        .viewport.overlay{
+        }
+
+        .slides.preview .slide{
+            background-color: #336;
+            width: 100px;
+            height: 60px;
+            font-size: 60px;
+            line-height: 60px;
+        }
+        </style>
+    </head>
+    <body>
+        <div class='eyepiece'>
+            <div class='viewport preview'>
+                <div id='slidespreview' class='slides rotatable preview'>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(0deg);'>1</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(15deg);'>2</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(30deg);'>3</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(45deg);'>4</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(60deg);'>5</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(75deg);'>6</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(90deg);'>7</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(105deg);'>8</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(120deg);'>9</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(135deg);'>10</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(150deg);'>11</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(165deg);'>12</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(180deg);'>13</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(195deg);'>14</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(210deg);'>15</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(225deg);'>16</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(240deg);'>17</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(255deg);'>18</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(270deg);'>19</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(285deg);'>20</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(300deg);'>21</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(315deg);'>22</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(330deg);'>23</div>
+                    <div class="slide rotatable preview" style='-webkit-transform: rotate(345deg);'>24</div>
+                </div>
+            </div>
+            <div class='viewport overlay'></div>
+            <div class='viewport'>
+                <div id='slides' class='slides rotatable'>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(0deg);'>1</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(15deg);'>2</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(30deg);'>3</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(45deg);'>4</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(60deg);'>5</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(75deg);'>6</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(90deg);'>7</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(105deg);'>8</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(120deg);'>9</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(135deg);'>10</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(150deg);'>11</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(165deg);'>12</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(180deg);'>13</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(195deg);'>14</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(210deg);'>15</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(225deg);'>16</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(240deg);'>17</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(255deg);'>18</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(270deg);'>19</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(285deg);'>20</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(300deg);'>21</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(315deg);'>22</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(330deg);'>23</div>
+                    <div class="slide rotatable" style='-webkit-transform: rotate(345deg);'>24</div>
+                </div>
+            </div>
+        </div>
+        <script>
+            var slides = document.getElementById('slides');
+            var slidespreview = document.getElementById('slidespreview');
+            var ri = 15;
+            var r = 0;
+            document.addEventListener('keypress', function(e){
+                if (e.charCode == 106){
+                    r += ri;
+                } else if (e.charCode == 107){
+                    r -= ri;
+                }
+                slides.style.webkitTransform = 'rotate(' + r + 'deg)';
+                slidespreview.style.webkitTransform = 'rotate(' + r + 'deg)';
+                console.log("Rotation (", e.charCode, ")", slides.style.webkitTransform);
+            });
+        </script>
+    </body>
+</html>
