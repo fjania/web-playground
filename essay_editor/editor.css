@@ -1,0 +1,60 @@
+body {
+    box-sizing: border-box;
+}
+
+.column {
+    display: inline-block;
+    margin: 10px;
+    height: 1000px;
+    vertical-align: top;
+}
+
+#preview {
+    height: 230px;
+    width: 400px;
+    background-color: #99d;
+    overflow: hidden;
+    -moz-user-select: none;
+    -webkit-user-select: none;
+}
+
+#essay {
+    width: 600px;
+}
+
+#slides {
+    background-color: #ddd;
+    width: 400px;
+    height: 800px;
+    overflow: auto;
+}
+
+.slide {
+    background-color: #333;
+    border: 1px solid #666;
+    padding: 5px;
+    margin: 10px;
+    font-size: 16pt;
+    color: #EEEE33;
+    height: 200px;
+    overflow: hidden;
+}
+
+.slide_text{
+    vertical-align: middle;
+    display: inline-block;
+}
+
+#essay_text {
+    background-color: #eee;
+    width: 100%;
+    height: 100%;
+    border: 0px none transparent;
+    padding: 10px;
+    font-size: 14pt;
+}
+
+#essay_text:focus {
+    border: 0px none transparent;
+    outline: 0px none transparent;
+}
