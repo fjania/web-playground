@@ -1,15 +1,19 @@
 <!DOCTYPE html>
 <html>
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-        <meta name = "viewport" content = "initial-scale = 1.0, user-scalable = no">
-    </head>
     <body>
-
     <h1>Top Page</h1>
-    <iframe src='iframe-1.html' width='800' height='500' scrolling='no' style='border: 1px solid #ff33aa;' id='duplicate-iframe-id'></iframe>
+    <iframe src='iframe-1.html' width='800' height='500' scrolling='no' style='border: 4px solid #FFA5E9;' id='duplicate-iframe-id'></iframe>
 
-    <p><a href='http://google.com'>Click this link</a> to leave the page, then use the back button to get back to this page.</p>
+    <p><strong>Steps to reproduce</strong></p>
+    <ol>
+        <li>Navigate away from the page by clicking a link, e.g. <a href='http://google.com'>google.com</a>,</li>
+        <li>Use the back button to get back to this page</li>
+    </ol>
+
+    <p><strong>Expected Results</strong></p>
+    <p>Page renders as it did origingally</p>
+
+    <p><strong>Actual Results</strong></p>
+    <p>Once you get back to this page (via the back button) the outter iframe will have it's own content replaced by the content of the inner iframe. This never happens when you navigate directly to the top page, only when you go back.</p>
     </body>
 </html>
