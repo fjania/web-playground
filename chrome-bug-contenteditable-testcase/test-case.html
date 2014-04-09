@@ -1,0 +1,60 @@
+<html>
+    <head>
+        <style>
+            .ce {
+                width: 500px;
+                height: 300px;
+                border: 1px solid #333;
+            }
+            .ce span {
+                background: red;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div>
+            <b>Example Expected Steps</b><br/>
+            1. Load this page and set your zoom to normal, 100%<br/>
+            2. Place your cursor in front of the 't' in two<br/>
+            3. Press backspace to move the word 'two' up a line<br/>
+            4. The words 'one' and 'two' are next to each other<br/>
+
+            <br/>
+            <br/>
+
+            <b>Steps to Reproduce</b><br/>
+            1. Load this page and set your zoom to something other than 100%, e.g. 90%<br/>
+            2. Place your cursor in front of the 't' in two<br/>
+            3. Press backspace to move the word 'two' up a line<br/>
+            4. The words 'one' and 'two' are next to each other, but in the<br/>
+            failing case, the word 'two' has been wrapped in a span tag which<br/>
+            appears to try and preserve the font size<br/>
+        </div>
+
+        <br/>
+        <br/>
+        <br/>
+
+        <div>
+            This contenteditable div works as expected, regardless of zoom
+        </div>
+        <div class='ce works' contenteditable="true">
+            one
+            <div>two</div>
+            <div>three</div>
+        </div>
+        <br/>
+        <br/>
+        <div>
+            This contenteditable div fails when the browser zoom level<br/>
+            causes the computed font-size to be different than the font-size<br/>
+            explicitly set in the div.
+        </div>
+        <div class='ce fails' contenteditable="true" style="font-size: 16px;">
+            one
+            <div>two</div>
+            <div>three</div>
+        </div>
+    </body>
+</html>
