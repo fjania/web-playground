@@ -1,0 +1,48 @@
+<html>
+<head>
+<title>Daylight Time</title>
+</head>
+
+<body>
+	<link href="daylight-style.css" rel="stylesheet" type="text/css" />	
+	<script src="daylight-data-fairbanks.js" type="text/javascript"></script>
+	<script src="daylight-script.js" type="text/javascript"></script>
+	<div id="container">
+		<div id="titlebar">The Effect of Daylight Saving Time - Fairbanks
+			<div>
+				<table>
+					<tr id="wmidRow">
+						<td id="wmidTitle">Waking Darkness</td><td id="wmidCount"></td><td id="totalSavingsTitle">Total Savings</td>
+					</tr>
+					<tr id="smilRow">
+						<td id="smilTitle">Sleeping Light</td><td id="smilCount"></td><td id="totalSavingsCount"></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+		<div id="visualization">
+			<canvas id="canvas">You'll need to use Firefox 1.5+ to see this...</canvas>
+			<div id="startdst"></div>
+			<div id="enddst"></div>
+		</div>
+
+		<div>
+			<div id="dstData">
+				<div id="startDSTData">
+					<span id="startDSTTitle">Daylight Time Starts: </span><span id="startDSTDate"></span>
+				</div>
+				<div id="endDSTData">
+					<span id="endDSTTitle">Daylight Time Ends: </span><span id="endDSTDate"></span>
+				</div>
+			</div>
+			<div id="controls">
+				<span id="label">Display Daylight Time</span>
+				<input type="checkbox" id="showdst" onclick="changeDSTSetting()"></input>
+			</div> 
+		</div>
+		<script type="text/javascript">init();</script>
+	</div>
+</body>
+
+</html>
+

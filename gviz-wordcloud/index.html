@@ -1,0 +1,149 @@
+<html> 
+<head> 
+    <meta http-equiv="Content-type" content="text/html; charset=utf-8"/> 
+    <title>HTML5 / JS Word Cloud Demo</title> 
+    <script type="text/javascript" src="http://www.google.com/jsapi"></script>
+    <script src='termcloud.js'></script>
+
+    <script src='demodata.js'></script>
+
+    <script type="application/x-javascript"> 
+            var cloudCache = {};
+
+            google.load("visualization", "1");
+            google.setOnLoadCallback(drawVisualization);
+
+            function drawVisualization() {
+                // Load data from the demodata.js file
+                datatables = loadDataTables();
+
+                // Create a termcloud widget passing in the typeface and font size range
+                widget = new frankjania.TermCloud(
+                    document.getElementById('cloudElement'),
+                    {
+                        'font-family': 'arial',
+                        'minFont': 10,
+                        'maxFont': 90,
+                    }
+                );
+
+                // Draw the first table that's listed in the dropdown
+                showCloud(document.getElementById("activeCloudSelect").value);
+
+                google.visualization.events.addListener(widget, 'select', handleSelection);
+                google.visualization.events.addListener(widget, 'termPlaced', handleTermPlaced);
+                google.visualization.events.addListener(widget, 'layoutComplete', handleLayoutComplete);
+            }
+
+            function handleSelection(e){
+                var selections = widget.getSelection();
+                console.log(selections)
+            }
+
+            // Draw the cloud
+            function showCloud(cloudID){
+                // If we have the layout cached, just blast that to the screen
+                if (cloudCache[cloudID]){
+                    widget.blast(cloudCache[cloudID])
+                // Otherwise, let the widget draw it. For large clouds this is
+                // an expensive operation, so we don't want to do it for clouds
+                // where we've already computed the layout
+                } else {
+                    widget.draw(datatables[cloudID], cloudID)
+                }
+            }
+
+            // The callbacks we registered earlier
+            function handleTermPlaced(e){
+                var prog = document.getElementById('progressmeter');
+                prog.style.width = Math.ceil((e.count/e.max) * 100) + "%"
+
+                if ( e.max == e.count ){
+                    prog.style.visibility = 'hidden';
+                } else {
+                    prog.style.visibility = 'visible';
+                }
+            }
+
+            function handleLayoutComplete(data){
+                console.log(
+                    "Layout stats (" + data['cloud']['cloudID'] + "):", data['layoutTime'],
+                    'ms for',
+                    data['termCount'],
+                    'terms with',
+                    data['intersectionTests'],
+                    'interection tests',
+                    '(bounds:', data['bounds'], ')'
+                );  
+                //console.log(data);
+
+                cloudCache[data['cloud']['cloudID']] = data['cloud'];
+            }
+
+            function highlightPattern(patternStr){
+                widget.highlightTerms(patternStr, 0.2, 1.0);
+            }
+    </script> 
+    <style> 
+        #wrapper{
+            width: 900px;
+            margin: 0px auto;
+        }
+        #cloudElement{
+            background-color: #333333;
+            height: 400px;
+            overflow: hidden;
+        }
+        .controls{
+            margin: 10px 0px;
+            padding: 3px 0px;
+
+            background-color: #DFDFDF;
+            border-top: 3px solid #666666;
+            border-bottom: 1px solid #999999;
+            border-left: 1px solid #999999;
+            border-right: 1px solid #999999;
+            text-align: right;
+
+            color: #505050;
+            font-family: arial, sans-serif;
+            font-size: 9pt;
+        }
+        #searchPatternInput{
+            border: 1px solid #999999;
+            font-size: 9pt;
+        }
+        #progresschannel{
+            background-color: #333333;
+        }
+        #progressmeter{
+            height: 5px;
+            background-color: #DDDDDD;
+            border: 0px;
+            display: inline-block;
+        }
+        .term{
+            text-decoration: none;
+            /* This is important in Firefox for when words are zoomed large */
+            white-space: nowrap;
+        }
+    </style> 
+</head> 
+<body> 
+    <div id="wrapper">
+        <div class="controls">
+            <span>Size city name by </span>
+            <select id="activeCloudSelect" onChange="showCloud(this.value)">
+                <option value="population">Population</option>
+                <option value="populationdensity">Population Density</option>
+                <option value="gdp">GDP</option>
+            </select>
+        </div>
+        <div id="cloudElement"></div> 
+        <div id="progresschannel"><div id="progressmeter"></div></div>
+        <div class="controls">
+            <span>Highlight keywords matching this pattern </span>
+            <input id='searchPatternInput' type='text' size='30' onkeyup='highlightPattern(this.value)'/>
+        </div>
+    </div>
+</html>

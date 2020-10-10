@@ -1,0 +1,104 @@
+#container  {
+	background-color: rgb(230,230,230);
+	width: 480px;
+   margin : 10px;
+   padding : 10px;
+	border: 1px dashed black; 
+	font-size: 16pt;
+}
+
+input {
+    font : .85em verdana, sans-serif;
+    vertical-align: middle;
+}
+
+#label {
+    font : .85em verdana, sans-serif;
+    vertical-align: middle;
+    font-weight: bold;
+}
+
+#titlebar {
+	background-color: rgb(255,255,255);
+	width: 100%;
+   font : 1em verdana, sans-serif;
+	font-weight: bold;
+	margin-bottom: 10px;
+	border: 1px solid black; 
+}
+
+#controls{
+    font : .75em verdana, sans-serif;
+    margin : 5px 0px 0px 0px;
+    padding : 0px;
+    vertical-align: middle;
+	text-align: right;
+}
+
+#wmidRow {
+    font : .75em verdana, sans-serif;
+	color: rgb(150,150,255);
+}
+
+#smilRow {
+    font : .75em verdana, sans-serif;
+	color: rgb(255,150,150);
+}
+
+#wmidTitle, #smilTitle, #totalSavingsTitle {
+	font-weight: bold;
+}
+
+#totalSavingsTitle, #totalSavingsCount {
+	color: rgb(0,0,0);
+	padding-left: 20px;
+}
+
+#totalSavingsCount {
+	text-align: center;
+}
+
+#startDSTTitle, #endDSTTitle {
+	font-weight: bold;
+}
+
+#endDSTData, #startDSTData {
+ 	padding: 3px;
+}
+
+#endDSTData {
+	text-align: right;
+}
+
+#dstData {
+	width: 100%;
+	margin-top: 5px;
+	font : .55em verdana, sans-serif;
+	border: 1px solid rgb(0, 0, 0);
+	-moz-column-count: 2;
+	-moz-column-gap: 5px;
+	background-color: rgb(255,255,255);
+}
+
+#visualization {
+	width: 100%;
+	margin: 0px;
+	padding: 0px;
+}
+
+canvas { 
+	border: 1px solid black; 
+	width: 100%;
+	height: 300px;
+	background-color: rgb(255,255,255);
+}
+
+#startdst, #enddst{
+    position : absolute;
+    background : rgb(180, 180, 255);
+    padding : 2px;
+	 border: 1px solid rgb(0, 0, 0);
+	 display: none;
+}
+
+
