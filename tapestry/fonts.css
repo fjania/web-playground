@@ -1,0 +1,215 @@
+/****************************************************
+ * vollkorn Family
+ */
+
+@font-face {
+    font-family: 'Vollkorn';
+    src: url('vollkorn-regular-webfont.eot');
+    src: url('vollkorn-regular-webfont.eot?#iefix') format('embedded-opentype'),
+         url('vollkorn-regular-webfont.woff') format('woff'),
+         url('vollkorn-regular-webfont.ttf') format('truetype'),
+         url('vollkorn-regular-webfont.svg#vollkornRegular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}
+
+@font-face {
+    font-family: 'Vollkorn';
+    src: url('vollkorn-bold-webfont.eot');
+    src: url('vollkorn-bold-webfont.eot?#iefix') format('embedded-opentype'),
+         url('vollkorn-bold-webfont.woff') format('woff'),
+         url('vollkorn-bold-webfont.ttf') format('truetype'),
+         url('vollkorn-bold-webfont.svg#vollkornbold') format('svg');
+    font-weight: bold;
+    font-style: normal;
+
+}
+
+@font-face {
+    font-family: 'Vollkorn';
+    src: url('vollkorn-italic-webfont.eot');
+    src: url('vollkorn-italic-webfont.eot?#iefix') format('embedded-opentype'),
+         url('vollkorn-italic-webfont.woff') format('woff'),
+         url('vollkorn-italic-webfont.ttf') format('truetype'),
+         url('vollkorn-italic-webfont.svg#vollkornitalic') format('svg');
+    font-weight: normal;
+    font-style: italic;
+
+}
+
+@font-face {
+    font-family: 'Vollkorn';
+    src: url('vollkorn-bolditalic-webfont.eot');
+    src: url('vollkorn-bolditalic-webfont.eot?#iefix') format('embedded-opentype'),
+         url('vollkorn-bolditalic-webfont.woff') format('woff'),
+         url('vollkorn-bolditalic-webfont.ttf') format('truetype'),
+         url('vollkorn-bolditalic-webfont.svg#vollkornbolditalic') format('svg');
+    font-weight: bold;
+    font-style: italic;
+
+}
+
+/****************************************************
+ * Crimson Text Family
+ */
+
+@font-face {
+    font-family: 'CrimsonText';
+    src: url('crimsontext-bold-webfont.eot');
+    src: url('crimsontext-bold-webfont.eot?#iefix') format('embedded-opentype'),
+         url('crimsontext-bold-webfont.woff') format('woff'),
+         url('crimsontext-bold-webfont.ttf') format('truetype'),
+         url('crimsontext-bold-webfont.svg#crimson_textbold') format('svg');
+    font-weight: bold;
+    font-style: normal;
+
+}
+
+@font-face {
+    font-family: 'CrimsonText';
+    src: url('crimsontext-bolditalic-webfont.eot');
+    src: url('crimsontext-bolditalic-webfont.eot?#iefix') format('embedded-opentype'),
+         url('crimsontext-bolditalic-webfont.woff') format('woff'),
+         url('crimsontext-bolditalic-webfont.ttf') format('truetype'),
+         url('crimsontext-bolditalic-webfont.svg#crimson_textbold_italic') format('svg');
+    font-weight: bold;
+    font-style: italic;
+
+}
+
+@font-face {
+    font-family: 'CrimsonText';
+    src: url('crimsontext-italic-webfont.eot');
+    src: url('crimsontext-italic-webfont.eot?#iefix') format('embedded-opentype'),
+         url('crimsontext-italic-webfont.woff') format('woff'),
+         url('crimsontext-italic-webfont.ttf') format('truetype'),
+         url('crimsontext-italic-webfont.svg#crimson_textitalic') format('svg');
+    font-weight: normal;
+    font-style: italic;
+
+}
+
+@font-face {
+    font-family: 'CrimsonText';
+    src: url('crimsontext-roman-webfont.eot');
+    src: url('crimsontext-roman-webfont.eot?#iefix') format('embedded-opentype'),
+         url('crimsontext-roman-webfont.woff') format('woff'),
+         url('crimsontext-roman-webfont.ttf') format('truetype'),
+         url('crimsontext-roman-webfont.svg#crimson_textroman') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}
+
+/****************************************************
+ * Arimo Family
+ */
+
+@font-face {
+    font-family: 'Arimo';
+    src: url('arimo-bold-webfont.eot');
+    src: url('arimo-bold-webfont.eot?#iefix') format('embedded-opentype'),
+         url('arimo-bold-webfont.woff') format('woff'),
+         url('arimo-bold-webfont.ttf') format('truetype'),
+         url('arimo-bold-webfont.svg#arimobold') format('svg');
+    font-weight: bold;
+    font-style: normal;
+
+}
+
+@font-face {
+    font-family: 'Arimo';
+    src: url('arimo-bolditalic-webfont.eot');
+    src: url('arimo-bolditalic-webfont.eot?#iefix') format('embedded-opentype'),
+         url('arimo-bolditalic-webfont.woff') format('woff'),
+         url('arimo-bolditalic-webfont.ttf') format('truetype'),
+         url('arimo-bolditalic-webfont.svg#arimobold_italic') format('svg');
+    font-weight: bold;
+    font-style: italic;
+
+}
+
+@font-face {
+    font-family: 'Arimo';
+    src: url('arimo-italic-webfont.eot');
+    src: url('arimo-italic-webfont.eot?#iefix') format('embedded-opentype'),
+         url('arimo-italic-webfont.woff') format('woff'),
+         url('arimo-italic-webfont.ttf') format('truetype'),
+         url('arimo-italic-webfont.svg#arimoitalic') format('svg');
+    font-weight: normal;
+    font-style: italic;
+
+}
+
+@font-face {
+    font-family: 'Arimo';
+    src: url('arimo-regular-webfont.eot');
+    src: url('arimo-regular-webfont.eot?#iefix') format('embedded-opentype'),
+         url('arimo-regular-webfont.woff') format('woff'),
+         url('arimo-regular-webfont.ttf') format('truetype'),
+         url('arimo-regular-webfont.svg#arimoregular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}
+
+/****************************************************
+ * Amatic Family
+ */
+
+@font-face {
+    font-family: 'Amatic';
+    src: url('amaticsc-bold-webfont.eot');
+    src: url('amaticsc-bold-webfont.eot?#iefix') format('embedded-opentype'),
+         url('amaticsc-bold-webfont.woff') format('woff'),
+         url('amaticsc-bold-webfont.ttf') format('truetype'),
+         url('amaticsc-bold-webfont.svg#amatic_scbold') format('svg');
+    font-weight: bold;
+    font-style: normal;
+
+}
+
+
+
+
+@font-face {
+    font-family: 'Amatic';
+    src: url('amaticsc-regular-webfont.eot');
+    src: url('amaticsc-regular-webfont.eot?#iefix') format('embedded-opentype'),
+         url('amaticsc-regular-webfont.woff') format('woff'),
+         url('amaticsc-regular-webfont.ttf') format('truetype'),
+         url('amaticsc-regular-webfont.svg#amatic_scregular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}
+
+
+/****************************************************
+ * Oswald Family
+ */
+
+@font-face {
+    font-family: 'Oswald';
+    src: url('oswald-bold-webfont.eot');
+    src: url('oswald-bold-webfont.eot?#iefix') format('embedded-opentype'),
+         url('oswald-bold-webfont.woff') format('woff'),
+         url('oswald-bold-webfont.ttf') format('truetype'),
+         url('oswald-bold-webfont.svg#oswaldbold') format('svg');
+    font-weight: bold;
+    font-style: normal;
+
+}
+
+@font-face {
+    font-family: 'Oswald';
+    src: url('oswald-regular-webfont.eot');
+    src: url('oswald-regular-webfont.eot?#iefix') format('embedded-opentype'),
+         url('oswald-regular-webfont.woff') format('woff'),
+         url('oswald-regular-webfont.ttf') format('truetype'),
+         url('oswald-regular-webfont.svg#oswaldregular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}
