@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Bubble Numbers</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #060615; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="main"></canvas>
+<script>
+const canvas = document.getElementById('main');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
+
+const POINT_COUNT = 800;
+const TRANSITION_DURATION = 1000;
+const HOLD_DURATION = 1400;
+
+// Find distance from a single pixel to nearest black pixel
+function edgeDistance(pixels, size, px, py) {
+  const maxR = 30;
+  for (let r = 1; r <= maxR; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+        const nx = px + dx, ny = py + dy;
+        if (nx < 0 || nx >= size || ny < 0 || ny >= size) return r;
+        if (pixels[(ny * size + nx) * 4] < 128) return Math.sqrt(dx * dx + dy * dy);
+      }
+    }
+  }
+  return maxR;
+}
+
+function sampleBalloonPoints(text, count) {
+  const size = 500;
+  const off = new OffscreenCanvas(size, size);
+  const octx = off.getContext('2d');
+
+  octx.fillStyle = '#000';
+  octx.fillRect(0, 0, size, size);
+  octx.fillStyle = '#fff';
+  octx.strokeStyle = '#fff';
+  octx.lineWidth = 14;
+  octx.lineJoin = 'round';
+  octx.lineCap = 'round';
+  octx.font = 'bold 380px Arial, sans-serif';
+  octx.textAlign = 'center';
+  octx.textBaseline = 'middle';
+  octx.strokeText(text, size / 2, size / 2 + 10);
+  octx.fillText(text, size / 2, size / 2 + 10);
+
+  const imageData = octx.getImageData(0, 0, size, size);
+  const pixels = imageData.data;
+
+  // Collect candidates
+  const candidates = [];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (pixels[(y * size + x) * 4] > 128) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+
+  // Sample points and compute distance only for those
+  const points = [];
+  let maxDist = 1;
+  const sampled = [];
+  for (let i = 0; i < count; i++) {
+    const c = candidates[Math.floor(Math.random() * candidates.length)];
+    const d = edgeDistance(pixels, size, c.x, c.y);
+    if (d > maxDist) maxDist = d;
+    sampled.push({ x: c.x, y: c.y, d });
+  }
+
+  for (const s of sampled) {
+    const nx = (s.x / size - 0.5) * 2;
+    const ny = -(s.y / size - 0.5) * 2;
+
+    // Balloon cross-section: semicircular profile
+    const nd = s.d / maxDist;
+    const zRadius = 0.35;
+    const zBase = Math.sqrt(Math.max(0, 1 - Math.pow(1 - nd, 2))) * zRadius;
+    const zSign = Math.random() < 0.5 ? 1 : -1;
+    const z = zBase * zSign + (Math.random() - 0.5) * 0.02;
+
+    points.push({ x: nx, y: ny, z });
+  }
+  return points;
+}
+
+const numberPoints = {};
+for (let i = 0; i <= 9; i++) {
+  numberPoints[i] = sampleBalloonPoints(String(i), POINT_COUNT);
+}
+
+const particles = [];
+for (let i = 0; i < POINT_COUNT; i++) {
+  const p = numberPoints[0][i];
+  // Size: 2-10px, heavily biased toward small (pow 3)
+  const size = 2 + Math.pow(Math.random(), 3) * 8;
+  particles.push({
+    x: p.x, y: p.y, z: p.z,
+    ox: p.x, oy: p.y, oz: p.z,
+    tx: p.x, ty: p.y, tz: p.z,
+    size,
+    floatPhase: Math.random() * Math.PI * 2,
+    floatSpeed: 0.4 + Math.random() * 0.4,
+    floatAmp: 0.002 + Math.random() * 0.003
+  });
+}
+
+let currentNumber = 0;
+let direction = 1;
+let transitionStart = -Infinity;
+let holdStart = performance.now();
+
+let cameraAngleY = 0;
+let cameraTargetY = 0;
+let cameraAngleX = 0;
+let cameraTargetX = 0;
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function startTransition(nextNumber) {
+  const targets = numberPoints[nextNumber];
+  const indices = Array.from({ length: POINT_COUNT }, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  for (let i = 0; i < POINT_COUNT; i++) {
+    const p = particles[i];
+    p.ox = p.x; p.oy = p.y; p.oz = p.z;
+    const t = targets[indices[i]];
+    p.tx = t.x; p.ty = t.y; p.tz = t.z;
+  }
+  transitionStart = performance.now();
+
+  // Rotate camera on transition
+  cameraTargetY += (0.5 + Math.random() * 0.4) * (Math.random() < 0.5 ? 1 : -1);
+  cameraTargetX = (Math.random() - 0.5) * 0.25;
+}
+
+function draw(now) {
+  requestAnimationFrame(draw);
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const scale = Math.min(w, h) * 0.35;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  ctx.fillStyle = '#060615';
+  ctx.fillRect(0, 0, w, h);
+
+  const transitionElapsed = now - transitionStart;
+  let t = Math.min(1, transitionElapsed / TRANSITION_DURATION);
+  const easedT = easeInOutCubic(t);
+
+  if (t >= 1) {
+    if (!holdStart) holdStart = now;
+    if (now - holdStart >= HOLD_DURATION) {
+      holdStart = null;
+      if (currentNumber >= 9) direction = -1;
+      if (currentNumber <= 0) direction = 1;
+      currentNumber += direction;
+      startTransition(currentNumber);
+    }
+  }
+
+  // Smooth camera
+  cameraAngleY += (cameraTargetY - cameraAngleY) * 0.03;
+  cameraAngleX += (cameraTargetX - cameraAngleX) * 0.03;
+  const rotY = cameraAngleY + Math.sin(now * 0.00018) * 0.08;
+  const rotX = cameraAngleX + Math.sin(now * 0.00013) * 0.05;
+  const cosRY = Math.cos(rotY), sinRY = Math.sin(rotY);
+  const cosRX = Math.cos(rotX), sinRX = Math.sin(rotX);
+
+  const sorted = [];
+  for (let i = 0; i < POINT_COUNT; i++) {
+    const p = particles[i];
+    const ix = p.ox + (p.tx - p.ox) * easedT;
+    const iy = p.oy + (p.ty - p.oy) * easedT;
+    const iz = p.oz + (p.tz - p.oz) * easedT;
+    p.x = ix; p.y = iy; p.z = iz;
+
+    const ft = now * 0.001 * p.floatSpeed + p.floatPhase;
+    const fx = ix + Math.sin(ft) * p.floatAmp;
+    const fy = iy + Math.cos(ft * 0.7) * p.floatAmp;
+    const fz = iz + Math.sin(ft * 1.3) * p.floatAmp * 0.5;
+
+    // Y then X rotation
+    let rx = fx * cosRY - fz * sinRY;
+    let rz = fx * sinRY + fz * cosRY;
+    let ry = fy * cosRX - rz * sinRX;
+    let rz2 = fy * sinRX + rz * cosRX;
+
+    sorted.push({ rx, ry, rz: rz2, size: p.size });
+  }
+
+  sorted.sort((a, b) => a.rz - b.rz);
+
+  // Draw solid white circles
+  for (const p of sorted) {
+    const perspective = 1 / (1 - p.rz * 0.4);
+    const sx = cx + p.rx * scale * perspective;
+    const sy = cy - p.ry * scale * perspective;
+    const s = p.size * devicePixelRatio * 0.5 * perspective;
+
+    // Depth brightness
+    const brightness = Math.min(255, Math.max(50, Math.round(180 + p.rz * 200)));
+
+    ctx.beginPath();
+    ctx.arc(sx, sy, s, 0, Math.PI * 2);
+    ctx.fillStyle = `rgb(${brightness},${brightness},${brightness})`;
+    ctx.fill();
+  }
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
