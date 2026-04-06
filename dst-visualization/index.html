@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daylight Saving Time Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --bg: #f6f5f1;
+  --bg-card: #ffffff;
+  --bg-canvas: #fefefe;
+  --text: #1a1a1a;
+  --text-muted: #6b6b6b;
+  --border: #e0ddd8;
+  --border-focus: #3b82f6;
+
+  --blue: #4a7fff;
+  --blue-light: rgba(74, 127, 255, 0.15);
+  --red: #e85d4a;
+  --red-light: rgba(232, 93, 74, 0.15);
+  --green: #2a9d6e;
+  --amber: #d4940a;
+  --sunrise-color: #e85d4a;
+  --sunset-color: #3b6fd4;
+
+  --sleep-band: rgba(30, 30, 50, 0.06);
+  --dst-line: rgba(42, 157, 110, 0.6);
+  --dst-handle: #2a9d6e;
+  --dst-handle-hover: #1e7a54;
+
+  --land: #e2dfd8;
+  --land-stroke: #d0cdc5;
+  --ocean: #f6f5f1;
+  --lat-line: rgba(0,0,0,0.06);
+  --lat-line-major: rgba(0,0,0,0.12);
+  --lat-band: rgba(74, 127, 255, 0.10);
+  --city-dot: #999;
+  --city-dot-selected: #e85d4a;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+
+  --transition: 200ms ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416;
+    --bg-card: #1e1e22;
+    --bg-canvas: #1a1a1e;
+    --text: #e8e6e1;
+    --text-muted: #8a8a8a;
+    --border: #2e2e34;
+    --border-focus: #5b9eff;
+
+    --blue: #5b9eff;
+    --blue-light: rgba(91, 158, 255, 0.15);
+    --red: #f07060;
+    --red-light: rgba(240, 112, 96, 0.15);
+    --green: #3dc88a;
+    --amber: #f0b429;
+    --sunrise-color: #f07060;
+    --sunset-color: #5b9eff;
+
+    --sleep-band: rgba(200, 200, 220, 0.06);
+    --dst-line: rgba(61, 200, 138, 0.5);
+    --dst-handle: #3dc88a;
+    --dst-handle-hover: #2fb877;
+
+    --land: #2a2a30;
+    --land-stroke: #35353c;
+    --ocean: #1e1e22;
+    --lat-line: rgba(255,255,255,0.04);
+    --lat-line-major: rgba(255,255,255,0.08);
+    --lat-band: rgba(91, 158, 255, 0.12);
+    --city-dot: #777;
+    --city-dot-selected: #f07060;
+
+    --shadow: 0 1px 3px rgba(0,0,0,0.2);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.3);
+  }
+}
+
+html { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100%;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: clamp(16px, 3vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2vw, 20px);
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.header h1 {
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.header .subtitle {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+/* Map */
+.map-card {
+  background: var(--ocean);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+}
+
+.map-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.8 / 1;
+  cursor: pointer;
+}
+
+.map-city-label {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.map-city-label.visible { opacity: 1; }
+
+.map-city-label .label-lat {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+/* Controls Bar */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.control-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.control-section:last-child { border-right: none; }
+
+.control-section.city-info {
+  min-width: 160px;
+}
+
+.selected-city-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.selected-city-meta {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Toggle */
+.control-section.dst-controls {
+  gap: 16px;
+}
+
+.toggle-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  user-select: none;
+  cursor: pointer;
+}
+
+.toggle {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.toggle input:checked + .toggle-track {
+  background: var(--green);
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--transition);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.toggle input:checked + .toggle-track::after {
+  transform: translateX(16px);
+}
+
+.toggle input:focus-visible + .toggle-track {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+/* DST dates inline */
+.dst-dates {
+  display: flex;
+  gap: 12px;
+  transition: opacity var(--transition);
+  opacity: 0.4;
+}
+
+.dst-dates.active { opacity: 1; }
+
+.dst-date-item .label {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dst-date-item .value {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Stats inline */
+.control-section.stats {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  padding: 0;
+  justify-content: stretch;
+}
+
+.stat {
+  flex: 1;
+  padding: 10px 14px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+}
+
+.stat:last-child { border-right: none; }
+
+.stat .stat-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 1px;
+}
+
+.stat .stat-value {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stat.darkness .stat-value { color: var(--blue); }
+.stat.light .stat-value { color: var(--red); }
+.stat.savings .stat-value { color: var(--green); }
+
+.stat .stat-detail {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  min-height: 1em;
+}
+
+@media (max-width: 800px) {
+  .controls-bar {
+    flex-wrap: wrap;
+  }
+  .control-section {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .control-section.city-info { flex: 1 1 100%; }
+  .control-section.dst-controls { flex: 1 1 100%; }
+  .control-section.stats { flex: 1 1 100%; }
+}
+
+/* Main */
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.canvas-wrapper {
+  position: relative;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.canvas-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: clamp(300px, 50vw, 500px);
+  cursor: crosshair;
+}
+
+/* Tooltip */
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transition: opacity 100ms ease;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.tooltip.visible { opacity: 1; }
+
+.tooltip .tip-date { font-weight: 700; margin-bottom: 4px; }
+
+.tooltip .tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.tooltip .tip-sunrise { color: var(--sunrise-color); }
+.tooltip .tip-sunset { color: var(--sunset-color); }
+
+/* Legend */
+.legend {
+  display: flex;
+  gap: 16px;
+  padding: 10px 16px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.legend-item { display: flex; align-items: center; gap: 6px; }
+
+.legend-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="header">
+    <h1>Daylight Saving Time</h1>
+    <span class="subtitle">How DST affects your sunlight exposure</span>
+  </header>
+
+  <div class="map-card">
+    <canvas class="map-canvas" id="mapCanvas"></canvas>
+    <div class="map-city-label" id="mapLabel">
+      <span id="mapLabelName"></span><span class="label-lat" id="mapLabelLat"></span>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <div class="control-section city-info">
+      <div>
+        <div class="selected-city-name" id="selectedCityName">Boston, USA</div>
+        <div class="selected-city-meta" id="selectedCityMeta">42.4° N</div>
+      </div>
+    </div>
+
+    <div class="control-section dst-controls">
+      <label class="toggle-label" for="dstToggle">DST</label>
+      <label class="toggle">
+        <input type="checkbox" id="dstToggle">
+        <span class="toggle-track"></span>
+      </label>
+      <div class="dst-dates" id="dstDates">
+        <div class="dst-date-item">
+          <div class="label">Starts</div>
+          <div class="value" id="dstStartDate">Mar 31</div>
+        </div>
+        <div class="dst-date-item">
+          <div class="label">Ends</div>
+          <div class="value" id="dstEndDate">Oct 27</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="control-section stats">
+      <div class="stat darkness">
+        <div class="stat-label">Waking Dark</div>
+        <div class="stat-value" id="statDarkness">--</div>
+        <div class="stat-detail" id="statDarknessDetail"></div>
+      </div>
+      <div class="stat light">
+        <div class="stat-label">Sleeping Light</div>
+        <div class="stat-value" id="statLight">--</div>
+        <div class="stat-detail" id="statLightDetail"></div>
+      </div>
+      <div class="stat savings">
+        <div class="stat-label">DST Savings</div>
+        <div class="stat-value" id="statSavings">--</div>
+        <div class="stat-detail" id="statSavingsDetail"></div>
+      </div>
+    </div>
+  </div>
+
+  <main class="main">
+    <div class="canvas-wrapper">
+      <canvas id="canvas"></canvas>
+      <div class="tooltip" id="tooltip">
+        <div class="tip-date" id="tipDate"></div>
+        <div class="tip-row tip-sunrise" id="tipSunrise"></div>
+        <div class="tip-row tip-sunset" id="tipSunset"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background: var(--sunrise-color)"></div>
+        <span>Sunrise</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background: var(--sunset-color)"></div>
+        <span>Sunset</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background: var(--blue); opacity: 0.4; height: 8px;"></div>
+        <span>Waking darkness</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background: var(--red); opacity: 0.4; height: 8px;"></div>
+        <span>Sleeping light</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+'use strict';
+
+// ── City Data (with longitude for map placement) ──────────
+// DST shorthand: US = 2nd Sun Mar → 1st Sun Nov, EU = last Sun Mar → last Sun Oct
+// dst: null = no DST, { start, end } = day-of-year (start > end means wraps year boundary)
+const US_DST = { start: 70, end: 309 };   // ~Mar 10 → ~Nov 3
+const EU_DST = { start: 87, end: 299 };   // ~Mar 31 → ~Oct 27
+const AU_DST = { start: 274, end: 91 };   // ~Oct 1 → ~Apr 1 (southern hemisphere)
+const NZ_DST = { start: 269, end: 91 };   // ~Sep 26 → ~Apr 1 (southern hemisphere)
+
+const CITIES = [
+  { group: 'Arctic & Subarctic', cities: [
+    { name: 'Tromsø', country: 'Norway', lat: 69.65, lng: 18.96, dst: EU_DST },
+    { name: 'Fairbanks', country: 'Alaska', lat: 64.84, lng: -147.72, dst: US_DST },
+    { name: 'Reykjavik', country: 'Iceland', lat: 64.13, lng: -21.90, dst: null },
+    { name: 'Anchorage', country: 'Alaska', lat: 61.22, lng: -149.90, dst: US_DST },
+    { name: 'Helsinki', country: 'Finland', lat: 60.17, lng: 24.94, dst: EU_DST },
+    { name: 'Stockholm', country: 'Sweden', lat: 59.33, lng: 18.07, dst: EU_DST },
+    { name: 'Oslo', country: 'Norway', lat: 59.91, lng: 10.75, dst: EU_DST },
+  ]},
+  { group: 'Northern Europe', cities: [
+    { name: 'Moscow', country: 'Russia', lat: 55.76, lng: 37.62, dst: null },
+    { name: 'Copenhagen', country: 'Denmark', lat: 55.68, lng: 12.57, dst: EU_DST },
+    { name: 'Edinburgh', country: 'Scotland', lat: 55.95, lng: -3.19, dst: EU_DST },
+    { name: 'Berlin', country: 'Germany', lat: 52.52, lng: 13.41, dst: EU_DST },
+    { name: 'London', country: 'UK', lat: 51.51, lng: -0.13, dst: EU_DST },
+    { name: 'Paris', country: 'France', lat: 48.86, lng: 2.35, dst: EU_DST },
+  ]},
+  { group: 'Mid-Latitude North', cities: [
+    { name: 'Seattle', country: 'USA', lat: 47.61, lng: -122.33, dst: US_DST },
+    { name: 'Montreal', country: 'Canada', lat: 45.50, lng: -73.57, dst: US_DST },
+    { name: 'Boston', country: 'USA', lat: 42.36, lng: -71.06, dst: US_DST },
+    { name: 'New York', country: 'USA', lat: 40.71, lng: -74.01, dst: US_DST },
+    { name: 'Madrid', country: 'Spain', lat: 40.42, lng: -3.70, dst: EU_DST },
+    { name: 'Lisbon', country: 'Portugal', lat: 38.72, lng: -9.14, dst: EU_DST },
+    { name: 'Tokyo', country: 'Japan', lat: 35.68, lng: 139.69, dst: null },
+    { name: 'Chapel Hill', country: 'USA', lat: 35.91, lng: -79.05, dst: US_DST },
+    { name: 'Los Angeles', country: 'USA', lat: 34.05, lng: -118.24, dst: US_DST },
+  ]},
+  { group: 'Subtropical', cities: [
+    { name: 'Austin', country: 'USA', lat: 30.27, lng: -97.74, dst: US_DST },
+    { name: 'Cairo', country: 'Egypt', lat: 30.04, lng: 31.24, dst: null },
+    { name: 'New Delhi', country: 'India', lat: 28.61, lng: 77.21, dst: null },
+    { name: 'Dubai', country: 'UAE', lat: 25.20, lng: 55.27, dst: null },
+    { name: 'Honolulu', country: 'Hawaii', lat: 21.31, lng: -157.86, dst: null },
+    { name: 'Mumbai', country: 'India', lat: 19.08, lng: 72.88, dst: null },
+    { name: 'Mexico City', country: 'Mexico', lat: 19.43, lng: -99.13, dst: null },
+  ]},
+  { group: 'Tropical', cities: [
+    { name: 'San José', country: 'Costa Rica', lat: 9.93, lng: -84.08, dst: null },
+    { name: 'Lagos', country: 'Nigeria', lat: 6.52, lng: 3.38, dst: null },
+    { name: 'Singapore', country: 'Singapore', lat: 1.35, lng: 103.82, dst: null },
+    { name: 'Quito', country: 'Ecuador', lat: -0.18, lng: -78.47, dst: null },
+    { name: 'Nairobi', country: 'Kenya', lat: -1.29, lng: 36.82, dst: null },
+  ]},
+  { group: 'Southern Hemisphere', cities: [
+    { name: 'Lima', country: 'Peru', lat: -12.05, lng: -77.04, dst: null },
+    { name: 'São Paulo', country: 'Brazil', lat: -23.55, lng: -46.63, dst: null },
+    { name: 'Buenos Aires', country: 'Argentina', lat: -34.60, lng: -58.38, dst: null },
+    { name: 'Cape Town', country: 'South Africa', lat: -33.93, lng: 18.42, dst: null },
+    { name: 'Sydney', country: 'Australia', lat: -33.87, lng: 151.21, dst: AU_DST },
+    { name: 'Auckland', country: 'New Zealand', lat: -36.85, lng: 174.76, dst: NZ_DST },
+    { name: 'Christchurch', country: 'New Zealand', lat: -43.53, lng: 172.64, dst: NZ_DST },
+    { name: 'Ushuaia', country: 'Argentina', lat: -54.80, lng: -68.30, dst: null },
+  ]},
+];
+
+// ── TopoJSON decoder (for Natural Earth coastline data) ────
+function decodeTopoJSON(topo) {
+  const { scale, translate } = topo.transform;
+  const decodedArcs = topo.arcs.map(arc => {
+    let x = 0, y = 0;
+    return arc.map(([dx, dy]) => {
+      x += dx; y += dy;
+      return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
+    });
+  });
+
+  const land = topo.objects.land;
+  const geom = land.geometries ? land.geometries[0] : land;
+  const arcSets = geom.type === 'MultiPolygon' ? geom.arcs : [geom.arcs];
+  const polygons = [];
+
+  for (const polygon of arcSets) {
+    for (const ring of polygon) {
+      const coords = [];
+      for (const arcIdx of ring) {
+        const arc = arcIdx < 0
+          ? [...decodedArcs[~arcIdx]].reverse()
+          : decodedArcs[arcIdx];
+        for (const pt of arc) coords.push(pt);
+      }
+      polygons.push(coords); // [lng, lat] pairs
+    }
+  }
+  return polygons;
+}
+
+const LAND_TOPO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json';
+
+// ── Solar Calculator ───────────────────────────────────────
+class SolarCalculator {
+  static #DEG2RAD = Math.PI / 180;
+
+  static declination(dayOfYear) {
+    return 23.45 * Math.sin(2 * Math.PI / 365 * (dayOfYear - 81));
+  }
+
+  static daylightForDay(dayOfYear, latitude) {
+    const decl = this.declination(dayOfYear) * this.#DEG2RAD;
+    const lat = latitude * this.#DEG2RAD;
+    const cosHA = -Math.tan(lat) * Math.tan(decl);
+
+    if (cosHA < -1) return { sunrise: 0, sunset: 1440, type: 'midnight-sun' };
+    if (cosHA > 1)  return { sunrise: 720, sunset: 720, type: 'polar-night' };
+
+    const ha = Math.acos(cosHA);
+    const halfDay = (ha / this.#DEG2RAD) * 4;
+    return { sunrise: 720 - halfDay, sunset: 720 + halfDay, type: 'normal' };
+  }
+
+  static computeYear(latitude) {
+    const days = [];
+    for (let d = 1; d <= 365; d++) days.push(this.daylightForDay(d, latitude));
+    return days;
+  }
+}
+
+// ── Formatting Helpers ─────────────────────────────────────
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+function dayOfYearToDate(doy) {
+  let remaining = doy;
+  for (let m = 0; m < 12; m++) {
+    if (remaining <= DAYS_IN_MONTH[m]) return { month: m, day: remaining };
+    remaining -= DAYS_IN_MONTH[m];
+  }
+  return { month: 11, day: 31 };
+}
+
+function formatDate(doy) {
+  const { month, day } = dayOfYearToDate(doy);
+  return `${MONTHS[month]} ${day}`;
+}
+
+function minutesToTime(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function formatHours(totalMinutes) {
+  const h = Math.floor(Math.abs(totalMinutes) / 60);
+  const m = Math.round(Math.abs(totalMinutes) % 60);
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function latitudeString(lat) {
+  const abs = Math.abs(lat).toFixed(1);
+  return `${abs}\u00b0 ${lat >= 0 ? 'N' : 'S'}`;
+}
+
+function monthStarts() {
+  const starts = [1];
+  let acc = 0;
+  for (let m = 0; m < 11; m++) { acc += DAYS_IN_MONTH[m]; starts.push(acc + 1); }
+  return starts;
+}
+
+// ── World Map ──────────────────────────────────────────────
+class WorldMap {
+  #canvas;
+  #ctx;
+  #dpr;
+  #W = 0;
+  #H = 0;
+  #padding = { top: 8, right: 8, bottom: 8, left: 40 };
+  #plotW = 0;
+  #plotH = 0;
+  #allCities;
+  #selectedCity = null;
+  #hoveredCity = null;
+  #onSelectCity;
+  #label;
+  #pendingDraw = false;
+  #landPolygons = [];
+
+  // Map bounds (equirectangular projection)
+  #latMin = -65;
+  #latMax = 80;
+  #lngMin = -180;
+  #lngMax = 180;
+
+  constructor(canvasId, onSelectCity) {
+    this.#canvas = document.getElementById(canvasId);
+    this.#ctx = this.#canvas.getContext('2d');
+    this.#dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.#onSelectCity = onSelectCity;
+    this.#label = document.getElementById('mapLabel');
+    this.#allCities = CITIES.flatMap(g => g.cities);
+
+    this.#canvas.addEventListener('pointermove', e => this.#onPointerMove(e));
+    this.#canvas.addEventListener('pointerleave', () => {
+      this.#hoveredCity = null;
+      this.#label.classList.remove('visible');
+      this.#scheduleDraw();
+    });
+    this.#canvas.addEventListener('click', e => this.#onClick(e));
+
+    const ro = new ResizeObserver(() => this.#resize());
+    ro.observe(this.#canvas);
+    this.#resize();
+
+    // Fetch real coastline data
+    fetch(LAND_TOPO_URL)
+      .then(r => r.json())
+      .then(topo => {
+        this.#landPolygons = decodeTopoJSON(topo);
+        this.#scheduleDraw();
+      })
+      .catch(() => {}); // Graceful fallback: map works without land shapes
+  }
+
+  setSelectedCity(city) {
+    this.#selectedCity = city;
+    this.#scheduleDraw();
+  }
+
+  #resize() {
+    const rect = this.#canvas.getBoundingClientRect();
+    this.#W = rect.width;
+    this.#H = rect.height;
+    this.#canvas.width = this.#W * this.#dpr;
+    this.#canvas.height = this.#H * this.#dpr;
+    this.#ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
+    this.#plotW = this.#W - this.#padding.left - this.#padding.right;
+    this.#plotH = this.#H - this.#padding.top - this.#padding.bottom;
+    this.#scheduleDraw();
+  }
+
+  #scheduleDraw() {
+    if (this.#pendingDraw) return;
+    this.#pendingDraw = true;
+    requestAnimationFrame(() => { this.#pendingDraw = false; this.#draw(); });
+  }
+
+  #lngToX(lng) {
+    return this.#padding.left + (lng - this.#lngMin) / (this.#lngMax - this.#lngMin) * this.#plotW;
+  }
+
+  #latToY(lat) {
+    return this.#padding.top + (this.#latMax - lat) / (this.#latMax - this.#latMin) * this.#plotH;
+  }
+
+  #screenToGeo(sx, sy) {
+    const lng = this.#lngMin + (sx - this.#padding.left) / this.#plotW * (this.#lngMax - this.#lngMin);
+    const lat = this.#latMax - (sy - this.#padding.top) / this.#plotH * (this.#latMax - this.#latMin);
+    return { lat, lng };
+  }
+
+  #draw() {
+    const ctx = this.#ctx;
+    const s = getComputedStyle(document.documentElement);
+
+    // Ocean background
+    ctx.fillStyle = s.getPropertyValue('--ocean').trim();
+    ctx.fillRect(0, 0, this.#W, this.#H);
+
+    // Latitude lines every 15 degrees + special lines
+    const specialLats = [
+      { lat: 66.56, label: 'Arctic Circle' },
+      { lat: 23.44, label: 'Tropic of Cancer' },
+      { lat: 0, label: 'Equator' },
+      { lat: -23.44, label: 'Tropic of Capricorn' },
+      { lat: -66.56, label: 'Antarctic Circle' },
+    ];
+
+    // Minor latitude grid lines every 15 degrees
+    ctx.strokeStyle = s.getPropertyValue('--lat-line').trim();
+    ctx.lineWidth = 0.5;
+    for (let lat = -60; lat <= 75; lat += 15) {
+      if (specialLats.some(sl => Math.abs(sl.lat - lat) < 5)) continue;
+      const y = this.#latToY(lat);
+      ctx.beginPath();
+      ctx.moveTo(this.#padding.left, y);
+      ctx.lineTo(this.#padding.left + this.#plotW, y);
+      ctx.stroke();
+    }
+
+    // Special latitude lines
+    const majorColor = s.getPropertyValue('--lat-line-major').trim();
+    const mutedColor = s.getPropertyValue('--text-muted').trim();
+    ctx.font = `9px ${s.getPropertyValue('--font-mono').trim()}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    for (const sl of specialLats) {
+      const y = this.#latToY(sl.lat);
+      ctx.strokeStyle = sl.lat === 0 ? mutedColor : majorColor;
+      ctx.lineWidth = sl.lat === 0 ? 1 : 0.7;
+      ctx.setLineDash(sl.lat === 0 ? [] : [3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(this.#padding.left, y);
+      ctx.lineTo(this.#padding.left + this.#plotW, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Label
+      ctx.fillStyle = mutedColor;
+      ctx.fillText(sl.label === 'Equator' ? '0°' :
+        `${Math.abs(sl.lat).toFixed(0)}°${sl.lat > 0 ? 'N' : 'S'}`,
+        this.#padding.left - 4, y);
+    }
+
+    // Selected latitude highlight band
+    if (this.#selectedCity) {
+      const y = this.#latToY(this.#selectedCity.lat);
+      const bandH = Math.max(this.#plotH * 0.025, 4);
+
+      // Glow
+      const grad = ctx.createLinearGradient(0, y - bandH * 3, 0, y + bandH * 3);
+      grad.addColorStop(0, 'rgba(74, 127, 255, 0)');
+      grad.addColorStop(0.35, s.getPropertyValue('--lat-band').trim());
+      grad.addColorStop(0.5, s.getPropertyValue('--lat-band').trim());
+      grad.addColorStop(0.65, s.getPropertyValue('--lat-band').trim());
+      grad.addColorStop(1, 'rgba(74, 127, 255, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(this.#padding.left, y - bandH * 3, this.#plotW, bandH * 6);
+
+      // Core line
+      ctx.strokeStyle = s.getPropertyValue('--blue').trim();
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(this.#padding.left, y);
+      ctx.lineTo(this.#padding.left + this.#plotW, y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Latitude label on left
+      ctx.fillStyle = s.getPropertyValue('--blue').trim();
+      ctx.font = `600 10px ${s.getPropertyValue('--font-mono').trim()}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(latitudeString(this.#selectedCity.lat), this.#padding.left - 4, y);
+    }
+
+    // Continents (from fetched TopoJSON — [lng, lat] format)
+    const landColor = s.getPropertyValue('--land').trim();
+    const landStroke = s.getPropertyValue('--land-stroke').trim();
+
+    ctx.fillStyle = landColor;
+    ctx.strokeStyle = landStroke;
+    ctx.lineWidth = 0.5;
+
+    for (const poly of this.#landPolygons) {
+      ctx.beginPath();
+      for (let i = 0; i < poly.length; i++) {
+        const x = this.#lngToX(poly[i][0]);
+        const y = this.#latToY(poly[i][1]);
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          // Break path at antimeridian crossings (large longitude jumps)
+          const dlng = Math.abs(poly[i][0] - poly[i - 1][0]);
+          if (dlng > 90) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // City dots
+    const dotColor = s.getPropertyValue('--city-dot').trim();
+    const selectedColor = s.getPropertyValue('--city-dot-selected').trim();
+
+    for (const city of this.#allCities) {
+      const cx = this.#lngToX(city.lng);
+      const cy = this.#latToY(city.lat);
+      const isSelected = this.#selectedCity === city;
+      const isHovered = this.#hoveredCity === city;
+
+      if (isSelected) {
+        // Outer ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(232, 93, 74, 0.15)';
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, isSelected ? 4 : isHovered ? 3.5 : 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = isSelected ? selectedColor : isHovered ? selectedColor : dotColor;
+      ctx.fill();
+
+      if (isSelected || isHovered) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  #findCityNear(sx, sy) {
+    let best = null;
+    let bestDist = 18; // max pixel distance for hit
+    for (const city of this.#allCities) {
+      const cx = this.#lngToX(city.lng);
+      const cy = this.#latToY(city.lat);
+      const dist = Math.hypot(sx - cx, sy - cy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = city;
+      }
+    }
+    return best;
+  }
+
+  #onPointerMove(e) {
+    const rect = this.#canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const city = this.#findCityNear(sx, sy);
+
+    if (city !== this.#hoveredCity) {
+      this.#hoveredCity = city;
+      this.#canvas.style.cursor = city ? 'pointer' : 'default';
+
+      if (city) {
+        document.getElementById('mapLabelName').textContent = `${city.name}, ${city.country}`;
+        document.getElementById('mapLabelLat').textContent = latitudeString(city.lat);
+
+        const label = this.#label;
+        let lx = this.#lngToX(city.lng) + 12;
+        let ly = this.#latToY(city.lat) - 14;
+        const lw = label.offsetWidth || 140;
+        if (lx + lw > this.#W - 8) lx = this.#lngToX(city.lng) - lw - 8;
+        if (ly < 4) ly = this.#latToY(city.lat) + 12;
+        label.style.left = lx + 'px';
+        label.style.top = ly + 'px';
+        label.classList.add('visible');
+      } else {
+        this.#label.classList.remove('visible');
+      }
+
+      this.#scheduleDraw();
+    }
+  }
+
+  #onClick(e) {
+    const rect = this.#canvas.getBoundingClientRect();
+    const city = this.#findCityNear(e.clientX - rect.left, e.clientY - rect.top);
+    if (city) {
+      this.#selectedCity = city;
+      this.#onSelectCity(city);
+      this.#scheduleDraw();
+    }
+  }
+}
+
+// ── Main Visualization ─────────────────────────────────────
+class DSTVisualizer {
+  #canvas;
+  #ctx;
+  #wrapper;
+  #tooltip;
+  #dpr;
+  #map;
+
+  #wakeMinute = 360;
+  #sleepMinute = 1320;
+
+  #dstEnabled = false;
+  #dstStart = 90;
+  #dstEnd = 300;
+
+  #dragging = null;
+
+  #currentCity = null;
+  #yearData = [];
+  #pendingDraw = false;
+
+  #margin = { top: 20, right: 16, bottom: 32, left: 48 };
+  #plotW = 0;
+  #plotH = 0;
+  #W = 0;
+  #H = 0;
+
+  constructor() {
+    this.#canvas = document.getElementById('canvas');
+    this.#ctx = this.#canvas.getContext('2d');
+    this.#wrapper = this.#canvas.parentElement;
+    this.#tooltip = document.getElementById('tooltip');
+    this.#dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+    // Initialize map
+    this.#map = new WorldMap('mapCanvas', city => this.#selectCity(city));
+
+    this.#bindEvents();
+    this.#resize();
+
+    // Default to Boston
+    const boston = CITIES[2].cities[2];
+    this.#selectCity(boston);
+  }
+
+  #bindEvents() {
+    const toggle = document.getElementById('dstToggle');
+    toggle.addEventListener('change', () => {
+      this.#dstEnabled = toggle.checked;
+      document.getElementById('dstDates').classList.toggle('active', this.#dstEnabled);
+      this.#scheduleDraw();
+    });
+
+    this.#canvas.addEventListener('pointerdown', e => this.#onPointerDown(e));
+    this.#canvas.addEventListener('pointermove', e => this.#onPointerMove(e));
+    this.#canvas.addEventListener('pointerup', () => this.#onPointerUp());
+    this.#canvas.addEventListener('pointerleave', () => {
+      this.#onPointerUp();
+      this.#tooltip.classList.remove('visible');
+    });
+
+    const ro = new ResizeObserver(() => this.#resize());
+    ro.observe(this.#canvas);
+  }
+
+  #resize() {
+    const rect = this.#canvas.getBoundingClientRect();
+    this.#W = rect.width;
+    this.#H = rect.height;
+    this.#canvas.width = this.#W * this.#dpr;
+    this.#canvas.height = this.#H * this.#dpr;
+    this.#ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
+    this.#plotW = this.#W - this.#margin.left - this.#margin.right;
+    this.#plotH = this.#H - this.#margin.top - this.#margin.bottom;
+    this.#scheduleDraw();
+  }
+
+  #selectCity(city) {
+    this.#currentCity = city;
+    this.#yearData = SolarCalculator.computeYear(city.lat);
+    this.#map.setSelectedCity(city);
+    document.getElementById('selectedCityName').textContent = `${city.name}, ${city.country}`;
+
+    const toggle = document.getElementById('dstToggle');
+    const datesEl = document.getElementById('dstDates');
+
+    if (city.dst) {
+      this.#dstStart = city.dst.start;
+      this.#dstEnd = city.dst.end;
+      this.#dstEnabled = true;
+      toggle.checked = true;
+      toggle.disabled = false;
+      datesEl.classList.add('active');
+      document.getElementById('selectedCityMeta').textContent = latitudeString(city.lat);
+    } else {
+      this.#dstEnabled = false;
+      toggle.checked = false;
+      toggle.disabled = false;
+      datesEl.classList.remove('active');
+      document.getElementById('selectedCityMeta').textContent =
+        `${latitudeString(city.lat)} · no DST`;
+    }
+
+    this.#scheduleDraw();
+  }
+
+  // Handles southern hemisphere wrap-around (start > end means Oct→Apr)
+  #isDstDay(d) {
+    if (!this.#dstEnabled) return false;
+    if (this.#dstStart <= this.#dstEnd) {
+      return d >= this.#dstStart && d <= this.#dstEnd;
+    }
+    return d >= this.#dstStart || d <= this.#dstEnd;
+  }
+
+  #scheduleDraw() {
+    if (this.#pendingDraw) return;
+    this.#pendingDraw = true;
+    requestAnimationFrame(() => { this.#pendingDraw = false; this.#draw(); });
+  }
+
+  #dayToX(day) {
+    return this.#margin.left + (day - 1) / 364 * this.#plotW;
+  }
+
+  #xToDay(x) {
+    return Math.round((x - this.#margin.left) / this.#plotW * 364) + 1;
+  }
+
+  #minuteToY(minute) {
+    return this.#margin.top + (1 - minute / 1440) * this.#plotH;
+  }
+
+  #draw() {
+    const ctx = this.#ctx;
+    const W = this.#W;
+    const H = this.#H;
+    const m = this.#margin;
+
+    ctx.clearRect(0, 0, W, H);
+
+    const wakeY = this.#minuteToY(this.#wakeMinute);
+    const sleepY = this.#minuteToY(this.#sleepMinute);
+
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sleep-band').trim();
+    ctx.fillRect(m.left, wakeY, this.#plotW, this.#plotH + m.top - wakeY);
+    ctx.fillRect(m.left, m.top, this.#plotW, sleepY - m.top);
+
+    let wakingDark = 0, sleepingLight = 0;
+    let wakingDarkNoDST = 0, sleepingLightNoDST = 0;
+
+    for (let d = 1; d <= 365; d++) {
+      const base = this.#yearData[d - 1];
+      let rise = base.sunrise;
+      let set = base.sunset;
+
+      wakingDarkNoDST += this.#calcWakingDark(base.sunrise, base.sunset);
+      sleepingLightNoDST += this.#calcSleepingLight(base.sunrise, base.sunset);
+
+      if (this.#isDstDay(d)) {
+        rise = Math.max(0, rise + 60);
+        set = Math.min(1440, set + 60);
+      }
+
+      wakingDark += this.#calcWakingDark(rise, set);
+      sleepingLight += this.#calcSleepingLight(rise, set);
+
+      const x = this.#dayToX(d);
+      const colW = Math.max(this.#plotW / 365, 1);
+      const riseY = this.#minuteToY(rise);
+      const setY = this.#minuteToY(set);
+
+      // Waking darkness
+      if (rise > this.#wakeMinute) {
+        ctx.fillStyle = 'rgba(74, 127, 255, 0.3)';
+        ctx.fillRect(x, this.#minuteToY(rise), colW, this.#minuteToY(this.#wakeMinute) - this.#minuteToY(rise));
+      }
+      if (set < this.#sleepMinute) {
+        ctx.fillStyle = 'rgba(74, 127, 255, 0.3)';
+        ctx.fillRect(x, this.#minuteToY(this.#sleepMinute), colW, this.#minuteToY(set) - this.#minuteToY(this.#sleepMinute));
+      }
+
+      // Sleeping light
+      if (rise < this.#wakeMinute) {
+        ctx.fillStyle = 'rgba(232, 93, 74, 0.25)';
+        ctx.fillRect(x, this.#minuteToY(this.#wakeMinute), colW, this.#minuteToY(rise) - this.#minuteToY(this.#wakeMinute));
+      }
+      if (set > this.#sleepMinute) {
+        ctx.fillStyle = 'rgba(232, 93, 74, 0.25)';
+        ctx.fillRect(x, this.#minuteToY(set), colW, this.#minuteToY(this.#sleepMinute) - this.#minuteToY(set));
+      }
+
+      // Curves
+      if (base.type !== 'polar-night') {
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sunrise-color').trim();
+        ctx.fillRect(x, riseY - 1, colW, 2);
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sunset-color').trim();
+        ctx.fillRect(x, setY - 1, colW, 2);
+      }
+    }
+
+    if (this.#dstEnabled) this.#drawDSTBounds(ctx);
+    this.#drawAxes(ctx);
+    this.#updateStats(wakingDark, sleepingLight, wakingDarkNoDST, sleepingLightNoDST);
+    this.#updateDSTDates();
+  }
+
+  #calcWakingDark(rise, set) {
+    let dark = 0;
+    if (rise > this.#wakeMinute) dark += rise - this.#wakeMinute;
+    if (set < this.#sleepMinute) dark += this.#sleepMinute - set;
+    return dark;
+  }
+
+  #calcSleepingLight(rise, set) {
+    let light = 0;
+    if (rise < this.#wakeMinute) light += this.#wakeMinute - rise;
+    if (set > this.#sleepMinute) light += set - this.#sleepMinute;
+    return light;
+  }
+
+  #drawDSTBounds(ctx) {
+    const startX = this.#dayToX(this.#dstStart);
+    const endX = this.#dayToX(this.#dstEnd);
+    const style = getComputedStyle(document.documentElement);
+    const lineColor = style.getPropertyValue('--dst-line').trim();
+    const handleColor = style.getPropertyValue('--dst-handle').trim();
+    const wraps = this.#dstStart > this.#dstEnd;
+
+    // Vertical boundary lines
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(startX, this.#margin.top); ctx.lineTo(startX, this.#margin.top + this.#plotH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(endX, this.#margin.top); ctx.lineTo(endX, this.#margin.top + this.#plotH); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Shaded DST region
+    ctx.fillStyle = 'rgba(42, 157, 110, 0.04)';
+    if (wraps) {
+      // Southern hemisphere: shade from start→Dec and Jan→end
+      const leftEdge = this.#margin.left;
+      const rightEdge = this.#margin.left + this.#plotW;
+      ctx.fillRect(startX, this.#margin.top, rightEdge - startX, this.#plotH);
+      ctx.fillRect(leftEdge, this.#margin.top, endX - leftEdge, this.#plotH);
+    } else {
+      ctx.fillRect(startX, this.#margin.top, endX - startX, this.#plotH);
+    }
+
+    // Handles
+    const handleY = this.#margin.top + this.#plotH + 4;
+    const monoFont = style.getPropertyValue('--font-mono').trim();
+    for (const [x, label] of [[startX, 'S'], [endX, 'E']]) {
+      ctx.fillStyle = handleColor;
+      ctx.beginPath(); ctx.roundRect(x - 10, handleY, 20, 18, 4); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `600 9px ${monoFont}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x, handleY + 9);
+    }
+  }
+
+  #drawAxes(ctx) {
+    const m = this.#margin;
+    const style = getComputedStyle(document.documentElement);
+    const mutedColor = style.getPropertyValue('--text-muted').trim();
+    const borderColor = style.getPropertyValue('--border').trim();
+    const monoFont = style.getPropertyValue('--font-mono').trim();
+    const bodyFont = style.getPropertyValue('--font-body').trim();
+
+    ctx.fillStyle = mutedColor;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 0.5;
+
+    ctx.font = `11px ${monoFont}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    for (let h = 0; h <= 24; h += 3) {
+      const minute = h * 60;
+      const y = this.#minuteToY(minute);
+      const label = h === 0 || h === 24 ? '12am' : h === 12 ? '12pm' : h < 12 ? `${h}am` : `${h-12}pm`;
+      ctx.fillText(label, m.left - 6, y);
+      ctx.beginPath(); ctx.moveTo(m.left, y); ctx.lineTo(m.left + this.#plotW, y); ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(100, 100, 200, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+    for (const min of [this.#wakeMinute, this.#sleepMinute]) {
+      const y = this.#minuteToY(min);
+      ctx.beginPath(); ctx.moveTo(m.left, y); ctx.lineTo(m.left + this.#plotW, y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = mutedColor;
+    ctx.font = `11px ${bodyFont}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    const starts = monthStarts();
+    for (let i = 0; i < 12; i++) {
+      const x = this.#dayToX(starts[i]);
+      const nextX = i < 11 ? this.#dayToX(starts[i + 1]) : this.#dayToX(365);
+      ctx.fillText(MONTHS[i], (x + nextX) / 2, m.top + this.#plotH + 6);
+    }
+  }
+
+  #updateStats(wakingDark, sleepingLight, wakingDarkNoDST, sleepingLightNoDST) {
+    document.getElementById('statDarkness').textContent = formatHours(wakingDark);
+    document.getElementById('statLight').textContent = formatHours(sleepingLight);
+
+    if (this.#dstEnabled) {
+      const saved = (wakingDarkNoDST + sleepingLightNoDST) - (wakingDark + sleepingLight);
+      document.getElementById('statSavings').textContent = (saved >= 0 ? '+' : '') + formatHours(saved);
+      document.getElementById('statSavingsDetail').textContent = saved >= 0 ? 'less wasted daylight' : 'more wasted daylight';
+
+      const darkDiff = wakingDarkNoDST - wakingDark;
+      document.getElementById('statDarknessDetail').textContent = darkDiff >= 0 ? `${formatHours(darkDiff)} saved` : `${formatHours(-darkDiff)} added`;
+
+      const lightDiff = sleepingLightNoDST - sleepingLight;
+      document.getElementById('statLightDetail').textContent = lightDiff >= 0 ? `${formatHours(lightDiff)} saved` : `${formatHours(-lightDiff)} added`;
+    } else {
+      document.getElementById('statSavings').textContent = '--';
+      document.getElementById('statSavingsDetail').textContent = '\u00a0';
+      document.getElementById('statDarknessDetail').textContent = '\u00a0';
+      document.getElementById('statLightDetail').textContent = '\u00a0';
+    }
+  }
+
+  #updateDSTDates() {
+    document.getElementById('dstStartDate').textContent = formatDate(this.#dstStart);
+    document.getElementById('dstEndDate').textContent = formatDate(this.#dstEnd);
+  }
+
+  #canvasCoords(e) {
+    const rect = this.#canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  #hitHandle(x, y, handleDay) {
+    const hx = this.#dayToX(handleDay);
+    const hy = this.#margin.top + this.#plotH + 13;
+    return Math.abs(x - hx) < 14 && Math.abs(y - hy) < 14;
+  }
+
+  #onPointerDown(e) {
+    if (!this.#dstEnabled) return;
+    const { x, y } = this.#canvasCoords(e);
+    if (this.#hitHandle(x, y, this.#dstStart)) {
+      this.#dragging = 'start';
+      this.#canvas.setPointerCapture(e.pointerId);
+      this.#canvas.style.cursor = 'grabbing';
+    } else if (this.#hitHandle(x, y, this.#dstEnd)) {
+      this.#dragging = 'end';
+      this.#canvas.setPointerCapture(e.pointerId);
+      this.#canvas.style.cursor = 'grabbing';
+    }
+  }
+
+  #onPointerMove(e) {
+    const { x, y } = this.#canvasCoords(e);
+
+    if (this.#dragging) {
+      const day = Math.max(1, Math.min(365, this.#xToDay(x)));
+      if (this.#dragging === 'start') this.#dstStart = day;
+      else this.#dstEnd = day;
+      this.#scheduleDraw();
+      return;
+    }
+
+    if (this.#dstEnabled && (this.#hitHandle(x, y, this.#dstStart) || this.#hitHandle(x, y, this.#dstEnd))) {
+      this.#canvas.style.cursor = 'grab';
+    } else {
+      this.#canvas.style.cursor = 'crosshair';
+    }
+
+    const day = this.#xToDay(x);
+    if (day >= 1 && day <= 365 && x >= this.#margin.left && x <= this.#margin.left + this.#plotW) {
+      const data = this.#yearData[day - 1];
+      let rise = data.sunrise, set = data.sunset;
+      if (this.#isDstDay(day)) {
+        rise = Math.max(0, rise + 60);
+        set = Math.min(1440, set + 60);
+      }
+
+      document.getElementById('tipDate').textContent = formatDate(day);
+      if (data.type === 'polar-night') {
+        document.getElementById('tipSunrise').textContent = 'Polar night';
+        document.getElementById('tipSunset').textContent = '';
+      } else if (data.type === 'midnight-sun') {
+        document.getElementById('tipSunrise').textContent = 'Midnight sun';
+        document.getElementById('tipSunset').textContent = '';
+      } else {
+        document.getElementById('tipSunrise').textContent = `Sunrise  ${minutesToTime(rise)}`;
+        document.getElementById('tipSunset').textContent = `Sunset   ${minutesToTime(set)}`;
+      }
+
+      const tipEl = this.#tooltip;
+      let tx = x + 16, ty = y - 10;
+      const tipW = tipEl.offsetWidth || 160;
+      if (tx + tipW > this.#W - 8) tx = x - tipW - 12;
+      if (ty < 4) ty = 4;
+      tipEl.style.left = tx + 'px';
+      tipEl.style.top = ty + 'px';
+      tipEl.classList.add('visible');
+    } else {
+      this.#tooltip.classList.remove('visible');
+    }
+  }
+
+  #onPointerUp() {
+    this.#dragging = null;
+    this.#canvas.style.cursor = 'crosshair';
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  new DSTVisualizer();
+});
+</script>
+</body>
+</html>
