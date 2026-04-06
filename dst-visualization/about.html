@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building a DST Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #f6f5f1;
+  --text: #1a1a1a;
+  --text-muted: #6b6b6b;
+  --border: #e0ddd8;
+  --code-bg: #edeae4;
+  --accent: #4a7fff;
+  --link: #3b6fd4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416;
+    --text: #e8e6e1;
+    --text-muted: #8a8a8a;
+    --border: #2e2e34;
+    --code-bg: #1e1e24;
+    --accent: #5b9eff;
+    --link: #6ba4ff;
+  }
+}
+
+html { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+article {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: clamp(24px, 5vw, 60px) clamp(16px, 4vw, 32px);
+}
+
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-bottom: 40px;
+}
+
+.subtitle a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.subtitle a:hover { text-decoration: underline; }
+
+h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin-top: 48px;
+  margin-bottom: 16px;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 32px;
+  margin-bottom: 12px;
+}
+
+p {
+  margin-bottom: 16px;
+}
+
+a {
+  color: var(--link);
+}
+
+blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 20px;
+  margin: 24px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  margin: 20px 0;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.82rem;
+}
+
+.keyword { color: #7c4dff; }
+.string { color: #0d904f; }
+.comment { color: #8a8a8a; }
+.number { color: #e85d4a; }
+
+@media (prefers-color-scheme: dark) {
+  .keyword { color: #b388ff; }
+  .string { color: #66bb6a; }
+  .comment { color: #666; }
+  .number { color: #f07060; }
+}
+
+figure {
+  margin: 28px 0;
+}
+
+figure img {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+figcaption {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+  text-align: center;
+}
+
+.note {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin: 24px 0;
+  font-size: 0.9rem;
+}
+
+.note strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 40px 0;
+}
+
+ul, ol {
+  margin: 12px 0 16px 24px;
+}
+
+li {
+  margin-bottom: 6px;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 32px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.back-link:hover { color: var(--link); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; }
+}
+</style>
+</head>
+<body>
+<article>
+
+<a href="index.html" class="back-link">&larr; Back to the visualizer</a>
+
+<h1>Building a Daylight Saving Time Visualizer</h1>
+<p class="subtitle">The story behind the <a href="index.html">DST visualization tool</a>, from policy question to interactive web page.</p>
+
+<h2>Why this exists</h2>
+
+<p>In August 2005, President George W. Bush signed the <strong>Energy Policy Act of 2005</strong>. Buried among hundreds of provisions about oil drilling, nuclear power, and ethanol subsidies was Section 110, which quietly changed when Americans set their clocks forward and back.</p>
+
+<p>Since 1987, Daylight Saving Time in the United States had run from the <em>first Sunday in April</em> to the <em>last Sunday in October</em>. The Energy Policy Act extended that by about four weeks: DST would now begin on the <em>second Sunday of March</em> and end on the <em>first Sunday of November</em>. The change took effect on March 11, 2007.</p>
+
+<p>The rationale was energy savings. Congress argued that more evening daylight would reduce electricity consumption for lighting, saving the equivalent of roughly 10,000 barrels of oil per day. It sounded reasonable.</p>
+
+<p>But I was skeptical. Moving clocks forward doesn't create more daylight&mdash;it just shifts it. If you gain an hour of evening light, you lose an hour of morning light. And the tradeoffs aren't symmetric: an hour of light you sleep through at 5 AM isn't the same as an hour of darkness you sit in at 9 PM. The question nagging me was: <em>how much does this actually help, and does it depend on where you live?</em></p>
+
+<p>Subsequent research vindicated that skepticism. A 2008 Department of Energy report found the extended DST saved about 0.5% of electricity per day during the additional weeks&mdash;roughly 0.03% of annual consumption. Matthew Kotchen's widely cited study of Indiana found that DST actually <em>increased</em> residential electricity use by about 1%, because the savings in lighting were offset by higher heating and air conditioning costs. The energy argument, it turned out, was essentially a wash.</p>
+
+<p>But the question that interested me was more personal: <em>how does DST affect the alignment between sunlight and the hours I'm actually awake?</em> That's not an energy question. It's a human experience question. And it depends entirely on your latitude.</p>
+
+<p>So I built a tool to see it.</p>
+
+<h2>The core idea</h2>
+
+<p>The visualization shows one year of sunrise and sunset times plotted on a single chart. The x-axis is the calendar (January through December), the y-axis is the time of day (midnight to midnight). Two curves snake across the chart: the red sunrise curve and the blue sunset curve.</p>
+
+<p>Overlaid on those curves is a sleep schedule&mdash;wake at 6 AM, sleep at 10 PM. This creates the key insight: you can <em>see</em> the areas where you're awake but it's dark (waking darkness, shaded blue) and where you're asleep but the sun is up (sleeping light, shaded red). These are the "wasted" minutes that DST tries to reduce.</p>
+
+<p>Toggle DST on, and the sunrise and sunset curves shift up by 60 minutes during the DST window. The shaded areas change. The tool calculates the total annual minutes of waking darkness and sleeping light, and shows you exactly how many minutes DST saves&mdash;or costs&mdash;at your latitude.</p>
+
+<h2>Computing sunrise and sunset</h2>
+
+<p>The original version of this tool (built around 2007) hardcoded sunrise and sunset data for four specific cities. That was tedious&mdash;each city required 730 manually sourced data points (365 for sunrise, 365 for sunset).</p>
+
+<p>The rebuild computes everything from latitude using the solar declination formula. The sun's declination angle oscillates between +23.45&deg; and -23.45&deg; over the year, driving the seasons:</p>
+
+<pre><code><span class="keyword">static</span> declination(dayOfYear) {
+  <span class="keyword">return</span> <span class="number">23.45</span> * Math.sin(<span class="number">2</span> * Math.PI / <span class="number">365</span> * (dayOfYear - <span class="number">81</span>));
+}</code></pre>
+
+<p>The offset of 81 shifts the zero-crossing to the spring equinox (around March 22). From the declination, you can compute the <strong>hour angle</strong>&mdash;the angle at which the sun crosses the horizon for a given latitude:</p>
+
+<pre><code><span class="keyword">static</span> daylightForDay(dayOfYear, latitude) {
+  <span class="keyword">const</span> decl = <span class="keyword">this</span>.declination(dayOfYear) * DEG2RAD;
+  <span class="keyword">const</span> lat = latitude * DEG2RAD;
+  <span class="keyword">const</span> cosHA = -Math.tan(lat) * Math.tan(decl);
+
+  <span class="comment">// Edge cases: midnight sun and polar night</span>
+  <span class="keyword">if</span> (cosHA < <span class="number">-1</span>) <span class="keyword">return</span> { sunrise: <span class="number">0</span>, sunset: <span class="number">1440</span>, type: <span class="string">'midnight-sun'</span> };
+  <span class="keyword">if</span> (cosHA >  <span class="number">1</span>) <span class="keyword">return</span> { sunrise: <span class="number">720</span>, sunset: <span class="number">720</span>, type: <span class="string">'polar-night'</span> };
+
+  <span class="keyword">const</span> ha = Math.acos(cosHA);
+  <span class="keyword">const</span> halfDay = (ha / DEG2RAD) * <span class="number">4</span>; <span class="comment">// convert degrees to minutes</span>
+  <span class="keyword">return</span> {
+    sunrise: <span class="number">720</span> - halfDay,
+    sunset: <span class="number">720</span> + halfDay,
+    type: <span class="string">'normal'</span>
+  };
+}</code></pre>
+
+<p>The magic number <code>4</code> in the conversion comes from the fact that the Earth rotates 360&deg; in 24 hours, or 1&deg; every 4 minutes. The result gives sunrise and sunset as minutes from midnight, centered on solar noon (720 minutes = 12:00 PM).</p>
+
+<p>The edge cases matter. When <code>-tan(lat) * tan(decl)</code> falls outside the [-1, 1] range, there's no solution&mdash;the sun either never sets (midnight sun) or never rises (polar night). Select Troms&oslash; in the visualizer around the summer solstice and you'll see the sunrise and sunset curves converge and disappear entirely.</p>
+
+<div class="note">
+<strong>A simplification worth noting.</strong>
+This formula assumes solar noon occurs exactly at clock noon, which is only true if you're at the center of your time zone. In reality, solar noon varies by longitude within a zone&mdash;a city on the western edge of a wide time zone might have solar noon at 12:45 PM. For the purpose of comparing DST's effect, this doesn't matter: we care about the <em>shape</em> of the daylight curve, not its absolute clock position.
+</div>
+
+<h2>The map</h2>
+
+<p>The city selector is a world map built on HTML Canvas with an equirectangular projection&mdash;the simplest possible map projection, where longitude maps linearly to x and latitude maps linearly to y. It's not great for accurate area representation, but it's excellent for one thing: <strong>latitude lines are perfectly horizontal</strong>. Since the whole point of this tool is to show how latitude affects daylight, that's exactly what you want.</p>
+
+<h3>Coastline data</h3>
+
+<p>Drawing recognizable continents in a self-contained HTML file is a surprisingly tricky problem. Hand-coding polygon coordinates produces crude shapes that look amateurish. Instead, the page fetches the <strong>Natural Earth 110m land boundaries</strong> from a CDN at page load:</p>
+
+<pre><code><span class="keyword">const</span> LAND_TOPO_URL =
+  <span class="string">'https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json'</span>;</code></pre>
+
+<p>This is the same dataset used by D3.js maps&mdash;cartographically accurate coastlines simplified to ~30KB. The data arrives in <strong>TopoJSON</strong> format, an efficient encoding that stores coastlines as shared arcs with delta-encoded integer coordinates. A small inline decoder (~20 lines) converts it to renderable polygons:</p>
+
+<pre><code><span class="keyword">function</span> decodeTopoJSON(topo) {
+  <span class="keyword">const</span> { scale, translate } = topo.transform;
+  <span class="keyword">const</span> decodedArcs = topo.arcs.map(arc => {
+    <span class="keyword">let</span> x = <span class="number">0</span>, y = <span class="number">0</span>;
+    <span class="keyword">return</span> arc.map(([dx, dy]) => {
+      x += dx; y += dy;
+      <span class="keyword">return</span> [
+        x * scale[<span class="number">0</span>] + translate[<span class="number">0</span>],
+        y * scale[<span class="number">1</span>] + translate[<span class="number">1</span>]
+      ];
+    });
+  });
+  <span class="comment">// ... resolve arc references into polygon rings</span>
+}</code></pre>
+
+<p>The delta encoding is clever: instead of storing absolute coordinates (which would require many significant digits), each point stores only the <em>difference</em> from the previous point. The <code>transform</code> object provides scale and translation factors to convert the small integers back to longitude/latitude values.</p>
+
+<h3>The antimeridian problem</h3>
+
+<p>One subtlety: Russia. Its territory spans from roughly 30&deg;E to 170&deg;W, crossing the 180&deg; meridian where the map "wraps." When you draw a polygon that crosses from 179&deg; to -179&deg;, the naive approach draws a line straight across the entire map instead of wrapping around the edge.</p>
+
+<p>The fix is a simple heuristic in the rendering loop:</p>
+
+<pre><code><span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="number">0</span>; i < poly.length; i++) {
+  <span class="keyword">const</span> x = lngToX(poly[i][<span class="number">0</span>]);
+  <span class="keyword">const</span> y = latToY(poly[i][<span class="number">1</span>]);
+  <span class="keyword">if</span> (i === <span class="number">0</span>) {
+    ctx.moveTo(x, y);
+  } <span class="keyword">else</span> {
+    <span class="keyword">const</span> dlng = Math.abs(poly[i][<span class="number">0</span>] - poly[i - <span class="number">1</span>][<span class="number">0</span>]);
+    <span class="keyword">if</span> (dlng > <span class="number">90</span>) ctx.moveTo(x, y); <span class="comment">// break at antimeridian</span>
+    <span class="keyword">else</span> ctx.lineTo(x, y);
+  }
+}</code></pre>
+
+<p>If consecutive points are more than 90&deg; apart in longitude, the line is broken. It's not a proper clip, but it works: Russia renders as two pieces on the left and right edges of the map, which is exactly what you'd expect from an equirectangular projection.</p>
+
+<h3>The latitude highlight</h3>
+
+<p>When you select a city, a blue horizontal band stretches across the full width of the map at that city's latitude. This is the most important design choice in the map: it visually reinforces that <em>latitude is the variable that matters</em>. The band is drawn as a gradient that fades from transparent to a soft blue and back:</p>
+
+<pre><code><span class="keyword">const</span> grad = ctx.createLinearGradient(<span class="number">0</span>, y - bandH*<span class="number">3</span>, <span class="number">0</span>, y + bandH*<span class="number">3</span>);
+grad.addColorStop(<span class="number">0</span>,    <span class="string">'rgba(74, 127, 255, 0)'</span>);
+grad.addColorStop(<span class="number">0.5</span>,  <span class="string">'rgba(74, 127, 255, 0.12)'</span>);
+grad.addColorStop(<span class="number">1</span>,    <span class="string">'rgba(74, 127, 255, 0)'</span>);
+ctx.fillStyle = grad;
+ctx.fillRect(paddingLeft, y - bandH*<span class="number">3</span>, plotW, bandH*<span class="number">6</span>);</code></pre>
+
+<p>Key latitude reference lines&mdash;the Arctic Circle, Tropics of Cancer and Capricorn, and the Equator&mdash;are drawn as labeled parallels to give geographic context.</p>
+
+<h2>The daylight chart</h2>
+
+<p>The main visualization is a Canvas 2D chart where the x-axis represents 365 days and the y-axis represents 1,440 minutes (24 hours). Each day is a one-pixel-wide column with four elements:</p>
+
+<ol>
+  <li><strong>Sleep bands</strong> (gray overlay): hours before 6 AM and after 10 PM</li>
+  <li><strong>Waking darkness</strong> (blue shading): the overlap between "awake" and "dark"</li>
+  <li><strong>Sleeping light</strong> (red shading): the overlap between "asleep" and "light"</li>
+  <li><strong>Sunrise and sunset curves</strong>: thin lines tracing the sun's daily schedule</li>
+</ol>
+
+<p>The calculation for waking darkness is a per-day sum:</p>
+
+<pre><code>calcWakingDark(rise, set) {
+  <span class="keyword">let</span> dark = <span class="number">0</span>;
+  <span class="comment">// Morning: awake before sunrise</span>
+  <span class="keyword">if</span> (rise > wakeMinute) dark += rise - wakeMinute;
+  <span class="comment">// Evening: awake after sunset</span>
+  <span class="keyword">if</span> (set < sleepMinute) dark += sleepMinute - set;
+  <span class="keyword">return</span> dark;
+}</code></pre>
+
+<p>When DST is enabled, the sunrise and sunset values are shifted by 60 minutes during the DST window. The "no-DST" values are always computed alongside the shifted values, so the savings metric shows the true delta.</p>
+
+<h3>Southern hemisphere wrapping</h3>
+
+<p>DST in the northern hemisphere runs roughly March through November&mdash;the start date is earlier in the year than the end date. In the southern hemisphere, it's the opposite: DST might run from October through April, wrapping across the new year. The start day-of-year (say, 274) is <em>greater</em> than the end day-of-year (say, 91).</p>
+
+<p>A naive check like <code>day >= start && day <= end</code> fails entirely for this case. The fix:</p>
+
+<pre><code>isDstDay(d) {
+  <span class="keyword">if</span> (dstStart <= dstEnd) {
+    <span class="keyword">return</span> d >= dstStart && d <= dstEnd;
+  }
+  <span class="comment">// Wraps year boundary: Oct through Apr</span>
+  <span class="keyword">return</span> d >= dstStart || d <= dstEnd;
+}</code></pre>
+
+<p>When the range wraps, "inside DST" means the day is either after the start <em>or</em> before the end. Select Sydney or Auckland in the visualizer to see this in action&mdash;the DST shading appears on both edges of the chart.</p>
+
+<h2>Per-city DST rules</h2>
+
+<p>Not all cities observe DST, and those that do follow different schedules. The city data encodes this directly:</p>
+
+<pre><code><span class="keyword">const</span> US_DST = { start: <span class="number">70</span>,  end: <span class="number">309</span> }; <span class="comment">// Mar 10 &rarr; Nov 3</span>
+<span class="keyword">const</span> EU_DST = { start: <span class="number">87</span>,  end: <span class="number">299</span> }; <span class="comment">// Mar 31 &rarr; Oct 27</span>
+<span class="keyword">const</span> AU_DST = { start: <span class="number">274</span>, end: <span class="number">91</span>  }; <span class="comment">// Oct 1 &rarr; Apr 1</span>
+<span class="keyword">const</span> NZ_DST = { start: <span class="number">269</span>, end: <span class="number">91</span>  }; <span class="comment">// Sep 26 &rarr; Apr 1</span></code></pre>
+
+<p>Cities that don't observe DST&mdash;including Tokyo, Moscow, Reykjavik, all of India, Hawaii, most of the tropics, and recently Mexico City (abolished 2022) and S&atilde;o Paulo (Brazil abolished DST in 2019)&mdash;carry <code>dst: null</code>. When you select one of these cities, the toggle turns off and the label shows "no DST."</p>
+
+<h2>HiDPI rendering</h2>
+
+<p>Both canvases (map and chart) use <code>devicePixelRatio</code> scaling for crisp rendering on Retina displays. The technique is standard but worth noting: the canvas's <em>CSS</em> size is set by the layout, but its <em>backing store</em> is multiplied by the pixel ratio:</p>
+
+<pre><code><span class="keyword">const</span> dpr = Math.min(window.devicePixelRatio || <span class="number">1</span>, <span class="number">3</span>);
+canvas.width = cssWidth * dpr;
+canvas.height = cssHeight * dpr;
+ctx.setTransform(dpr, <span class="number">0</span>, <span class="number">0</span>, dpr, <span class="number">0</span>, <span class="number">0</span>);</code></pre>
+
+<p>The <code>setTransform</code> call scales all subsequent drawing operations so you can continue working in CSS pixel coordinates. The cap at 3x prevents absurdly large backing stores on high-DPI displays.</p>
+
+<h2>Layout and interaction</h2>
+
+<p>The page uses a single-column flexbox layout: header, map, controls bar, chart, legend. An earlier version used a two-column grid with a sidebar for controls and stats, but this caused persistent layout shifting&mdash;stat values of different lengths would resize the sidebar, pushing the chart around. The horizontal controls bar eliminates this entirely, since every section has a fixed vertical footprint.</p>
+
+<p>All pointer interaction (hover tooltips, DST handle dragging) uses the <strong>PointerEvent API</strong> rather than separate mouse and touch handlers. Pointer events unify mouse, touch, and pen input into a single event model. The <code>setPointerCapture</code> method ensures that drag operations continue tracking even when the pointer leaves the canvas bounds.</p>
+
+<p>Drawing is throttled through <code>requestAnimationFrame</code> to avoid redundant redraws when multiple state changes happen in the same frame.</p>
+
+<h2>Dark mode</h2>
+
+<p>The entire color scheme is defined through CSS custom properties, with a dark mode variant triggered by <code>prefers-color-scheme: dark</code>. The JavaScript reads these values at draw time via <code>getComputedStyle</code>, so the canvases automatically adapt without any JS-side theme detection.</p>
+
+<h2>What the tool reveals</h2>
+
+<p>Play with the visualizer for a few minutes and the patterns become clear:</p>
+
+<ul>
+  <li><strong>High latitudes benefit most from DST.</strong> In Troms&oslash; or Fairbanks, the summer days are so long that DST barely registers&mdash;but during spring and autumn, it meaningfully reduces waking darkness. The savings can reach hundreds of hours per year.</li>
+  <li><strong>Near the tropics, DST is pointless.</strong> In Quito or Singapore, sunrise and sunset barely change throughout the year. DST shifts the curves but saves almost nothing&mdash;there was little wasted daylight to begin with.</li>
+  <li><strong>Mid-latitudes are the interesting case.</strong> Boston, Paris, Tokyo&mdash;these are the cities where DST is a genuine tradeoff. You gain evening light but lose morning light, and whether that's a net win depends on your sleep schedule.</li>
+  <li><strong>The southern hemisphere has it backwards.</strong> In Sydney, the "standard" DST window that helps Boston would be actively harmful&mdash;it would shift light into the already-bright summer evenings while darkening winter mornings. Southern hemisphere DST runs on the opposite schedule for exactly this reason.</li>
+</ul>
+
+<p>As for the Bush-era extension: dragging the DST start handle from early April to mid-March, and the end handle from late October to early November, shows a modest improvement at mid-latitudes. It helps, but not dramatically. The original DST window already captured most of the benefit. The extra four weeks are, like the energy studies later confirmed, marginal.</p>
+
+<p>The tool doesn't answer whether DST is "worth it"&mdash;that's a policy question tangled up with commerce, safety, circadian health, and personal preference. But it does make the tradeoffs visible. And making tradeoffs visible was the whole point.</p>
+
+<hr>
+
+<p style="color: var(--text-muted); font-size: 0.85rem;">Originally built circa 2007 with hardcoded data for four cities. Rebuilt in 2026 with computed solar positions, 37 cities, and an interactive world map. <a href="index.html">Try the visualizer &rarr;</a></p>
+
+</article>
+</body>
+</html>
