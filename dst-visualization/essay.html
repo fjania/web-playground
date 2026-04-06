@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Is Daylight Saving Time Worth It?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #f6f5f1;
+  --bg-card: #ffffff;
+  --text: #1a1a1a;
+  --text-muted: #6b6b6b;
+  --border: #e0ddd8;
+  --code-bg: #edeae4;
+  --blue: #4a7fff;
+  --blue-light: rgba(74, 127, 255, 0.15);
+  --red: #e85d4a;
+  --red-light: rgba(232, 93, 74, 0.15);
+  --green: #2a9d6e;
+  --link: #3b6fd4;
+  --sunrise-color: #e85d4a;
+  --sunset-color: #3b6fd4;
+  --sleep-band: rgba(30, 30, 50, 0.06);
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --transition: 200ms ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416;
+    --bg-card: #1e1e22;
+    --text: #e8e6e1;
+    --text-muted: #8a8a8a;
+    --border: #2e2e34;
+    --code-bg: #1e1e24;
+    --blue: #5b9eff;
+    --blue-light: rgba(91, 158, 255, 0.15);
+    --red: #f07060;
+    --red-light: rgba(240, 112, 96, 0.15);
+    --green: #3dc88a;
+    --link: #6ba4ff;
+    --sunrise-color: #f07060;
+    --sunset-color: #5b9eff;
+    --sleep-band: rgba(200, 200, 220, 0.06);
+    --shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+}
+
+html { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+article {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(24px, 5vw, 60px) clamp(16px, 4vw, 32px);
+}
+
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-bottom: 40px;
+}
+
+.subtitle a { color: var(--link); text-decoration: none; }
+.subtitle a:hover { text-decoration: underline; }
+
+h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin-top: 52px;
+  margin-bottom: 16px;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 32px;
+  margin-bottom: 12px;
+}
+
+p { margin-bottom: 16px; }
+a { color: var(--link); }
+
+blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 20px;
+  margin: 24px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+ul, ol { margin: 12px 0 16px 24px; }
+li { margin-bottom: 6px; }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 48px 0;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 32px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.back-link:hover { color: var(--link); }
+
+.cite {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ── Widgets ─────────────────────────────────── */
+
+.widget {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin: 28px 0;
+}
+
+.widget canvas {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius);
+}
+
+.widget-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.widget-controls label {
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.widget-controls input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--blue);
+}
+
+.widget-controls input[type="checkbox"] {
+  accent-color: var(--green);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.widget-controls input[type="radio"] {
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+.widget-stats {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+
+.widget-stats .ws-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-label { color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem; }
+.ws-value { font-weight: 600; }
+.ws-dark .ws-value { color: var(--blue); }
+.ws-light .ws-value { color: var(--red); }
+.ws-savings .ws-value { color: var(--green); }
+
+.widget-label {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+figcaption {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 10px;
+  line-height: 1.4;
+}
+
+/* Triptych layout */
+.triptych {
+  display: flex;
+  gap: 12px;
+}
+
+.triptych-panel {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.triptych-panel canvas {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.triptych-panel .tp-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+.triptych-panel .tp-meta {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.triptych-panel .tp-stat {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  margin-top: 6px;
+}
+
+/* Day compare bars */
+.day-compare-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.day-bar-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  width: 70px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.day-bar-canvas {
+  flex: 1;
+  height: 32px;
+  border-radius: 4px;
+}
+
+@media (max-width: 600px) {
+  .triptych { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; }
+}
+</style>
+</head>
+<body>
+<article>
+
+<a href="index.html" class="back-link">&larr; Back to the visualizer</a>
+
+<h1>Is Daylight Saving Time Worth It?</h1>
+<p class="subtitle">An argument in data. Drag the sliders.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>DST doesn't create daylight</h2>
+
+<p>Every spring, we "spring forward" and gain an hour of evening light. Except we don't gain anything. The sun doesn't care what the clock says. Daylight Saving Time shifts the clock by one hour; the total amount of daylight on any given day is exactly the same.</p>
+
+<p>Drag the slider below through the year. The two bars show the same day under standard time (top) and DST (bottom). Notice that the bright portion is identical in length&mdash;it just slides one hour to the right.</p>
+
+<figure class="widget" id="widgetA">
+  <div class="day-compare-bars">
+    <div class="day-bar-row">
+      <span class="day-bar-label">Standard</span>
+      <canvas class="day-bar-canvas" id="barStd"></canvas>
+    </div>
+    <div class="day-bar-row">
+      <span class="day-bar-label">DST</span>
+      <canvas class="day-bar-canvas" id="barDst"></canvas>
+    </div>
+  </div>
+  <div class="widget-controls">
+    <label for="daySlider">Day of year:</label>
+    <input type="range" id="daySlider" min="1" max="365" value="172">
+    <span class="widget-label" id="dayLabel">Jun 21</span>
+  </div>
+  <figcaption>Boston, 42.4&deg;N. The yellow band is daylight. Gray is sleeping hours. Total daylight is identical&mdash;DST shifts the clock, not the sun.</figcaption>
+</figure>
+
+<p>This seems obvious once you see it, but it's worth establishing because much of the DST debate is conducted as if the clock change somehow produces more usable daylight. It doesn't. What it <em>can</em> do is move the daylight to better align with when you're awake. Whether that actually helps depends on where you live.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>The real question is alignment</h2>
+
+<p>Forget energy savings (the evidence says they're negligible). Forget tradition. The useful way to think about DST is: <strong>how well does the available daylight align with the hours I'm actually awake?</strong></p>
+
+<p>There are two kinds of waste. <strong>Waking darkness</strong> is time you're awake but the sun hasn't risen or has already set&mdash;you're using artificial light when the sun could be doing the work. <strong>Sleeping light</strong> is time the sun is up but you're in bed&mdash;daylight going unused. DST tries to reduce both by shifting the clock so daylight better overlaps with waking hours.</p>
+
+<p>Toggle DST on and off below. Watch the blue (waking darkness) and red (sleeping light) shading change, and track the savings counter.</p>
+
+<figure class="widget" id="widgetB">
+  <canvas id="chartB" style="height: 240px;"></canvas>
+  <div class="widget-controls">
+    <label><input type="checkbox" id="toggleB" checked> Daylight Saving Time</label>
+  </div>
+  <div class="widget-stats" id="statsB"></div>
+  <figcaption>Boston, 42.4&deg;N. Blue shading = waking darkness. Red shading = sleeping light. Assumes wake at 6 AM, sleep at 10 PM.</figcaption>
+</figure>
+
+<p>For Boston, DST saves about 280 hours of wasted daylight per year. That's meaningful. But Boston is at 42&deg; north. What happens if you move the city closer to the equator?</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>Latitude is everything</h2>
+
+<p>This is the central fact that most DST debates ignore: <strong>the value of DST is almost entirely a function of your latitude.</strong></p>
+
+<p>At the equator, sunrise and sunset barely change throughout the year. The daylight curve is nearly flat&mdash;about 12 hours every day. There's nothing for DST to optimize. At high latitudes, the curve swings wildly: 18+ hours of daylight in summer, 6 or fewer in winter. DST can meaningfully improve alignment during the shoulder seasons (spring and autumn) when the mismatch is greatest.</p>
+
+<p>Drag the slider below from the equator to the Arctic. Watch the daylight curves change shape and the DST savings grow.</p>
+
+<figure class="widget" id="widgetC">
+  <canvas id="chartC" style="height: 260px;"></canvas>
+  <div class="widget-controls">
+    <label for="latSlider">Latitude:</label>
+    <input type="range" id="latSlider" min="0" max="70" value="42" step="0.5">
+    <span class="widget-label" id="latLabel">42.0&deg; N &mdash; New York</span>
+  </div>
+  <div class="widget-stats" id="statsC"></div>
+  <figcaption>DST savings as a function of latitude. The flatter the daylight curves, the less DST can help. US DST window (Mar&ndash;Nov) applied at all latitudes for comparison.</figcaption>
+</figure>
+
+<p>At the equator, DST saves essentially nothing. At 65&deg; (Fairbanks), it saves hundreds of hours. The relationship is roughly quadratic&mdash;savings grow faster as you move poleward, because the seasonal daylight swing amplifies.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>Three cities, three stories</h2>
+
+<p>Abstract latitude numbers are hard to feel. Here are three real cities, side by side, with the same DST window applied to each. Toggle DST to see who benefits and who doesn't.</p>
+
+<figure class="widget" id="widgetD">
+  <div class="widget-controls" style="margin-top: 0; margin-bottom: 12px;">
+    <label><input type="checkbox" id="toggleD" checked> Daylight Saving Time</label>
+  </div>
+  <div class="triptych" id="triptych"></div>
+  <figcaption>Same DST window (US rules: Mar&ndash;Nov) applied to three latitudes. Fairbanks sees dramatic savings; Quito sees essentially none.</figcaption>
+</figure>
+
+<p>Fairbanks has wild seasonal swings&mdash;DST reaps hundreds of hours. Boston, the classic mid-latitude case, gets a solid benefit. Quito, straddling the equator, gets almost nothing. This is why most tropical countries have never adopted DST, and the ones that tried (like Brazil) eventually abandoned it.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>Farmers didn't want this</h2>
+
+<p>The popular myth is that DST was invented for farmers. In reality, farmers were among its most vocal opponents. The original proposal came from New Zealand entomologist George Vernon Hudson in 1895, who wanted more after-work daylight for collecting insects. Germany adopted it first in 1916 as a wartime fuel-saving measure. The United States followed in 1918.</p>
+
+<p>After World War I, the US repealed federal DST in 1919, largely due to rural opposition. Farmers don't work by the clock&mdash;they work by the sun. Cows don't adjust their milking schedule because Congress says so. DST disrupted agricultural routines by putting rural workers out of sync with urban markets.</p>
+
+<p>The patchwork of state and local DST rules that followed was so chaotic that by 1965, Iowa alone had 23 different start and end dates across its communities. The Uniform Time Act of 1966 finally standardized things, but rural opposition has never fully subsided. Arizona (excluding the Navajo Nation) and Hawaii still don't observe DST.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>The Monday after spring forward</h2>
+
+<p>Every March, headlines warn of a spike in heart attacks, car crashes, and workplace injuries caused by the clock change. These claims are broadly true&mdash;but the magnitude is routinely overstated.</p>
+
+<p>The most rigorous evidence:</p>
+
+<ul>
+  <li>A 2020 analysis of <strong>732,000 fatal US car accidents</strong> found a 6% increase in the week after spring-forward. No significant effect after fall-back. <span class="cite">(Fritz et al., <em>Current Biology</em>)</span></li>
+  <li>Heart attack studies show a <strong>small, transient increase</strong> in the 1&ndash;3 days after spring-forward. A widely cited 2014 study claimed a 24% spike on the Monday after. But larger studies&mdash;Kirchberger et al. (2015) and a Danish study by Lindenberger et al. (2019)&mdash;found the effect <strong>disappeared with bigger sample sizes</strong> or was confined to specific subgroups.</li>
+  <li>Workplace injuries increase on the Monday after spring-forward, linked to roughly <strong>40 minutes of average sleep loss</strong>. <span class="cite">(Barnes &amp; Wagner, 2009, <em>J. Applied Psychology</em>)</span></li>
+</ul>
+
+<p>The pattern is consistent: nearly all negative effects are specific to the <strong>spring-forward transition</strong> (losing one hour of sleep), not DST itself. The fall-back transition shows no measurable harm and sometimes shows slight improvements. And the effects are <strong>transient</strong>&mdash;they dissipate within days.</p>
+
+<p>The underlying mechanism is acute sleep deprivation, not clock confusion. Losing 40 minutes of sleep for a few nights has real health consequences at a population scale&mdash;but the absolute numbers are small. A few dozen additional cardiac events nationally over a weekend, not the public health catastrophe that headlines imply.</p>
+
+<p>The American Academy of Sleep Medicine's 2020 position statement calls for <strong>eliminating clock transitions entirely</strong>&mdash;but their recommended replacement is permanent <em>standard</em> time, not permanent DST. This distinction matters enormously, and we'll return to it.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>The four weeks that didn't matter</h2>
+
+<p>In 2005, the Energy Policy Act extended US DST by about four weeks: from "first Sunday in April through last Sunday in October" to "second Sunday in March through first Sunday in November." The rationale was energy savings. The actual savings, measured by the Department of Energy in 2008, were about <strong>0.03% of annual electricity consumption</strong>.</p>
+
+<p>But forget energy. Did the extension improve daylight alignment? Use the radio buttons below to compare the old and new windows.</p>
+
+<figure class="widget" id="widgetE">
+  <canvas id="chartE" style="height: 240px;"></canvas>
+  <div class="widget-controls">
+    <label><input type="radio" name="windowE" value="none"> No DST</label>
+    <label><input type="radio" name="windowE" value="old"> Pre-2005 (Apr&ndash;Oct)</label>
+    <label><input type="radio" name="windowE" value="current" checked> Current (Mar&ndash;Nov)</label>
+  </div>
+  <div class="widget-stats" id="statsE"></div>
+  <figcaption>New York, 40.7&deg;N. The 2005 extension added ~4 weeks of DST. Compare the savings.</figcaption>
+</figure>
+
+<p>The difference is real but modest. The pre-2005 window already captured the majority of the benefit. Extending into early March and early November adds some savings in the shoulder weeks, but these are weeks with relatively modest daylight-schedule misalignment to begin with. The low-hanging fruit was already picked.</p>
+
+<p>This is the pattern with DST timing debates: the <em>existence</em> of DST at mid-latitudes is clearly beneficial, but arguing over exactly when it starts and stops is arguing over crumbs. The curves are telling you that most of the benefit comes from the core April-through-September period that's covered by any reasonable DST window.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>The permanent DST trap</h2>
+
+<p>In 2022, the US Senate unanimously passed the Sunshine Protection Act, which would have made DST permanent year-round. It stalled in the House, but the idea remains popular. Polls consistently show Americans dislike changing clocks (who doesn't?) and prefer permanent DST over permanent standard time.</p>
+
+<p>The preference makes intuitive sense: people associate DST with long summer evenings. But permanent DST means permanent DST <em>in winter too</em>. And that changes the calculus completely.</p>
+
+<p>Try it below. Select "Permanent DST" and look at what happens to the sunrise curve in December and January.</p>
+
+<figure class="widget" id="widgetF">
+  <canvas id="chartF" style="height: 260px;"></canvas>
+  <div class="widget-controls">
+    <label><input type="radio" name="modeF" value="standard"> Standard year-round</label>
+    <label><input type="radio" name="modeF" value="current" checked> Current DST</label>
+    <label><input type="radio" name="modeF" value="permanent"> Permanent DST</label>
+  </div>
+  <div class="widget-stats" id="statsF"></div>
+  <figcaption>New York, 40.7&deg;N. Permanent DST pushes winter sunrise past 8 AM. Children would walk to school in the dark for months.</figcaption>
+</figure>
+
+<p>Under permanent DST, sunrise in New York in late December wouldn't occur until after <strong>8:20 AM</strong>. In Boston, closer to 8:30. In Detroit (on the western edge of the Eastern time zone), not until <strong>9:00 AM</strong>. School children would commute in pitch darkness for months.</p>
+
+<p>The United States actually tried this. From January to April 1974, during the OPEC oil embargo, the country experimented with year-round DST. By February, Congress was getting flooded with complaints about children walking to school in the dark. Eight children were killed in traffic accidents in Florida during the first weeks. The experiment was cut short within months.</p>
+
+<p>This is why the AASM advocates for permanent <em>standard</em> time rather than permanent DST. Standard time better aligns clock noon with solar noon, which sleep researchers argue is healthier for circadian rhythms. The tradeoff is losing those long summer evenings&mdash;but the summer evenings are already long at mid-latitudes regardless of what the clock says.</p>
+
+<p>Current DST&mdash;with its biannual transitions&mdash;is actually a reasonable compromise. You get the summer evening benefit when it matters most, standard morning light in winter when you need it, and the transition costs (real but transient) are the price of the switch. It's not elegant, but it's not as broken as either permanent alternative.</p>
+
+<!-- ────────────────────────────────────────────── -->
+<h2>So is it worth it?</h2>
+
+<p>It depends on where you are.</p>
+
+<p><strong>At mid-to-high latitudes (35&deg;&ndash;65&deg;N or S)</strong>, DST is clearly worth it. The seasonal daylight swing creates a meaningful alignment problem, and shifting clocks by an hour during the longer-day months is a crude but effective fix. The savings of 100&ndash;400+ hours of wasted daylight per year are real and felt by everyone who wakes before sunrise in spring or sits in darkness at 4:30 PM in autumn.</p>
+
+<p><strong>In the tropics (within ~20&deg; of the equator)</strong>, DST is pointless. Day length barely varies, alignment is already good year-round, and the disruption of clock changes buys nothing. Most tropical countries correctly don't observe it.</p>
+
+<p><strong>The timing debate is marginal.</strong> Whether DST runs March&ndash;November or April&ndash;October matters at the edges but doesn't change the fundamental picture. The 2005 extension proved this: four extra weeks for negligible gain.</p>
+
+<p><strong>The health costs of transitions are real but overstated.</strong> A few days of increased risk after spring-forward, driven by acute sleep loss. Real at population scale, but not the public health crisis that headlines suggest. If we eliminated transitions, we'd need to choose a permanent time&mdash;and permanent DST is worse than what we have now.</p>
+
+<p><strong>Permanent DST is a trap.</strong> It sounds good in June. It's miserable in January. The AASM is right that permanent standard time is the healthier option, but it would cost us the summer evening benefit that people genuinely value. Current DST, warts and all, threads the needle.</p>
+
+<p>The tool that DST critics lack is a way to <em>see</em> the tradeoffs. They're not intuitive from argument alone. But plot the curves, shade the regions, and drag a slider from the equator to the Arctic, and the picture becomes clear: DST is a latitude-dependent optimization that works where it's needed and is irrelevant where it's not. Like most policy compromises, it's imperfect, defensible, and probably here to stay.</p>
+
+<hr>
+
+<p style="color: var(--text-muted); font-size: 0.85rem;">Explore the full interactive tool: <a href="index.html">DST Visualizer</a>. Read about how it was built: <a href="about.html">Building a DST Visualizer</a>.</p>
+
+</article>
+
+<script src="dst-lib.js"></script>
+<script>
+'use strict';
+
+// ── MiniChart: reusable daylight chart renderer ────────────
+
+class MiniChart {
+  #canvas; #ctx; #dpr;
+  #W = 0; #H = 0;
+  #margin = { top: 12, right: 8, bottom: 22, left: 36 };
+  #plotW = 0; #plotH = 0;
+
+  constructor(canvas) {
+    this.#canvas = canvas;
+    this.#ctx = canvas.getContext('2d');
+    this.#dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.resize();
+  }
+
+  resize() {
+    const rect = this.#canvas.getBoundingClientRect();
+    this.#W = rect.width;
+    this.#H = rect.height;
+    this.#canvas.width = this.#W * this.#dpr;
+    this.#canvas.height = this.#H * this.#dpr;
+    this.#ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
+    this.#plotW = this.#W - this.#margin.left - this.#margin.right;
+    this.#plotH = this.#H - this.#margin.top - this.#margin.bottom;
+  }
+
+  #dayToX(d) { return this.#margin.left + (d - 1) / 364 * this.#plotW; }
+  #minToY(m) { return this.#margin.top + (1 - m / 1440) * this.#plotH; }
+
+  draw({ latitude, wake = 360, sleep = 1320, dstStart = null, dstEnd = null,
+         dstEnabled = false, permanentDST = false, showShading = true }) {
+    const ctx = this.#ctx;
+    const m = this.#margin;
+    const s = getComputedStyle(document.documentElement);
+    const yearData = SolarCalculator.computeYear(latitude);
+
+    ctx.clearRect(0, 0, this.#W, this.#H);
+
+    // Sleep bands
+    const wakeY = this.#minToY(wake);
+    const sleepY = this.#minToY(sleep);
+    ctx.fillStyle = s.getPropertyValue('--sleep-band').trim();
+    ctx.fillRect(m.left, wakeY, this.#plotW, this.#plotH + m.top - wakeY);
+    ctx.fillRect(m.left, m.top, this.#plotW, sleepY - m.top);
+
+    let wakingDark = 0, sleepingLight = 0;
+    let wakingDarkNoDST = 0, sleepingLightNoDST = 0;
+
+    for (let d = 1; d <= 365; d++) {
+      const base = yearData[d - 1];
+      let rise = base.sunrise, set = base.sunset;
+
+      wakingDarkNoDST += calcWakingDark(rise, set, wake, sleep);
+      sleepingLightNoDST += calcSleepingLight(rise, set, wake, sleep);
+
+      if (permanentDST) {
+        rise = Math.max(0, rise + 60);
+        set = Math.min(1440, set + 60);
+      } else if (dstEnabled && isDstDay(d, dstStart, dstEnd)) {
+        rise = Math.max(0, rise + 60);
+        set = Math.min(1440, set + 60);
+      }
+
+      wakingDark += calcWakingDark(rise, set, wake, sleep);
+      sleepingLight += calcSleepingLight(rise, set, wake, sleep);
+
+      const x = this.#dayToX(d);
+      const colW = Math.max(this.#plotW / 365, 1);
+      const riseY = this.#minToY(rise);
+      const setY = this.#minToY(set);
+
+      if (showShading) {
+        // Waking darkness
+        if (rise > wake) {
+          ctx.fillStyle = 'rgba(74, 127, 255, 0.3)';
+          ctx.fillRect(x, this.#minToY(rise), colW, this.#minToY(wake) - this.#minToY(rise));
+        }
+        if (set < sleep) {
+          ctx.fillStyle = 'rgba(74, 127, 255, 0.3)';
+          ctx.fillRect(x, this.#minToY(sleep), colW, this.#minToY(set) - this.#minToY(sleep));
+        }
+        // Sleeping light
+        if (rise < wake) {
+          ctx.fillStyle = 'rgba(232, 93, 74, 0.25)';
+          ctx.fillRect(x, this.#minToY(wake), colW, this.#minToY(rise) - this.#minToY(wake));
+        }
+        if (set > sleep) {
+          ctx.fillStyle = 'rgba(232, 93, 74, 0.25)';
+          ctx.fillRect(x, this.#minToY(set), colW, this.#minToY(sleep) - this.#minToY(set));
+        }
+      }
+
+      // Curves
+      if (base.type !== 'polar-night') {
+        ctx.fillStyle = s.getPropertyValue('--sunrise-color').trim();
+        ctx.fillRect(x, riseY - 1, colW, 2);
+        ctx.fillStyle = s.getPropertyValue('--sunset-color').trim();
+        ctx.fillRect(x, setY - 1, colW, 2);
+      }
+    }
+
+    // DST boundaries
+    if (dstEnabled && dstStart != null && !permanentDST) {
+      ctx.strokeStyle = 'rgba(42, 157, 110, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      for (const day of [dstStart, dstEnd]) {
+        const x = this.#dayToX(day);
+        ctx.beginPath(); ctx.moveTo(x, m.top); ctx.lineTo(x, m.top + this.#plotH); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    // Axes
+    this.#drawAxes(ctx, s);
+
+    const wastedNoDST = wakingDarkNoDST + sleepingLightNoDST;
+    const wasted = wakingDark + sleepingLight;
+    return {
+      wakingDark: Math.round(wakingDark),
+      sleepingLight: Math.round(sleepingLight),
+      savings: Math.round(wastedNoDST - wasted),
+    };
+  }
+
+  #drawAxes(ctx, s) {
+    const m = this.#margin;
+    const muted = s.getPropertyValue('--text-muted').trim();
+    const border = s.getPropertyValue('--border').trim();
+    const mono = s.getPropertyValue('--font-mono').trim();
+    const body = s.getPropertyValue('--font-body').trim();
+
+    ctx.fillStyle = muted;
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 0.5;
+
+    // Hour labels
+    ctx.font = `9px ${mono}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let h = 0; h <= 24; h += 6) {
+      const y = this.#minToY(h * 60);
+      const label = h === 0 || h === 24 ? '12a' : h === 12 ? '12p' : h < 12 ? `${h}a` : `${h-12}p`;
+      ctx.fillText(label, m.left - 4, y);
+      ctx.beginPath(); ctx.moveTo(m.left, y); ctx.lineTo(m.left + this.#plotW, y); ctx.stroke();
+    }
+
+    // Month labels
+    ctx.font = `9px ${body}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const starts = monthStarts();
+    for (let i = 0; i < 12; i += 2) {
+      const x = this.#dayToX(starts[i]);
+      const nextX = i + 2 < 12 ? this.#dayToX(starts[i + 2]) : this.#dayToX(365);
+      ctx.fillText(MONTHS[i], (x + (i + 1 < 12 ? this.#dayToX(starts[i + 1]) : nextX)) / 2, m.top + this.#plotH + 4);
+    }
+  }
+}
+
+// ── Widget helpers ─────────────────────────────────────────
+
+function statsHTML(stats) {
+  return `
+    <span class="ws-item ws-dark"><span class="ws-label">Waking dark</span> <span class="ws-value">${formatHours(stats.wakingDark)}</span></span>
+    <span class="ws-item ws-light"><span class="ws-label">Sleeping light</span> <span class="ws-value">${formatHours(stats.sleepingLight)}</span></span>
+    <span class="ws-item ws-savings"><span class="ws-label">DST saves</span> <span class="ws-value">${stats.savings >= 0 ? '+' : ''}${formatHours(stats.savings)}</span></span>
+  `;
+}
+
+// ── Widget A: Day Compare ──────────────────────────────────
+
+function initWidgetA() {
+  const stdCanvas = document.getElementById('barStd');
+  const dstCanvas = document.getElementById('barDst');
+  const slider = document.getElementById('daySlider');
+  const label = document.getElementById('dayLabel');
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const lat = 42.36; // Boston
+
+  function drawBar(canvas, rise, set, wake, sleep) {
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const s = getComputedStyle(document.documentElement);
+    const minToX = m => m / 1440 * W;
+
+    // Night background
+    ctx.fillStyle = s.getPropertyValue('--bg-card').trim();
+    ctx.fillRect(0, 0, W, H);
+
+    // Sleep zones
+    ctx.fillStyle = s.getPropertyValue('--sleep-band').trim();
+    ctx.fillRect(0, 0, minToX(wake), H);
+    ctx.fillRect(minToX(sleep), 0, W - minToX(sleep), H);
+
+    // Daylight
+    ctx.fillStyle = 'rgba(255, 210, 80, 0.35)';
+    ctx.fillRect(minToX(rise), 0, minToX(set) - minToX(rise), H);
+
+    // Waking darkness
+    if (rise > wake) {
+      ctx.fillStyle = 'rgba(74, 127, 255, 0.3)';
+      ctx.fillRect(minToX(wake), 0, minToX(rise) - minToX(wake), H);
+    }
+    if (set < sleep) {
+      ctx.fillStyle = 'rgba(74, 127, 255, 0.3)';
+      ctx.fillRect(minToX(set), 0, minToX(sleep) - minToX(set), H);
+    }
+
+    // Sleeping light
+    if (rise < wake) {
+      ctx.fillStyle = 'rgba(232, 93, 74, 0.25)';
+      ctx.fillRect(minToX(rise), 0, minToX(wake) - minToX(rise), H);
+    }
+    if (set > sleep) {
+      ctx.fillStyle = 'rgba(232, 93, 74, 0.25)';
+      ctx.fillRect(minToX(sleep), 0, minToX(set) - minToX(sleep), H);
+    }
+
+    // Hour ticks
+    ctx.fillStyle = s.getPropertyValue('--text-muted').trim();
+    ctx.font = `8px ${s.getPropertyValue('--font-mono').trim()}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (let h = 0; h <= 24; h += 6) {
+      const x = minToX(h * 60);
+      ctx.fillStyle = s.getPropertyValue('--border').trim();
+      ctx.fillRect(x, 0, 0.5, H);
+      ctx.fillStyle = s.getPropertyValue('--text-muted').trim();
+      const lbl = h === 0 || h === 24 ? '12a' : h === 12 ? '12p' : h < 12 ? `${h}a` : `${h-12}p`;
+      ctx.fillText(lbl, x, H - 2);
+    }
+  }
+
+  function update() {
+    const d = parseInt(slider.value);
+    label.textContent = formatDate(d);
+    const data = SolarCalculator.daylightForDay(d, lat);
+    drawBar(stdCanvas, data.sunrise, data.sunset, 360, 1320);
+    drawBar(dstCanvas, Math.max(0, data.sunrise + 60), Math.min(1440, data.sunset + 60), 360, 1320);
+  }
+
+  slider.addEventListener('input', update);
+  window.addEventListener('resize', update);
+  update();
+}
+
+// ── Widget B: Alignment Chart (Boston) ─────────────────────
+
+function initWidgetB() {
+  const canvas = document.getElementById('chartB');
+  const toggle = document.getElementById('toggleB');
+  const statsEl = document.getElementById('statsB');
+  const chart = new MiniChart(canvas);
+
+  function update() {
+    const stats = chart.draw({
+      latitude: 42.36,
+      dstStart: US_DST.start, dstEnd: US_DST.end,
+      dstEnabled: toggle.checked,
+    });
+    statsEl.innerHTML = statsHTML(stats);
+  }
+
+  toggle.addEventListener('change', update);
+  window.addEventListener('resize', () => { chart.resize(); update(); });
+  update();
+}
+
+// ── Widget C: Latitude Explorer ────────────────────────────
+
+function initWidgetC() {
+  const canvas = document.getElementById('chartC');
+  const slider = document.getElementById('latSlider');
+  const label = document.getElementById('latLabel');
+  const statsEl = document.getElementById('statsC');
+  const chart = new MiniChart(canvas);
+
+  function update() {
+    const lat = parseFloat(slider.value);
+    label.textContent = `${lat.toFixed(1)}\u00b0 N \u2014 ${nearestCityForLat(lat)}`;
+    const stats = chart.draw({
+      latitude: lat,
+      dstStart: US_DST.start, dstEnd: US_DST.end,
+      dstEnabled: true,
+    });
+    statsEl.innerHTML = statsHTML(stats);
+  }
+
+  slider.addEventListener('input', update);
+  window.addEventListener('resize', () => { chart.resize(); update(); });
+  update();
+}
+
+// ── Widget D: City Triptych ────────────────────────────────
+
+function initWidgetD() {
+  const container = document.getElementById('triptych');
+  const toggle = document.getElementById('toggleD');
+  const cities = [
+    { name: 'Fairbanks', lat: 64.84, meta: '64.8\u00b0 N' },
+    { name: 'Boston', lat: 42.36, meta: '42.4\u00b0 N' },
+    { name: 'Quito', lat: -0.18, meta: '0.2\u00b0 S' },
+  ];
+
+  const panels = cities.map(city => {
+    const panel = document.createElement('div');
+    panel.className = 'triptych-panel';
+    panel.innerHTML = `
+      <div class="tp-label">${city.name}</div>
+      <div class="tp-meta">${city.meta}</div>
+      <canvas style="width:100%; height:180px;"></canvas>
+      <div class="tp-stat"></div>
+    `;
+    container.appendChild(panel);
+    const canvas = panel.querySelector('canvas');
+    return { city, panel, canvas, chart: new MiniChart(canvas) };
+  });
+
+  function update() {
+    for (const { city, panel, chart } of panels) {
+      const stats = chart.draw({
+        latitude: city.lat,
+        dstStart: US_DST.start, dstEnd: US_DST.end,
+        dstEnabled: toggle.checked,
+      });
+      panel.querySelector('.tp-stat').innerHTML =
+        `<span style="color:var(--green); font-weight:600;">Saves ${formatHours(stats.savings)}</span>`;
+    }
+  }
+
+  toggle.addEventListener('change', update);
+  window.addEventListener('resize', () => {
+    panels.forEach(p => p.chart.resize());
+    update();
+  });
+  update();
+}
+
+// ── Widget E: Window Compare ───────────────────────────────
+
+function initWidgetE() {
+  const canvas = document.getElementById('chartE');
+  const radios = document.querySelectorAll('input[name="windowE"]');
+  const statsEl = document.getElementById('statsE');
+  const chart = new MiniChart(canvas);
+  const lat = 40.71; // New York
+
+  function update() {
+    const val = document.querySelector('input[name="windowE"]:checked').value;
+    let dstStart = null, dstEnd = null, dstEnabled = false;
+    if (val === 'old') { dstStart = OLD_US_DST.start; dstEnd = OLD_US_DST.end; dstEnabled = true; }
+    else if (val === 'current') { dstStart = US_DST.start; dstEnd = US_DST.end; dstEnabled = true; }
+
+    const stats = chart.draw({ latitude: lat, dstStart, dstEnd, dstEnabled });
+    statsEl.innerHTML = statsHTML(stats);
+  }
+
+  radios.forEach(r => r.addEventListener('change', update));
+  window.addEventListener('resize', () => { chart.resize(); update(); });
+  update();
+}
+
+// ── Widget F: Permanent DST ────────────────────────────────
+
+function initWidgetF() {
+  const canvas = document.getElementById('chartF');
+  const radios = document.querySelectorAll('input[name="modeF"]');
+  const statsEl = document.getElementById('statsF');
+  const chart = new MiniChart(canvas);
+  const lat = 40.71; // New York
+
+  function update() {
+    const val = document.querySelector('input[name="modeF"]:checked').value;
+    let opts = { latitude: lat };
+
+    if (val === 'standard') {
+      opts.dstEnabled = false;
+    } else if (val === 'current') {
+      opts.dstStart = US_DST.start;
+      opts.dstEnd = US_DST.end;
+      opts.dstEnabled = true;
+    } else { // permanent
+      opts.permanentDST = true;
+    }
+
+    const stats = chart.draw(opts);
+
+    // For permanent DST, calculate savings vs no-DST baseline
+    const baseline = annualStats(lat, null, null);
+    const totalWasted = stats.wakingDark + stats.sleepingLight;
+    const baseWasted = baseline.wakingDarkNoDST + baseline.sleepingLightNoDST;
+    stats.savings = baseWasted - totalWasted;
+
+    statsEl.innerHTML = statsHTML(stats);
+  }
+
+  radios.forEach(r => r.addEventListener('change', update));
+  window.addEventListener('resize', () => { chart.resize(); update(); });
+  update();
+}
+
+// ── Init ───────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initWidgetA();
+  initWidgetB();
+  initWidgetC();
+  initWidgetD();
+  initWidgetE();
+  initWidgetF();
+});
+</script>
+</body>
+</html>
