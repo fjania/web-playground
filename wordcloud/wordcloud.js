@@ -333,111 +333,147 @@ export class WordCloud {
 
     const z = this._zoom;
 
-    // Tetris timing (NES level 13 feel)
-    const gravityTick = 67;    // ms per row-step (4 frames at 60fps)
-    const rotatePause = 100;   // ms pause at spawn for rotation snap
-    const lockDelay = 120;     // ms pause after landing
-    const staggerInterval = Math.max(150, Math.min(300, 8000 / words.length));
+    // Tetris timing — one piece at a time, like the real game
+    const gravityTick = 55;    // ms per drop step (fast level feel)
+    const hMoveTick = 35;      // ms per horizontal step (DAS auto-repeat speed)
+    const rotatePause = 80;    // ms pause at spawn for rotation snap
+    const lockDelay = 100;     // ms flash after landing
+    const entryDelay = 60;     // ms pause before next piece spawns (ARE)
 
-    // Compute spawn Y in layout space (above the visible area)
+    // Spawn Y in layout space (above the visible area)
     const spawnLayoutY = (-z.ty / z.scale) - 40;
+    // Spawn X: center of the visible area in layout space
+    const spawnLayoutX = (this._width / 2 - z.tx) / z.scale;
 
-    // Pre-compute per-word animation state
-    const wordStates = words.map((word) => {
+    // Pre-compute per-word geometry
+    const wordGeo = words.map((word) => {
       const finalX = this._width / 2 + word.x;
       const finalY = this._height / 2 + word.y;
-      const stepSize = Math.max(8, word.fontSize * 0.7);
-      const distance = finalY - spawnLayoutY;
-      const totalSteps = Math.max(1, Math.ceil(distance / stepSize));
-      const actualStepSize = distance / totalSteps;
 
-      return {
-        finalX, finalY, spawnLayoutY, stepSize: actualStepSize,
-        totalSteps, currentStep: -1, phase: 'waiting',
-        lastStepTime: 0, landedTime: 0,
-      };
+      // Vertical: stepped drop from spawn to final Y
+      const dropStepSize = Math.max(8, word.fontSize * 0.7);
+      const dropDistance = finalY - spawnLayoutY;
+      const dropSteps = Math.max(1, Math.ceil(dropDistance / dropStepSize));
+      const dropStep = dropDistance / dropSteps;
+
+      // Horizontal: stepped move from spawn X to final X at the top
+      const hDistance = finalX - spawnLayoutX;
+      const hStepSize = Math.max(8, word.fontSize * 0.5);
+      const hSteps = Math.max(0, Math.ceil(Math.abs(hDistance) / hStepSize));
+      const hStep = hSteps > 0 ? hDistance / hSteps : 0;
+
+      return { finalX, finalY, dropSteps, dropStep, hSteps, hStep };
     });
 
-    let landedCount = 0;
-    let nextSpawnIdx = 0;
-    let lastSpawnTime = -staggerInterval; // so first word spawns immediately
+    // State machine for the single active piece
+    let activeIdx = 0;
+    let phase = 'spawn';       // spawn | rotate | hmove | dropping | locking | entry
+    let phaseStart = 0;
+    let stepCount = 0;
+    let lastStepTime = 0;
+    let curX = spawnLayoutX;
+    let curY = spawnLayoutY;
+    let curRot = 0;
 
     const tick = () => {
       const now = performance.now();
       const elapsed = now - startTime;
+      const word = words[activeIdx];
+      const geo = wordGeo[activeIdx];
 
-      // Spawn new words on stagger interval
-      while (nextSpawnIdx < words.length && elapsed - lastSpawnTime >= staggerInterval) {
-        wordStates[nextSpawnIdx].phase = 'rotate';
-        wordStates[nextSpawnIdx].lastStepTime = lastSpawnTime + staggerInterval;
-        lastSpawnTime += staggerInterval;
-        nextSpawnIdx++;
+      // --- State machine: one piece at a time ---
+      if (phase === 'spawn') {
+        // Initialize piece at spawn position
+        curX = spawnLayoutX;
+        curY = spawnLayoutY;
+        curRot = 0;
+        stepCount = 0;
+        phaseStart = elapsed;
+        phase = word.rotation !== 0 ? 'rotate' : 'hmove';
+        lastStepTime = elapsed;
       }
 
-      // Advance state machines
-      for (let i = 0; i < nextSpawnIdx; i++) {
-        const ws = wordStates[i];
-        if (ws.phase === 'landed') continue;
-
-        if (ws.phase === 'rotate') {
-          if (elapsed - ws.lastStepTime >= rotatePause) {
-            ws.phase = 'dropping';
-            ws.currentStep = 0;
-            ws.lastStepTime = ws.lastStepTime + rotatePause;
-          }
-        }
-
-        if (ws.phase === 'dropping') {
-          // Advance as many gravity ticks as elapsed time allows
-          while (ws.currentStep < ws.totalSteps &&
-                 elapsed - ws.lastStepTime >= gravityTick) {
-            ws.currentStep++;
-            ws.lastStepTime += gravityTick;
-          }
-          if (ws.currentStep >= ws.totalSteps) {
-            ws.phase = 'locking';
-            ws.landedTime = ws.lastStepTime;
-          }
-        }
-
-        if (ws.phase === 'locking') {
-          if (elapsed - ws.landedTime >= lockDelay) {
-            ws.phase = 'landed';
-            landedCount++;
-          }
+      if (phase === 'rotate') {
+        if (elapsed - phaseStart >= rotatePause) {
+          curRot = word.rotation;
+          phase = 'hmove';
+          phaseStart = elapsed;
+          lastStepTime = elapsed;
+          stepCount = 0;
         }
       }
 
-      // Draw
+      if (phase === 'hmove') {
+        // Step horizontally toward final X
+        while (stepCount < geo.hSteps && elapsed - lastStepTime >= hMoveTick) {
+          stepCount++;
+          lastStepTime += hMoveTick;
+          curX = spawnLayoutX + stepCount * geo.hStep;
+        }
+        if (stepCount >= geo.hSteps) {
+          curX = geo.finalX;
+          phase = 'dropping';
+          stepCount = 0;
+          lastStepTime = elapsed;
+        }
+      }
+
+      if (phase === 'dropping') {
+        // Step down one row at a time
+        while (stepCount < geo.dropSteps && elapsed - lastStepTime >= gravityTick) {
+          stepCount++;
+          lastStepTime += gravityTick;
+          curY = spawnLayoutY + stepCount * geo.dropStep;
+        }
+        if (stepCount >= geo.dropSteps) {
+          curY = geo.finalY;
+          phase = 'locking';
+          phaseStart = elapsed;
+        }
+      }
+
+      if (phase === 'locking') {
+        if (elapsed - phaseStart >= lockDelay) {
+          phase = 'entry';
+          phaseStart = elapsed;
+        }
+      }
+
+      if (phase === 'entry') {
+        if (elapsed - phaseStart >= entryDelay) {
+          activeIdx++;
+          if (activeIdx < words.length) {
+            phase = 'spawn';
+          } else {
+            phase = 'done';
+          }
+        }
+      }
+
+      // --- Draw ---
       this.ctx.fillStyle = this.options.backgroundColor;
       this.ctx.fillRect(0, 0, this._width, this._height);
 
-      for (let i = 0; i < nextSpawnIdx; i++) {
-        const word = words[i];
-        const ws = wordStates[i];
+      // Draw all landed words
+      const landedUpTo = phase === 'locking' || phase === 'entry' || phase === 'done'
+        ? activeIdx + 1 : activeIdx;
+      for (let i = 0; i < Math.min(landedUpTo, words.length); i++) {
+        this._drawWord(words[i]);
+      }
 
-        if (ws.phase === 'landed' || ws.phase === 'locking') {
-          // Draw at final position
-          this._drawWord(word);
-        } else if (ws.phase === 'rotate') {
-          // At spawn: show at final X, spawn Y. Snap rotation halfway through pause.
-          const rotElapsed = elapsed - (ws.lastStepTime);
-          const rot = (word.rotation !== 0 && rotElapsed >= rotatePause / 2)
-            ? word.rotation : 0;
-          this._drawWordInLayout(word, ws.finalX, ws.spawnLayoutY, rot);
-        } else if (ws.phase === 'dropping') {
-          // Stepped position
-          const curY = ws.spawnLayoutY + ws.currentStep * ws.stepSize;
-          this._drawWordInLayout(word, ws.finalX, curY, word.rotation);
-        }
+      // Draw active piece (if still in motion)
+      if (phase === 'rotate' || phase === 'hmove' || phase === 'dropping') {
+        this._drawWordInLayout(word, curX, curY, curRot);
       }
 
       // NEXT preview
-      if (nextSpawnIdx < words.length) {
-        this._drawNextPreview(words[nextSpawnIdx]);
+      const nextIdx = phase === 'locking' || phase === 'entry'
+        ? activeIdx + 1 : activeIdx + 1;
+      if (nextIdx < words.length) {
+        this._drawNextPreview(words[nextIdx]);
       }
 
-      if (landedCount < words.length) {
+      if (phase !== 'done') {
         this._animationFrame = requestAnimationFrame(tick);
       }
     };
