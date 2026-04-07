@@ -462,14 +462,18 @@ export class WordCloud {
           ? piece.finalX
           : spawnX + hMovesDone * piece.hPerMove;
 
-        // Rotation from player
+        // Rotation from player — always clockwise in 90° steps
+        // +90° (PI/2): 1 step (0→90)
+        // -90° (270°): 3 steps (0→90→180→270)
         let curRot = 0;
         if (rotStarted) {
           const rotElapsed = t - rotStartTime;
           const stepsCompleted = Math.floor(rotElapsed / ROT_STEP_DELAY);
-          const dir = word.rotation > 0 ? 1 : -1;
-          const stepsNeeded = 1; // always one 90° step for ±PI/2
-          curRot = stepsCompleted >= stepsNeeded ? word.rotation : 0;
+          const stepsNeeded = word.rotation > 0 ? 1 : 3;
+          const steps = Math.min(stepsCompleted, stepsNeeded);
+          curRot = steps * (Math.PI / 2);
+          // Normalize: 3 clockwise steps = 3*PI/2 which renders same as -PI/2
+          if (steps >= stepsNeeded) curRot = word.rotation;
         }
 
         this._drawWordInLayout(word, curX, curY, curRot);
