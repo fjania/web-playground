@@ -359,6 +359,18 @@
     </div>
     <div class="controls">
       <div class="control-group">
+        <span class="label">Layout</span>
+        <div class="chip-group" id="layout-chips">
+          <button class="chip active" data-value="spiral">Spiral</button>
+          <button class="chip" data-value="wander-line">Diagonal</button>
+          <button class="chip" data-value="wander-curl">Curl</button>
+          <button class="chip" data-value="wander-wisp">Wisp</button>
+          <button class="chip" data-value="wander-ring">Ring</button>
+          <button class="chip" data-value="rectangular">Rectangular</button>
+          <button class="chip" data-value="tetris">Tetris</button>
+        </div>
+      </div>
+      <div class="control-group">
         <span class="label">Scale</span>
         <div class="chip-group" id="scaling-chips">
           <button class="chip" data-value="sqrt">Sqrt</button>
@@ -466,7 +478,7 @@ onmessage = function (e) {
 
 function runLayout(sprites, config, gen) {
   const startTime = performance.now();
-  const { width, height } = config;
+  const { width, height, layout } = config;
 
   const boardW = Math.ceil(width * 2);
   const boardH = Math.ceil(height * 2);
@@ -476,6 +488,7 @@ function runLayout(sprites, config, gen) {
   const cx = Math.floor(boardW / 2);
   const cy = Math.floor(boardH / 2);
   const aspect = width / height;
+  const placeFn = getPlaceFn(layout || 'spiral');
 
   const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   let placed = 0;
@@ -486,7 +499,7 @@ function runLayout(sprites, config, gen) {
     if (gen !== generation) return;
 
     const s = sprites[si];
-    const pos = spiralPlace(s, board, boardW32, boardH, cx, cy, aspect);
+    const pos = placeFn(s, board, boardW32, boardH, cx, cy, aspect, si, total);
 
     if (pos) {
       placeOnBoard(s.data, s.w32, s.h, pos.bx, pos.by, board, boardW32);
@@ -516,6 +529,7 @@ function runLayout(sprites, config, gen) {
 
   postMessage({
     cmd: 'complete', bounds: bounds,
+    debugOrigins: wanderingOrigins,
     stats: { timeMs: Math.round(performance.now() - startTime), placed: placed, skipped: skipped },
   });
 }
@@ -587,7 +601,23 @@ function placeOnBoard(spriteData, sw32, sh, bx, by, board, boardW32) {
   }
 }
 
-function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
+var wanderingOrigins = [];
+var wanderBaseAngle = 0;
+
+function getPlaceFn(layout) {
+  switch (layout) {
+    case 'rectangular': return placeRectangular;
+    case 'tetris': return placeTetris;
+    case 'wander-line': return placeWanderLine;
+    case 'wander-curl': return placeWanderCurl;
+    case 'wander-wisp': return placeWanderWisp;
+    case 'wander-ring': return placeWanderRing;
+    default: return placeSpiral;
+  }
+}
+
+// --- Layout 1: Archimedean Spiral ---
+function placeSpiral(sprite, board, boardW32, boardH, cx, cy, aspect) {
   const maxSteps = 50000;
   const dt = 0.05;
   const startAngle = Math.random() * Math.PI * 2;
@@ -602,7 +632,123 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
       return { bx: x, by: y };
     }
   }
+  return null;
+}
 
+// --- Layout 2a: Wandering Diagonal ---
+// Origins march along a 30-degree line from center.
+function placeWanderLine(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
+  if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
+  const lineAngle = wanderBaseAngle;
+  const spacing = Math.min(cx, cy) * 1.2 / Math.max(total, 1);
+  const dist = si * spacing;
+  const originX = cx + Math.round(dist * Math.cos(lineAngle) * aspect);
+  const originY = cy + Math.round(dist * Math.sin(lineAngle));
+  wanderingOrigins.push({ x: originX - cx, y: originY - cy });
+  return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
+}
+
+// --- Layout 2b: Wandering Curl ---
+// Origins follow a slow, large Archimedean spiral — the cloud curls outward.
+function placeWanderCurl(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
+  if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
+  const maxR = Math.min(cx, cy) * 0.7;
+  const theta = wanderBaseAngle + (si / Math.max(total - 1, 1)) * Math.PI;
+  const r = (si / Math.max(total - 1, 1)) * maxR;
+  const originX = cx + Math.round(r * Math.cos(theta) * aspect);
+  const originY = cy + Math.round(r * Math.sin(theta));
+  wanderingOrigins.push({ x: originX - cx, y: originY - cy });
+  return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
+}
+
+// --- Layout 2c: Wandering Wisp ---
+// Origins follow a very subtle spiral — no more than 45 degrees. A gentle arc.
+function placeWanderWisp(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
+  if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
+  const maxR = Math.min(cx, cy) * 0.7;
+  const theta = wanderBaseAngle + (si / Math.max(total - 1, 1)) * Math.PI / 4;
+  const r = (si / Math.max(total - 1, 1)) * maxR;
+  const originX = cx + Math.round(r * Math.cos(theta) * aspect);
+  const originY = cy + Math.round(r * Math.sin(theta));
+  wanderingOrigins.push({ x: originX - cx, y: originY - cy });
+  return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
+}
+
+// --- Layout 2d: Wandering Ring ---
+// Origins follow a circle, starting from a random angle.
+function placeWanderRing(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
+  if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
+  const radius = Math.min(cx, cy) * 0.35;
+  const theta = wanderBaseAngle + (si / Math.max(total, 1)) * Math.PI * 2;
+  const originX = cx + Math.round(radius * Math.cos(theta) * aspect);
+  const originY = cy + Math.round(radius * Math.sin(theta));
+  wanderingOrigins.push({ x: originX - cx, y: originY - cy });
+  return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
+}
+
+// Shared: place a word starting from a given origin using a tight spiral search
+function placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect) {
+  const maxSteps = 50000;
+  const dt = 0.05;
+  for (let t = 0; t < maxSteps; t++) {
+    const theta = dt * t;
+    const r = dt * t * 0.5;
+    const x = Math.round(originX + r * Math.cos(theta) * aspect - sprite.w / 2);
+    const y = Math.round(originY + r * Math.sin(theta) - sprite.h / 2);
+    if (testPosition(sprite.data, sprite.w32, sprite.h, x, y, board, boardW32, boardH)) {
+      return { bx: x, by: y };
+    }
+  }
+  return null;
+}
+
+// --- Layout 3: Rectangular Spiral ---
+function placeRectangular(sprite, board, boardW32, boardH, cx, cy, aspect) {
+  const step = 2;
+  let x = cx - Math.floor(sprite.w / 2);
+  let y = cy - Math.floor(sprite.h / 2);
+  let dx = step, dy = 0;
+  let segmentLen = step * 4;
+  let segmentPassed = 0;
+  let turnCount = 0;
+
+  for (let i = 0; i < 200000; i++) {
+    if (testPosition(sprite.data, sprite.w32, sprite.h, x, y, board, boardW32, boardH)) {
+      return { bx: x, by: y };
+    }
+
+    x += dx;
+    y += dy;
+    segmentPassed += step;
+
+    if (segmentPassed >= segmentLen) {
+      segmentPassed = 0;
+      turnCount++;
+      const tmp = dx;
+      dx = -dy;
+      dy = tmp;
+      if (turnCount % 2 === 0) segmentLen += step * 4;
+    }
+  }
+  return null;
+}
+
+// --- Layout 4: Tetris Pack ---
+// Scans left-to-right, bottom-to-top, placing each word at the lowest available position.
+function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
+  const scanStep = 3;
+  const startY = Math.min(boardH - sprite.h, cy + Math.floor(boardH * 0.4));
+  const endY = Math.max(0, cy - Math.floor(boardH * 0.4));
+  const startX = Math.max(0, cx - Math.floor(cx * 0.9));
+  const endX = Math.min(boardW32 * 32 - sprite.w, cx + Math.floor(cx * 0.9));
+
+  for (let y = startY; y >= endY; y -= scanStep) {
+    for (let x = startX; x <= endX; x += scanStep) {
+      if (testPosition(sprite.data, sprite.w32, sprite.h, x, y, board, boardW32, boardH)) {
+        return { bx: x, by: y };
+      }
+    }
+  }
   return null;
 }
   </script>
@@ -736,7 +882,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
         this._worker.postMessage({
           cmd: 'start',
           sprites,
-          config: { width: this._width, height: this._height },
+          config: { width: this._width, height: this._height, layout: this.options.layout || 'spiral' },
         });
 
         this.ctx.fillStyle = this.options.backgroundColor;
@@ -865,6 +1011,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
           this._placedWords.push(e.data.word);
           this._emit('wordPlaced', { word: e.data.word, progress: e.data.progress });
         } else if (cmd === 'complete') {
+          this._debugOrigins = e.data.debugOrigins || [];
           this._computeZoom();
           this._animateReveal();
           this._emit('complete', e.data);
@@ -916,9 +1063,9 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
           const targetCount = Math.min(words.length, Math.floor((now - startTime) / interval) + 1);
 
           if (revealed < targetCount) {
-            // Clear and redraw all revealed words
             this.ctx.fillStyle = this.options.backgroundColor;
             this.ctx.fillRect(0, 0, this._width, this._height);
+            this._drawDebugOrigins();
             revealed = targetCount;
             for (let i = 0; i < revealed; i++) {
               this._drawWord(words[i]);
@@ -963,9 +1110,46 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
       _redrawAll() {
         this.ctx.fillStyle = this.options.backgroundColor;
         this.ctx.fillRect(0, 0, this._width, this._height);
+        this._drawDebugOrigins();
         for (const word of this._placedWords) {
           this._drawWord(word);
         }
+      }
+
+      _drawDebugOrigins() {
+        const origins = this._debugOrigins;
+        if (!origins || origins.length < 2) return;
+
+        const ctx = this.ctx;
+        const z = this._zoom;
+        ctx.save();
+        ctx.translate(z.tx, z.ty);
+        ctx.scale(z.scale, z.scale);
+
+        // Draw connecting line
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(83, 216, 251, 0.3)';
+        ctx.lineWidth = 1.5 / z.scale;
+        for (let i = 0; i < origins.length; i++) {
+          const px = this._width / 2 + origins[i].x;
+          const py = this._height / 2 + origins[i].y;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        // Draw dots
+        for (let i = 0; i < origins.length; i++) {
+          const px = this._width / 2 + origins[i].x;
+          const py = this._height / 2 + origins[i].y;
+          const dotR = Math.max(2, 4 / z.scale);
+          ctx.beginPath();
+          ctx.arc(px, py, dotR, 0, Math.PI * 2);
+          ctx.fillStyle = i === 0 ? '#e94560' : 'rgba(83, 216, 251, 0.6)';
+          ctx.fill();
+        }
+
+        ctx.restore();
       }
 
       _handleClick(e) {
@@ -1446,7 +1630,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
     }
 
     // Wire up chip groups
-    ['scaling-chips', 'color-chips', 'rotation-chips'].forEach(groupId => {
+    ['layout-chips', 'scaling-chips', 'color-chips', 'rotation-chips'].forEach(groupId => {
       document.getElementById(groupId).addEventListener('click', (e) => {
         const chip = e.target.closest('[data-value]');
         if (!chip) return;
@@ -1512,6 +1696,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
 
       wc = new WordCloud(container, {
         fontFamily: selectedFont,
+        layout: getChipValue('layout-chips'),
         scaling: getChipValue('scaling-chips'),
         colorScheme: getChipValue('color-chips'),
         rotationProbability: parseFloat(getChipValue('rotation-chips')),
