@@ -61,7 +61,7 @@ export class WordCloud {
   }
 
   _createWorker() {
-    return new Worker('./layout-worker.js');
+    return new Worker(new URL('./layout-worker.js', import.meta.url));
   }
 
   async render(words) {
