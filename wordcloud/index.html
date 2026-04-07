@@ -381,14 +381,17 @@
       </div>
       <div class="control-group">
         <span class="label">Colors</span>
-        <div class="chip-group" id="color-chips">
-          <button class="color-chip active" data-value="vibrant"><span class="color-dot" style="background:#e94560"></span><span class="color-dot" style="background:#53d8fb"></span><span class="color-dot" style="background:#7ed957"></span> Vibrant</button>
-          <button class="color-chip" data-value="sunset"><span class="color-dot" style="background:#ff6b6b"></span><span class="color-dot" style="background:#ee5a24"></span><span class="color-dot" style="background:#ffd93d"></span> Sunset</button>
-          <button class="color-chip" data-value="ocean"><span class="color-dot" style="background:#74b9ff"></span><span class="color-dot" style="background:#a29bfe"></span><span class="color-dot" style="background:#81ecec"></span> Ocean</button>
-          <button class="color-chip" data-value="forest"><span class="color-dot" style="background:#00b894"></span><span class="color-dot" style="background:#fdcb6e"></span><span class="color-dot" style="background:#6ab04c"></span> Forest</button>
-          <button class="color-chip" data-value="neon"><span class="color-dot" style="background:#ff00ff"></span><span class="color-dot" style="background:#00ffff"></span><span class="color-dot" style="background:#ffff00"></span> Neon</button>
-          <button class="color-chip" data-value="pastel"><span class="color-dot" style="background:#fab1a0"></span><span class="color-dot" style="background:#ffeaa7"></span><span class="color-dot" style="background:#81ecec"></span> Pastel</button>
-          <button class="color-chip" data-value="mono"><span class="color-dot" style="background:#fff"></span><span class="color-dot" style="background:#aaa"></span><span class="color-dot" style="background:#ddd"></span> Mono</button>
+        <div class="font-picker" id="color-picker">
+          <button class="font-picker-btn" id="color-picker-btn">
+            <span style="display:flex;gap:3px;align-items:center" id="color-picker-label">
+              <span class="color-dot" style="background:#e94560"></span>
+              <span class="color-dot" style="background:#53d8fb"></span>
+              <span class="color-dot" style="background:#7ed957"></span>
+              Vibrant
+            </span>
+            <span class="arrow">&#9662;</span>
+          </button>
+          <div class="font-picker-menu" id="color-picker-menu"></div>
         </div>
       </div>
       <div class="control-group">
@@ -786,13 +789,23 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
     // --- WordCloud Class ---
     class WordCloud {
       static PALETTES = {
-        vibrant: ['#e94560', '#53d8fb', '#f5a623', '#7ed957', '#bd93f9', '#ff79c6', '#f1fa8c', '#50fa7b'],
-        sunset:  ['#ff6b6b', '#ee5a24', '#ffa502', '#ffd93d', '#e84393', '#fd79a8', '#fab1a0', '#fdcb6e'],
-        ocean:   ['#74b9ff', '#a29bfe', '#81ecec', '#55efc4', '#0984e3', '#6c5ce7', '#00cec9', '#dfe6e9'],
-        forest:  ['#00b894', '#55efc4', '#fdcb6e', '#e17055', '#00cec9', '#badc58', '#f9ca24', '#6ab04c'],
-        neon:    ['#ff00ff', '#00ffff', '#ffff00', '#ff3366', '#33ff99', '#ff6600', '#9933ff', '#00ff66'],
-        pastel:  ['#fab1a0', '#ffeaa7', '#81ecec', '#a29bfe', '#dfe6e9', '#55efc4', '#fdcb6e', '#fd79a8'],
-        mono:    ['#ffffff', '#e0e0e0', '#c0c0c0', '#a0a0a0', '#d0d0d0', '#b8b8b8', '#f0f0f0', '#cccccc'],
+        vibrant:   ['#e94560', '#53d8fb', '#f5a623', '#7ed957', '#bd93f9', '#ff79c6', '#f1fa8c', '#50fa7b'],
+        sunset:    ['#ff6b6b', '#ee5a24', '#ffa502', '#ffd93d', '#e84393', '#fd79a8', '#fab1a0', '#fdcb6e'],
+        ocean:     ['#74b9ff', '#a29bfe', '#81ecec', '#55efc4', '#0984e3', '#6c5ce7', '#00cec9', '#dfe6e9'],
+        forest:    ['#00b894', '#55efc4', '#fdcb6e', '#e17055', '#00cec9', '#badc58', '#f9ca24', '#6ab04c'],
+        neon:      ['#ff00ff', '#00ffff', '#ffff00', '#ff3366', '#33ff99', '#ff6600', '#9933ff', '#00ff66'],
+        pastel:    ['#fab1a0', '#ffeaa7', '#81ecec', '#a29bfe', '#dfe6e9', '#55efc4', '#fdcb6e', '#fd79a8'],
+        mono:      ['#ffffff', '#e0e0e0', '#c0c0c0', '#a0a0a0', '#d0d0d0', '#b8b8b8', '#f0f0f0', '#cccccc'],
+        berry:     ['#6a0572', '#ab83a1', '#e36bae', '#f79cd4', '#c964cf', '#8e44ad', '#d63384', '#f4a6d7'],
+        ember:     ['#ff4500', '#ff6347', '#ff8c00', '#ffa07a', '#dc143c', '#b22222', '#ff2400', '#e25822'],
+        arctic:    ['#e0f7fa', '#b2ebf2', '#80deea', '#4dd0e1', '#26c6da', '#00acc1', '#0097a7', '#00838f'],
+        autumn:    ['#d35400', '#e67e22', '#f39c12', '#c0392b', '#8e6f47', '#a0522d', '#cd853f', '#daa520'],
+        lavender:  ['#e6e6fa', '#d8bfd8', '#dda0dd', '#da70d6', '#ba55d3', '#9370db', '#8a2be2', '#9932cc'],
+        candy:     ['#ff69b4', '#ff1493', '#ff6eb4', '#ffb6c1', '#db7093', '#c71585', '#f08080', '#ff7f50'],
+        earth:     ['#8b7355', '#a0926b', '#c4a76c', '#d4c5a9', '#7c6f5b', '#6b5b3e', '#9c8e7e', '#bfb399'],
+        tropical:  ['#ff6f61', '#ffcc5c', '#88d8b0', '#6bc5d2', '#ff8a5c', '#ea5455', '#2ecc71', '#f9ca24'],
+        midnight:  ['#2c3e50', '#34495e', '#5d6d7e', '#85929e', '#aeb6bf', '#7f8c8d', '#95a5a6', '#bdc3c7'],
+        sakura:    ['#ffb7c5', '#ff69b4', '#ffc0cb', '#db7093', '#f4a7b9', '#e8adaa', '#d4a5a5', '#ffe4e1'],
       };
 
       constructor(container, options = {}) {
@@ -1640,7 +1653,111 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
       renderDataset(datasetSelect.value);
     });
 
-    document.addEventListener('click', () => fontPickerMenu.classList.remove('open'));
+    document.addEventListener('click', () => {
+      fontPickerMenu.classList.remove('open');
+      colorPickerMenu.classList.remove('open');
+    });
+
+    // Custom color picker
+    const colorPickerBtn = document.getElementById('color-picker-btn');
+    const colorPickerMenu = document.getElementById('color-picker-menu');
+    const colorPickerLabel = document.getElementById('color-picker-label');
+    let selectedColorScheme = 'vibrant';
+
+    // Build menu items from PALETTES
+    function buildColorMenu() {
+      colorPickerMenu.innerHTML = '';
+      for (const [name, colors] of Object.entries(WordCloud.PALETTES)) {
+        const item = document.createElement('div');
+        item.className = 'font-picker-item' + (name === selectedColorScheme ? ' selected' : '');
+        item.dataset.value = name;
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.gap = '6px';
+        // Show 5 color dots
+        for (let i = 0; i < 5; i++) {
+          const dot = document.createElement('span');
+          dot.className = 'color-dot';
+          dot.style.background = colors[i];
+          dot.style.width = '8px';
+          dot.style.height = '8px';
+          item.appendChild(dot);
+        }
+        const label = document.createElement('span');
+        label.style.marginLeft = '4px';
+        label.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        item.appendChild(label);
+        colorPickerMenu.appendChild(item);
+      }
+    }
+    buildColorMenu();
+
+    function updateColorLabel(name, colors) {
+      colorPickerLabel.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        const dot = document.createElement('span');
+        dot.className = 'color-dot';
+        dot.style.background = colors[i];
+        colorPickerLabel.appendChild(dot);
+      }
+      colorPickerLabel.appendChild(document.createTextNode(' ' + name.charAt(0).toUpperCase() + name.slice(1)));
+    }
+
+    colorPickerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fontPickerMenu.classList.remove('open');
+      colorPickerMenu.classList.toggle('open');
+    });
+
+    // Store original colors so we can revert on hover-out
+    let previewingColor = false;
+    let savedColors = null;
+
+    function applyPaletteToCloud(name) {
+      if (!wc || wc._placedWords.length === 0) return;
+      const palette = WordCloud.PALETTES[name];
+      if (!palette) return;
+      wc._placedWords.forEach((w, i) => { w.color = palette[i % palette.length]; });
+      wc._redrawAll();
+    }
+
+    colorPickerMenu.addEventListener('mouseover', (e) => {
+      const item = e.target.closest('.font-picker-item');
+      if (!item || !wc || wc._placedWords.length === 0) return;
+      // Save original colors on first hover
+      if (!previewingColor) {
+        savedColors = wc._placedWords.map(w => w.color);
+        previewingColor = true;
+      }
+      applyPaletteToCloud(item.dataset.value);
+    });
+
+    colorPickerMenu.addEventListener('mouseleave', () => {
+      // Revert to saved colors if no click happened
+      if (previewingColor && savedColors && wc && wc._placedWords.length > 0) {
+        wc._placedWords.forEach((w, i) => { w.color = savedColors[i]; });
+        wc._redrawAll();
+        previewingColor = false;
+        savedColors = null;
+      }
+    });
+
+    colorPickerMenu.addEventListener('click', (e) => {
+      const item = e.target.closest('.font-picker-item');
+      if (!item) return;
+      colorPickerMenu.querySelectorAll('.font-picker-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      selectedColorScheme = item.dataset.value;
+      const palette = WordCloud.PALETTES[selectedColorScheme];
+      updateColorLabel(selectedColorScheme, palette);
+      colorPickerMenu.classList.remove('open');
+
+      // Commit the preview — update saved state so mouseleave won't revert
+      previewingColor = false;
+      savedColors = null;
+      applyPaletteToCloud(selectedColorScheme);
+      if (wc) wc.options.colorScheme = selectedColorScheme;
+    });
     const textOverlay = document.getElementById('text-input-overlay');
     const textInput = document.getElementById('text-input');
     const cancelBtn = document.getElementById('cancel-text-btn');
@@ -1660,7 +1777,7 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
     }
 
     // Wire up chip groups
-    ['layout-chips', 'scaling-chips', 'color-chips', 'rotation-chips'].forEach(groupId => {
+    ['layout-chips', 'scaling-chips', 'rotation-chips'].forEach(groupId => {
       document.getElementById(groupId).addEventListener('click', (e) => {
         const chip = e.target.closest('[data-value]');
         if (!chip) return;
@@ -1728,7 +1845,7 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
         fontFamily: selectedFont,
         layout: getChipValue('layout-chips'),
         scaling: getChipValue('scaling-chips'),
-        colorScheme: getChipValue('color-chips'),
+        colorScheme: selectedColorScheme,
         rotationProbability: parseFloat(getChipValue('rotation-chips')),
         padding: getPaddingValue(),
         dynamicSpacing: dynamicBtn.classList.contains('active'),
@@ -1922,9 +2039,13 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
     fontPickerLabel.textContent = randomFontItem.textContent;
     fontPickerBtn.style.fontFamily = randomFontItem.style.fontFamily;
 
-    const colorChips = [...document.querySelectorAll('#color-chips .color-chip')];
-    colorChips.forEach(c => c.classList.remove('active'));
-    colorChips[Math.floor(Math.random() * colorChips.length)].classList.add('active');
+    const paletteNames = Object.keys(WordCloud.PALETTES);
+    const randomPalette = paletteNames[Math.floor(Math.random() * paletteNames.length)];
+    selectedColorScheme = randomPalette;
+    updateColorLabel(randomPalette, WordCloud.PALETTES[randomPalette]);
+    colorPickerMenu.querySelectorAll('.font-picker-item').forEach(i => {
+      i.classList.toggle('selected', i.dataset.value === randomPalette);
+    });
 
     updatePaddingSlider();
     renderDataset(datasetSelect.value);
