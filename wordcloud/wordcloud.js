@@ -99,7 +99,10 @@ export class WordCloud {
         scaled = Math.sqrt(norm);
       }
       const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * scaled);
-      const rotation = (i === 0) ? 0 : (Math.random() < rotationProbability ? Math.PI / 2 : 0);
+      const rotation = (i === 0) ? 0
+        : (Math.random() < rotationProbability
+          ? (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2)
+          : 0);
       const color = typeof palette === 'function' ? palette(w, i) : palette[i % palette.length];
 
       // Dynamic spacing: scale padding proportionally with font size
@@ -156,7 +159,7 @@ export class WordCloud {
     let textX, textY;
     if (rotation !== 0) {
       ctx.translate(spriteW / 2, spriteH / 2);
-      ctx.rotate(Math.PI / 2);
+      ctx.rotate(rotation);
       textX = -natW / 2 + natTextX;
       textY = -natH / 2 + natTextY;
     } else {
@@ -243,7 +246,11 @@ export class WordCloud {
     } else if (cmd === 'complete') {
       this._debugOrigins = e.data.debugOrigins || [];
       this._computeZoom();
-      this._animateReveal();
+      if (this.options.layout === 'tetris') {
+        this._animateTetris();
+      } else {
+        this._animateReveal();
+      }
       this._emit('complete', e.data);
     }
   }
@@ -272,11 +279,21 @@ export class WordCloud {
     const cloudCX = this._width / 2 + (minX + maxX) / 2;
     const cloudCY = this._height / 2 + (minY + maxY) / 2;
 
-    this._zoom = {
-      scale,
-      tx: this._width / 2 - cloudCX * scale,
-      ty: this._height / 2 - cloudCY * scale,
-    };
+    if (this.options.layout === 'tetris') {
+      // Bottom-align: pin the cloud's bottom edge to the canvas bottom
+      const cloudBottom = this._height / 2 + maxY;
+      this._zoom = {
+        scale,
+        tx: this._width / 2 - cloudCX * scale,
+        ty: this._height * (1 - margin) - cloudBottom * scale,
+      };
+    } else {
+      this._zoom = {
+        scale,
+        tx: this._width / 2 - cloudCX * scale,
+        ty: this._height / 2 - cloudCY * scale,
+      };
+    }
   }
 
   _animateReveal() {
@@ -308,6 +325,143 @@ export class WordCloud {
 
     const startTime = performance.now();
     this._animationFrame = requestAnimationFrame(step);
+  }
+
+  _animateTetris() {
+    const words = this._placedWords;
+    if (words.length === 0) return;
+
+    const z = this._zoom;
+    const rotateDuration = 120;
+    const dropDuration = 350;
+    const wordInterval = Math.max(30, Math.min(100, 3000 / words.length));
+    const totalPerWord = rotateDuration + dropDuration;
+
+    // Spawn point in screen space: top-center
+    const spawnScreenX = this._width / 2;
+    const spawnScreenY = 30;
+
+    const easeInQuad = (t) => t * t;
+
+    let landed = 0;
+
+    const step = () => {
+      const now = performance.now();
+      const elapsed = now - startTime;
+
+      // How many words should have started by now
+      const wordsStarted = Math.min(words.length, Math.floor(elapsed / wordInterval) + 1);
+
+      // Clear and draw
+      this.ctx.fillStyle = this.options.backgroundColor;
+      this.ctx.fillRect(0, 0, this._width, this._height);
+
+      // Draw all landed words at final positions
+      for (let i = 0; i < landed; i++) {
+        this._drawWord(words[i]);
+      }
+
+      // Animate each active (started but not landed) word
+      let allDone = true;
+      for (let i = landed; i < wordsStarted; i++) {
+        const word = words[i];
+        const wordStart = i * wordInterval;
+        const wordElapsed = elapsed - wordStart;
+
+        if (wordElapsed >= totalPerWord) {
+          // This word has finished — draw at final position
+          this._drawWord(word);
+          if (i === landed) landed = i + 1;
+        } else {
+          allDone = false;
+          const needsRotation = word.rotation !== 0;
+
+          // Final position in screen space
+          const finalSX = this._width / 2 + word.x;
+          const finalSY = this._height / 2 + word.y;
+
+          if (wordElapsed < rotateDuration && needsRotation) {
+            // ROTATE PHASE: word sits at spawn point, snaps rotation halfway through
+            const rotSnap = wordElapsed >= rotateDuration / 2 ? word.rotation : 0;
+            this._drawWordAt(word, spawnScreenX, spawnScreenY, rotSnap);
+          } else {
+            // DROP PHASE
+            const dropElapsed = needsRotation
+              ? wordElapsed - rotateDuration
+              : wordElapsed;
+            const dropT = Math.min(1, dropElapsed / dropDuration);
+            const eased = easeInQuad(dropT);
+
+            // Interpolate from spawn to final position (in screen space, pre-zoom)
+            const fromX = (spawnScreenX - z.tx) / z.scale;
+            const fromY = (spawnScreenY - z.ty) / z.scale;
+            const toX = finalSX;
+            const toY = finalSY;
+
+            const curX = fromX + (toX - fromX) * eased;
+            const curY = fromY + (toY - fromY) * eased;
+
+            this._drawWordAt(word, z.tx + curX * z.scale, z.ty + curY * z.scale, word.rotation);
+          }
+        }
+      }
+
+      // "NEXT" preview
+      if (wordsStarted < words.length) {
+        const nextWord = words[wordsStarted];
+        this._drawNextPreview(nextWord);
+      }
+
+      if (!allDone || landed < words.length) {
+        this._animationFrame = requestAnimationFrame(step);
+      }
+    };
+
+    const startTime = performance.now();
+    this._animationFrame = requestAnimationFrame(step);
+  }
+
+  _drawWordAt(word, screenX, screenY, rotation) {
+    const ctx = this.ctx;
+    ctx.save();
+
+    ctx.font = `${word.fontSize}px ${this.options.fontFamily}`;
+    ctx.fillStyle = word.color;
+    ctx.textBaseline = 'alphabetic';
+
+    if (rotation !== 0) {
+      ctx.translate(screenX, screenY);
+      ctx.rotate(rotation);
+      ctx.fillText(word.text, word.textX, word.textY);
+    } else {
+      ctx.fillText(word.text, screenX + word.textX, screenY + word.textY);
+    }
+
+    ctx.restore();
+  }
+
+  _drawNextPreview(word) {
+    const ctx = this.ctx;
+    const x = this._width - 20;
+    const y = 28;
+
+    ctx.save();
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+
+    // "NEXT" label
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(136, 136, 170, 0.6)';
+    ctx.fillText('NEXT', x, y);
+
+    // Word preview
+    const previewSize = Math.min(16, word.fontSize);
+    ctx.font = `${previewSize}px ${this.options.fontFamily}`;
+    ctx.fillStyle = word.color;
+    ctx.globalAlpha = 0.7;
+    ctx.fillText(word.text, x, y + 18);
+
+    ctx.restore();
   }
 
   _drawWord(word) {
