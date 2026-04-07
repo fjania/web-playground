@@ -640,13 +640,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
         this._placedWords = [];
         this._worker = null;
         this._animationFrame = null;
-        this._dirty = false;
-        this._layoutComplete = false;
-
-        // Zoom state: current (rendered) and target (computed from bounds)
         this._zoom = { scale: 1, tx: 0, ty: 0 };
-        this._zoomTarget = { scale: 1, tx: 0, ty: 0 };
-        this._bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
         this._setupCanvas();
       }
@@ -663,10 +657,8 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
         this._resizeObserver = new ResizeObserver(() => {
           this._resize();
           if (this._placedWords.length > 0) {
-            this._updateZoomTarget();
-            // Snap immediately on resize (no animation)
-            this._zoom = { ...this._zoomTarget };
-            this._dirty = true;
+            this._computeZoom();
+            this._redrawAll();
           }
         });
         this._resizeObserver.observe(this.container);
@@ -750,7 +742,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
         this.ctx.fillStyle = this.options.backgroundColor;
         this.ctx.fillRect(0, 0, this._width, this._height);
 
-        this._startRenderLoop();
+        // Layout happens in worker; animation starts on 'complete' message
       }
 
       _rasterizeWord(text, fontSize, fontFamily, rotation, padding) {
@@ -831,11 +823,7 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
           this._animationFrame = null;
         }
         this._placedWords = [];
-        this._dirty = false;
-        this._layoutComplete = false;
         this._zoom = { scale: 1, tx: 0, ty: 0 };
-        this._zoomTarget = { scale: 1, tx: 0, ty: 0 };
-        this._bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
         if (this.ctx) {
           this.ctx.fillStyle = this.options.backgroundColor;
@@ -874,33 +862,29 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
       _handleWorkerMessage(e) {
         const { cmd } = e.data;
         if (cmd === 'wordPlaced') {
-          const { word, progress } = e.data;
-          this._placedWords.push(word);
-
-          // Update running bounds
-          const b = this._bounds;
-          b.minX = Math.min(b.minX, word.x);
-          b.minY = Math.min(b.minY, word.y);
-          b.maxX = Math.max(b.maxX, word.x + word.spriteW);
-          b.maxY = Math.max(b.maxY, word.y + word.spriteH);
-
-          // Recompute target zoom from current bounds
-          this._updateZoomTarget();
-          this._dirty = true;
-
-          this._emit('wordPlaced', { word, progress });
+          this._placedWords.push(e.data.word);
+          this._emit('wordPlaced', { word: e.data.word, progress: e.data.progress });
         } else if (cmd === 'complete') {
-          this._layoutComplete = true;
+          this._computeZoom();
+          this._animateReveal();
           this._emit('complete', e.data);
         }
       }
 
-      _updateZoomTarget() {
-        const b = this._bounds;
-        if (!isFinite(b.minX)) return;
+      _computeZoom() {
+        const words = this._placedWords;
+        if (words.length === 0) return;
 
-        const cloudW = b.maxX - b.minX;
-        const cloudH = b.maxY - b.minY;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const w of words) {
+          minX = Math.min(minX, w.x);
+          minY = Math.min(minY, w.y);
+          maxX = Math.max(maxX, w.x + w.spriteW);
+          maxY = Math.max(maxY, w.y + w.spriteH);
+        }
+
+        const cloudW = maxX - minX;
+        const cloudH = maxY - minY;
         if (cloudW <= 0 || cloudH <= 0) return;
 
         const margin = 0.05;
@@ -908,52 +892,46 @@ function spiralPlace(sprite, board, boardW32, boardH, cx, cy, aspect) {
         const availH = this._height * (1 - margin * 2);
         const scale = Math.min(availW / cloudW, availH / cloudH);
 
-        const cloudCX = this._width / 2 + (b.minX + b.maxX) / 2;
-        const cloudCY = this._height / 2 + (b.minY + b.maxY) / 2;
+        const cloudCX = this._width / 2 + (minX + maxX) / 2;
+        const cloudCY = this._height / 2 + (minY + maxY) / 2;
 
-        this._zoomTarget = {
+        this._zoom = {
           scale,
           tx: this._width / 2 - cloudCX * scale,
           ty: this._height / 2 - cloudCY * scale,
         };
       }
 
-      _startRenderLoop() {
-        const LERP_SPEED = 0.12; // how fast current zoom catches up to target
-        const EPSILON = 0.5; // pixel threshold to consider zoom "settled"
+      _animateReveal() {
+        const words = this._placedWords;
+        if (words.length === 0) return;
 
-        const draw = () => {
-          // Interpolate current zoom toward target
-          const z = this._zoom;
-          const zt = this._zoomTarget;
+        let revealed = 0;
+        const totalDuration = Math.min(400, words.length * 8);
+        const interval = totalDuration / words.length;
 
-          const dScale = zt.scale - z.scale;
-          const dTx = zt.tx - z.tx;
-          const dTy = zt.ty - z.ty;
-          const moving = Math.abs(dScale * this._width) > EPSILON
-                      || Math.abs(dTx) > EPSILON
-                      || Math.abs(dTy) > EPSILON;
+        const step = () => {
+          // Reveal a batch of words per frame
+          const now = performance.now();
+          const targetCount = Math.min(words.length, Math.floor((now - startTime) / interval) + 1);
 
-          if (moving) {
-            z.scale += dScale * LERP_SPEED;
-            z.tx += dTx * LERP_SPEED;
-            z.ty += dTy * LERP_SPEED;
-            this._dirty = true;
-          } else if (this._dirty) {
-            // Snap to target on last frame
-            z.scale = zt.scale;
-            z.tx = zt.tx;
-            z.ty = zt.ty;
+          if (revealed < targetCount) {
+            // Clear and redraw all revealed words
+            this.ctx.fillStyle = this.options.backgroundColor;
+            this.ctx.fillRect(0, 0, this._width, this._height);
+            revealed = targetCount;
+            for (let i = 0; i < revealed; i++) {
+              this._drawWord(words[i]);
+            }
           }
 
-          if (this._dirty) {
-            this._redrawAll();
-            this._dirty = false;
+          if (revealed < words.length) {
+            this._animationFrame = requestAnimationFrame(step);
           }
-
-          this._animationFrame = requestAnimationFrame(draw);
         };
-        this._animationFrame = requestAnimationFrame(draw);
+
+        const startTime = performance.now();
+        this._animationFrame = requestAnimationFrame(step);
       }
 
       _drawWord(word) {
