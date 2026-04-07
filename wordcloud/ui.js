@@ -28,13 +28,15 @@ const descExtents = document.getElementById('desc-extents');
 const sparkCanvas = document.getElementById('desc-sparkline');
 
 // --- State ---
-let selectedFont = 'DM Sans, sans-serif';
-let selectedColorScheme = 'vibrant';
-let wc = null;
-let customWords = null;
-let userChangedScaling = false;
-let previewingColor = false;
-let savedColors = null;
+const state = {
+  selectedFont: 'DM Sans, sans-serif',
+  selectedColorScheme: 'vibrant',
+  wc: null,
+  customWords: null,
+  userChangedScaling: false,
+  previewingColor: false,
+  savedColors: null,
+};
 
 // --- Font Picker ---
 fontPickerBtn.addEventListener('click', (e) => {
@@ -47,7 +49,7 @@ fontPickerMenu.addEventListener('click', (e) => {
   if (!item) return;
   fontItems.forEach(i => i.classList.remove('selected'));
   item.classList.add('selected');
-  selectedFont = item.dataset.value;
+  state.selectedFont = item.dataset.value;
   fontPickerLabel.textContent = item.textContent;
   fontPickerBtn.style.fontFamily = item.style.fontFamily;
   fontPickerMenu.classList.remove('open');
@@ -64,7 +66,7 @@ function buildColorMenu() {
   colorPickerMenu.innerHTML = '';
   for (const [name, colors] of Object.entries(PALETTES)) {
     const item = document.createElement('div');
-    item.className = 'font-picker-item' + (name === selectedColorScheme ? ' selected' : '');
+    item.className = 'font-picker-item' + (name === state.selectedColorScheme ? ' selected' : '');
     item.dataset.value = name;
     item.style.display = 'flex';
     item.style.alignItems = 'center';
@@ -104,29 +106,29 @@ colorPickerBtn.addEventListener('click', (e) => {
 });
 
 function applyPaletteToCloud(name) {
-  if (!wc || wc._placedWords.length === 0) return;
+  if (!state.wc || state.wc._placedWords.length === 0) return;
   const palette = PALETTES[name];
   if (!palette) return;
-  wc._placedWords.forEach((w, i) => { w.color = palette[i % palette.length]; });
-  wc._redrawAll();
+  state.wc._placedWords.forEach((w, i) => { w.color = palette[i % palette.length]; });
+  state.wc._redrawAll();
 }
 
 colorPickerMenu.addEventListener('mouseover', (e) => {
   const item = e.target.closest('.font-picker-item');
-  if (!item || !wc || wc._placedWords.length === 0) return;
-  if (!previewingColor) {
-    savedColors = wc._placedWords.map(w => w.color);
-    previewingColor = true;
+  if (!item || !state.wc || state.wc._placedWords.length === 0) return;
+  if (!state.previewingColor) {
+    state.savedColors = state.wc._placedWords.map(w => w.color);
+    state.previewingColor = true;
   }
   applyPaletteToCloud(item.dataset.value);
 });
 
 colorPickerMenu.addEventListener('mouseleave', () => {
-  if (previewingColor && savedColors && wc && wc._placedWords.length > 0) {
-    wc._placedWords.forEach((w, i) => { w.color = savedColors[i]; });
-    wc._redrawAll();
-    previewingColor = false;
-    savedColors = null;
+  if (state.previewingColor && state.savedColors && state.wc && state.wc._placedWords.length > 0) {
+    state.wc._placedWords.forEach((w, i) => { w.color = state.savedColors[i]; });
+    state.wc._redrawAll();
+    state.previewingColor = false;
+    state.savedColors = null;
   }
 });
 
@@ -135,15 +137,15 @@ colorPickerMenu.addEventListener('click', (e) => {
   if (!item) return;
   colorPickerMenu.querySelectorAll('.font-picker-item').forEach(i => i.classList.remove('selected'));
   item.classList.add('selected');
-  selectedColorScheme = item.dataset.value;
-  const palette = PALETTES[selectedColorScheme];
-  updateColorLabel(selectedColorScheme, palette);
+  state.selectedColorScheme = item.dataset.value;
+  const palette = PALETTES[state.selectedColorScheme];
+  updateColorLabel(state.selectedColorScheme, palette);
   colorPickerMenu.classList.remove('open');
 
-  previewingColor = false;
-  savedColors = null;
-  applyPaletteToCloud(selectedColorScheme);
-  if (wc) wc.options.colorScheme = selectedColorScheme;
+  state.previewingColor = false;
+  state.savedColors = null;
+  applyPaletteToCloud(state.selectedColorScheme);
+  if (state.wc) state.wc.options.colorScheme = state.selectedColorScheme;
 });
 
 // --- Chip Groups ---
@@ -164,7 +166,7 @@ function setChipValue(groupId, value) {
     if (!chip) return;
     document.querySelectorAll(`#${groupId} .chip, #${groupId} .color-chip`).forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
-    if (groupId === 'scaling-chips') userChangedScaling = true;
+    if (groupId === 'scaling-chips') state.userChangedScaling = true;
     renderDataset(datasetSelect.value);
   });
 });
@@ -211,13 +213,13 @@ dynamicBtn.addEventListener('click', () => {
 
 // --- Cloud Creation ---
 function createCloud() {
-  if (wc) wc.destroy();
+  if (state.wc) state.wc.destroy();
 
-  wc = new WordCloud(container, {
-    fontFamily: selectedFont,
+  state.wc = new WordCloud(container, {
+    fontFamily: state.selectedFont,
     layout: getChipValue('layout-chips'),
     scaling: getChipValue('scaling-chips'),
-    colorScheme: selectedColorScheme,
+    colorScheme: state.selectedColorScheme,
     rotationProbability: parseFloat(getChipValue('rotation-chips')),
     padding: getPaddingValue(),
     dynamicSpacing: dynamicBtn.classList.contains('active'),
@@ -225,19 +227,19 @@ function createCloud() {
     backgroundColor: '#1a1a2e',
   });
 
-  wc.on('wordPlaced', ({ progress }) => {
+  state.wc.on('wordPlaced', ({ progress }) => {
     statusEl.textContent = `Placing word ${progress.placed} of ${progress.total}...`;
     statusEl.className = 'active';
   });
 
-  wc.on('complete', ({ stats }) => {
+  state.wc.on('complete', ({ stats }) => {
     statusEl.textContent = 'Layout complete';
     statusEl.className = '';
     statsEl.textContent = `${stats.placed} words placed in ${(stats.timeMs / 1000).toFixed(1)}s` +
       (stats.skipped > 0 ? ` (${stats.skipped} skipped)` : '');
   });
 
-  wc.on('click', ({ word }) => {
+  state.wc.on('click', ({ word }) => {
     statusEl.textContent = `${word.text}`;
     statusEl.className = '';
   });
@@ -312,7 +314,7 @@ function updateDescription(id) {
 
 // --- Dataset Rendering ---
 function renderDataset(id) {
-  if (!userChangedScaling) {
+  if (!state.userChangedScaling) {
     if (LOG_DATASETS.has(id)) {
       setChipValue('scaling-chips', 'log');
     } else {
@@ -321,9 +323,9 @@ function renderDataset(id) {
   }
 
   if (id === 'custom') {
-    if (customWords) {
+    if (state.customWords) {
       createCloud();
-      wc.render(customWords);
+      state.wc.render(state.customWords);
     } else {
       textOverlay.classList.add('visible');
     }
@@ -333,16 +335,16 @@ function renderDataset(id) {
   textOverlay.classList.remove('visible');
   updateDescription(id);
   createCloud();
-  wc.render(DATASETS[id]);
+  state.wc.render(DATASETS[id]);
 }
 
 // --- Event Wiring ---
-datasetSelect.addEventListener('change', () => { userChangedScaling = false; renderDataset(datasetSelect.value); });
+datasetSelect.addEventListener('change', () => { state.userChangedScaling = false; renderDataset(datasetSelect.value); });
 regenerateBtn.addEventListener('click', () => renderDataset(datasetSelect.value));
 document.getElementById('debug-path-toggle').addEventListener('change', () => {
-  if (wc) {
-    wc.options.showDebugPath = document.getElementById('debug-path-toggle').checked;
-    wc._redrawAll();
+  if (state.wc) {
+    state.wc.options.showDebugPath = document.getElementById('debug-path-toggle').checked;
+    state.wc._redrawAll();
   }
 });
 
@@ -355,16 +357,16 @@ cancelBtn.addEventListener('click', () => {
 generateBtn.addEventListener('click', () => {
   const text = textInput.value.trim();
   if (!text) return;
-  customWords = textToWords(text);
+  state.customWords = textToWords(text);
   textOverlay.classList.remove('visible');
-  descLine1.innerHTML = `<span class="desc-title">Your Text</span> · Word frequencies from pasted text · ${customWords.length} unique words`;
-  if (customWords.length > 0) {
-    const cSorted = customWords.slice().sort((a, b) => b.value - a.value);
+  descLine1.innerHTML = `<span class="desc-title">Your Text</span> · Word frequencies from pasted text · ${state.customWords.length} unique words`;
+  if (state.customWords.length > 0) {
+    const cSorted = state.customWords.slice().sort((a, b) => b.value - a.value);
     descExtents.innerHTML = `<span class="desc-metric">occurrences</span>: ${cSorted[0].text} (${cSorted[0].value}) → ${cSorted[cSorted.length-1].text} (${cSorted[cSorted.length-1].value})`;
     drawSparkline(cSorted.map(d => d.value));
   }
   createCloud();
-  wc.render(customWords);
+  state.wc.render(state.customWords);
 });
 
 // --- Initialization ---
@@ -375,13 +377,13 @@ const fontItemsArr = [...fontItems];
 const randomFontItem = fontItemsArr[Math.floor(Math.random() * fontItemsArr.length)];
 fontItems.forEach(i => i.classList.remove('selected'));
 randomFontItem.classList.add('selected');
-selectedFont = randomFontItem.dataset.value;
+state.selectedFont = randomFontItem.dataset.value;
 fontPickerLabel.textContent = randomFontItem.textContent;
 fontPickerBtn.style.fontFamily = randomFontItem.style.fontFamily;
 
 const paletteNames = Object.keys(PALETTES);
 const randomPalette = paletteNames[Math.floor(Math.random() * paletteNames.length)];
-selectedColorScheme = randomPalette;
+state.selectedColorScheme = randomPalette;
 updateColorLabel(randomPalette, PALETTES[randomPalette]);
 colorPickerMenu.querySelectorAll('.font-picker-item').forEach(i => {
   i.classList.toggle('selected', i.dataset.value === randomPalette);
