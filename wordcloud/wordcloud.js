@@ -333,160 +333,151 @@ export class WordCloud {
 
     const z = this._zoom;
 
-    // Timing — scaled proportionally with step sizes
-    const gravityTick = 195;  // ms per drop step
-    const hMoveTick = 38;     // ms per horizontal step
-    const lockDelay = 120;    // ms pause after landing
-    const entryDelay = 60;    // ms before next piece spawns
+    // The clock: gravity is the metronome
+    const GRAVITY_INTERVAL = 180; // ms between each drop step
+    const DROP_STEP = 40;         // pixels per gravity tick (fixed for all words)
+
+    // The player: acts faster than gravity
+    const H_STEP = 30;            // pixels per lateral move
+    const PLAYER_MOVE_DELAY = 30; // ms between lateral moves
+    const ROT_STEP_DELAY = 120;   // ms per 90° rotation step
+
+    // Transitions
+    const LOCK_DELAY = 100;       // ms pause after landing
+    const ENTRY_DELAY = 50;       // ms before next piece spawns
 
     // Spawn position in layout space
-    const spawnLayoutY = (-z.ty / z.scale) - 40;
-    const spawnLayoutX = (this._width / 2 - z.tx) / z.scale;
+    const spawnY = (-z.ty / z.scale) - 40;
+    const spawnX = (this._width / 2 - z.tx) / z.scale;
 
-    // Pre-compute per-word geometry
-    const wordGeo = words.map((word) => {
+    // Pre-compute per-word info
+    const pieces = words.map((word) => {
       const finalX = this._width / 2 + word.x;
       const finalY = this._height / 2 + word.y;
 
-      // Horizontal: uniform steps toward final X
-      const hDistance = finalX - spawnLayoutX;
-      const hStepSize = Math.max(20, word.fontSize * 3);
-      const hSteps = Math.abs(hDistance) < 1 ? 0
-        : Math.max(1, Math.round(Math.abs(hDistance) / hStepSize));
-      const hStep = hSteps > 0 ? hDistance / hSteps : 0;
+      // How many lateral moves to reach final X
+      const hDist = finalX - spawnX;
+      const hMoves = Math.abs(hDist) < 1 ? 0 : Math.max(1, Math.round(Math.abs(hDist) / H_STEP));
+      const hDir = hDist >= 0 ? 1 : -1;
+      const hPerMove = hMoves > 0 ? hDist / hMoves : 0;
 
-      // Vertical: 5x the horizontal step size
-      const vStepSize = hStepSize * 5;
-      const vDistance = finalY - spawnLayoutY;
-      const vSteps = Math.max(1, Math.ceil(vDistance / vStepSize));
-      const vStep = vDistance / vSteps;
+      // How many gravity rows to reach final Y
+      const totalRows = Math.max(1, Math.round((finalY - spawnY) / DROP_STEP));
 
-      // Rotation trigger: random point 10-60% through the fall
-      const rotTriggerStep = word.rotation !== 0
-        ? Math.floor(vSteps * (0.1 + Math.random() * 0.5))
+      // Rotation: trigger at a random row 10-60% through the fall
+      const rotTriggerRow = word.rotation !== 0
+        ? Math.floor(totalRows * (0.1 + Math.random() * 0.5))
         : -1;
 
-      return { finalX, finalY, vSteps, vStep, hSteps, hStep, rotTriggerStep };
+      return { finalX, finalY, hMoves, hPerMove, totalRows, rotTriggerRow };
     });
 
     // Active piece state
-    let activeIdx = 0;
-    let phase = 'falling';  // falling | locking | entry | done
+    let idx = 0;
+    let phase = 'falling'; // falling | locking | entry | done
 
-    // Per-piece state (reset on each new piece)
-    let dropStep = 0;
-    let hStep = 0;
-    let lastDropTime = 0;
-    let lastHTime = 0;
-    let curX = spawnLayoutX;
-    let curY = spawnLayoutY;
-    let curRot = 0;
-    let rotTriggered = false;
-    let rotTriggerTime = 0;
-    const rotStepDuration = 150; // ms per 90° step
-    let phaseStart = 0;
+    let row = 0;                // current gravity row
+    let lastGravityTime = 0;    // last time gravity ticked
+    let hMovesDone = 0;         // lateral moves completed
+    let lastPlayerMoveTime = 0; // last time player moved laterally
+    let rotStartTime = 0;       // when rotation started
+    let rotStarted = false;     // whether rotation has been triggered
+    let phaseTime = 0;          // timestamp for lock/entry phases
 
-    function initPiece(elapsed) {
-      const geo = wordGeo[activeIdx];
-      dropStep = 0;
-      hStep = 0;
-      lastDropTime = elapsed;
-      lastHTime = elapsed;
-      curX = spawnLayoutX;
-      curY = spawnLayoutY;
-      curRot = 0;
-      rotTriggered = false;
-      rotTriggerTime = 0;
+    function initPiece(t) {
+      row = 0;
+      hMovesDone = 0;
+      lastGravityTime = t;
+      lastPlayerMoveTime = t;
+      rotStarted = false;
+      rotStartTime = 0;
       phase = 'falling';
     }
 
     const tick = () => {
       const now = performance.now();
-      const elapsed = now - startTime;
+      const t = now - startTime;
+      const piece = pieces[idx];
+      const word = words[idx];
 
       if (phase === 'falling') {
-        const geo = wordGeo[activeIdx];
-        const word = words[activeIdx];
-
-        // 1. GRAVITY — constant, never stops
-        while (dropStep < geo.vSteps && elapsed - lastDropTime >= gravityTick) {
-          dropStep++;
-          lastDropTime += gravityTick;
-          curY = spawnLayoutY + dropStep * geo.vStep;
+        // --- GRAVITY: the clock ticks ---
+        while (row < piece.totalRows && t - lastGravityTime >= GRAVITY_INTERVAL) {
+          row++;
+          lastGravityTime += GRAVITY_INTERVAL;
         }
 
-        // 2. LATERAL — concurrent with gravity, uniform steps
-        while (hStep < geo.hSteps && elapsed - lastHTime >= hMoveTick) {
-          hStep++;
-          lastHTime += hMoveTick;
-        }
-        curX = hStep >= geo.hSteps
-          ? geo.finalX
-          : spawnLayoutX + hStep * geo.hStep;
-
-        // 3. ROTATION — 90° step every 100ms, triggered mid-fall
-        if (!rotTriggered && geo.rotTriggerStep >= 0 && dropStep >= geo.rotTriggerStep) {
-          rotTriggered = true;
-          rotTriggerTime = elapsed;
-        }
-        if (rotTriggered && curRot !== word.rotation) {
-          const rotElapsed = elapsed - rotTriggerTime;
-          const stepsCompleted = Math.floor(rotElapsed / rotStepDuration);
-          // Each step is 90° (PI/2) toward the target
-          const direction = word.rotation > 0 ? 1 : -1;
-          const stepsNeeded = Math.abs(word.rotation) / (Math.PI / 2);
-          curRot = direction * Math.min(stepsCompleted, stepsNeeded) * (Math.PI / 2);
+        // --- PLAYER: moves between gravity ticks ---
+        // Lateral
+        while (hMovesDone < piece.hMoves && t - lastPlayerMoveTime >= PLAYER_MOVE_DELAY) {
+          hMovesDone++;
+          lastPlayerMoveTime += PLAYER_MOVE_DELAY;
         }
 
-        // 4. LANDING — gravity reached bottom
-        if (dropStep >= geo.vSteps) {
-          curX = geo.finalX;
-          curY = geo.finalY;
-          curRot = word.rotation;
+        // Rotation: triggered at a specific row, then takes ROT_STEP_DELAY to snap
+        if (!rotStarted && piece.rotTriggerRow >= 0 && row >= piece.rotTriggerRow) {
+          rotStarted = true;
+          rotStartTime = t;
+        }
+
+        // --- LANDING: gravity delivered the piece ---
+        if (row >= piece.totalRows) {
           phase = 'locking';
-          phaseStart = elapsed;
+          phaseTime = t;
         }
       }
 
-      if (phase === 'locking') {
-        if (elapsed - phaseStart >= lockDelay) {
-          phase = 'entry';
-          phaseStart = elapsed;
+      if (phase === 'locking' && t - phaseTime >= LOCK_DELAY) {
+        phase = 'entry';
+        phaseTime = t;
+      }
+
+      if (phase === 'entry' && t - phaseTime >= ENTRY_DELAY) {
+        idx++;
+        if (idx < words.length) {
+          initPiece(t);
+        } else {
+          phase = 'done';
         }
       }
 
-      if (phase === 'entry') {
-        if (elapsed - phaseStart >= entryDelay) {
-          activeIdx++;
-          if (activeIdx < words.length) {
-            initPiece(elapsed);
-          } else {
-            phase = 'done';
-          }
-        }
-      }
-
-      // --- Draw ---
+      // --- DRAW ---
       this.ctx.fillStyle = this.options.backgroundColor;
       this.ctx.fillRect(0, 0, this._width, this._height);
 
       // Landed words
-      const landedUpTo = phase === 'locking' || phase === 'entry' || phase === 'done'
-        ? activeIdx + 1 : activeIdx;
-      for (let i = 0; i < Math.min(landedUpTo, words.length); i++) {
+      const landedTo = (phase === 'locking' || phase === 'entry' || phase === 'done')
+        ? idx + 1 : idx;
+      for (let i = 0; i < Math.min(landedTo, words.length); i++) {
         this._drawWord(words[i]);
       }
 
       // Active piece in flight
       if (phase === 'falling') {
-        this._drawWordInLayout(words[activeIdx], curX, curY, curRot);
+        // Y from gravity (steady pulse)
+        const curY = Math.min(piece.finalY, spawnY + row * DROP_STEP);
+
+        // X from player (fast moves between gravity ticks)
+        const curX = hMovesDone >= piece.hMoves
+          ? piece.finalX
+          : spawnX + hMovesDone * piece.hPerMove;
+
+        // Rotation from player
+        let curRot = 0;
+        if (rotStarted) {
+          const rotElapsed = t - rotStartTime;
+          const stepsCompleted = Math.floor(rotElapsed / ROT_STEP_DELAY);
+          const dir = word.rotation > 0 ? 1 : -1;
+          const stepsNeeded = 1; // always one 90° step for ±PI/2
+          curRot = stepsCompleted >= stepsNeeded ? word.rotation : 0;
+        }
+
+        this._drawWordInLayout(word, curX, curY, curRot);
       }
 
       // NEXT preview
-      const nextIdx = phase === 'locking' || phase === 'entry'
-        ? activeIdx + 1 : activeIdx + 1;
-      if (nextIdx < words.length) {
-        this._drawNextPreview(words[nextIdx]);
+      if (idx + 1 < words.length) {
+        this._drawNextPreview(words[idx + 1]);
       }
 
       if (phase !== 'done') {
