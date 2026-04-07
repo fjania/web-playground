@@ -46,3 +46,27 @@
 - Point at logs, errors, failing tests - then resolve them
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
+
+## Source Control Practices
+
+### Commits
+- Use conventional commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+- Write in imperative mood, lowercase: `feat: add word cloud palette picker`
+- Keep subject line under 72 characters
+- One logical change per commit — don't bundle unrelated work
+
+### Branches
+- Work on feature branches, not directly on master
+- Branch naming: `<type>/<short-description>` (e.g., `feat/portfolio-landing`, `fix/worker-cleanup`)
+- Keep branches short-lived — merge or rebase frequently
+
+### Before Committing
+- Verify the change works (dev server, visual check, etc.)
+- Don't commit generated files (dist/, node_modules/)
+- Don't commit secrets or credentials
+- Review the diff before staging — no accidental debug code
+
+### PRs
+- Keep PRs focused on a single concern
+- Include a brief description of what changed and why
+- Small, frequent commits — easier to review and revert
