@@ -332,109 +332,140 @@ export class WordCloud {
     if (words.length === 0) return;
 
     const z = this._zoom;
-    const rotateDuration = 120;
-    const dropDuration = 350;
-    const wordInterval = Math.max(30, Math.min(100, 3000 / words.length));
-    const totalPerWord = rotateDuration + dropDuration;
 
-    // Spawn point in screen space: top-center
-    const spawnScreenX = this._width / 2;
-    const spawnScreenY = 30;
+    // Tetris timing (NES level 13 feel)
+    const gravityTick = 67;    // ms per row-step (4 frames at 60fps)
+    const rotatePause = 100;   // ms pause at spawn for rotation snap
+    const lockDelay = 120;     // ms pause after landing
+    const staggerInterval = Math.max(150, Math.min(300, 8000 / words.length));
 
-    const easeInQuad = (t) => t * t;
+    // Compute spawn Y in layout space (above the visible area)
+    const spawnLayoutY = (-z.ty / z.scale) - 40;
 
-    let landed = 0;
+    // Pre-compute per-word animation state
+    const wordStates = words.map((word) => {
+      const finalX = this._width / 2 + word.x;
+      const finalY = this._height / 2 + word.y;
+      const stepSize = Math.max(8, word.fontSize * 0.7);
+      const distance = finalY - spawnLayoutY;
+      const totalSteps = Math.max(1, Math.ceil(distance / stepSize));
+      const actualStepSize = distance / totalSteps;
 
-    const step = () => {
+      return {
+        finalX, finalY, spawnLayoutY, stepSize: actualStepSize,
+        totalSteps, currentStep: -1, phase: 'waiting',
+        lastStepTime: 0, landedTime: 0,
+      };
+    });
+
+    let landedCount = 0;
+    let nextSpawnIdx = 0;
+    let lastSpawnTime = -staggerInterval; // so first word spawns immediately
+
+    const tick = () => {
       const now = performance.now();
       const elapsed = now - startTime;
 
-      // How many words should have started by now
-      const wordsStarted = Math.min(words.length, Math.floor(elapsed / wordInterval) + 1);
-
-      // Clear and draw
-      this.ctx.fillStyle = this.options.backgroundColor;
-      this.ctx.fillRect(0, 0, this._width, this._height);
-
-      // Draw all landed words at final positions
-      for (let i = 0; i < landed; i++) {
-        this._drawWord(words[i]);
+      // Spawn new words on stagger interval
+      while (nextSpawnIdx < words.length && elapsed - lastSpawnTime >= staggerInterval) {
+        wordStates[nextSpawnIdx].phase = 'rotate';
+        wordStates[nextSpawnIdx].lastStepTime = lastSpawnTime + staggerInterval;
+        lastSpawnTime += staggerInterval;
+        nextSpawnIdx++;
       }
 
-      // Animate each active (started but not landed) word
-      let allDone = true;
-      for (let i = landed; i < wordsStarted; i++) {
-        const word = words[i];
-        const wordStart = i * wordInterval;
-        const wordElapsed = elapsed - wordStart;
+      // Advance state machines
+      for (let i = 0; i < nextSpawnIdx; i++) {
+        const ws = wordStates[i];
+        if (ws.phase === 'landed') continue;
 
-        if (wordElapsed >= totalPerWord) {
-          // This word has finished — draw at final position
-          this._drawWord(word);
-          if (i === landed) landed = i + 1;
-        } else {
-          allDone = false;
-          const needsRotation = word.rotation !== 0;
+        if (ws.phase === 'rotate') {
+          if (elapsed - ws.lastStepTime >= rotatePause) {
+            ws.phase = 'dropping';
+            ws.currentStep = 0;
+            ws.lastStepTime = ws.lastStepTime + rotatePause;
+          }
+        }
 
-          // Final position in screen space
-          const finalSX = this._width / 2 + word.x;
-          const finalSY = this._height / 2 + word.y;
+        if (ws.phase === 'dropping') {
+          // Advance as many gravity ticks as elapsed time allows
+          while (ws.currentStep < ws.totalSteps &&
+                 elapsed - ws.lastStepTime >= gravityTick) {
+            ws.currentStep++;
+            ws.lastStepTime += gravityTick;
+          }
+          if (ws.currentStep >= ws.totalSteps) {
+            ws.phase = 'locking';
+            ws.landedTime = ws.lastStepTime;
+          }
+        }
 
-          if (wordElapsed < rotateDuration && needsRotation) {
-            // ROTATE PHASE: word sits at spawn point, snaps rotation halfway through
-            const rotSnap = wordElapsed >= rotateDuration / 2 ? word.rotation : 0;
-            this._drawWordAt(word, spawnScreenX, spawnScreenY, rotSnap);
-          } else {
-            // DROP PHASE
-            const dropElapsed = needsRotation
-              ? wordElapsed - rotateDuration
-              : wordElapsed;
-            const dropT = Math.min(1, dropElapsed / dropDuration);
-            const eased = easeInQuad(dropT);
-
-            // Interpolate from spawn to final position (in screen space, pre-zoom)
-            const fromX = (spawnScreenX - z.tx) / z.scale;
-            const fromY = (spawnScreenY - z.ty) / z.scale;
-            const toX = finalSX;
-            const toY = finalSY;
-
-            const curX = fromX + (toX - fromX) * eased;
-            const curY = fromY + (toY - fromY) * eased;
-
-            this._drawWordAt(word, z.tx + curX * z.scale, z.ty + curY * z.scale, word.rotation);
+        if (ws.phase === 'locking') {
+          if (elapsed - ws.landedTime >= lockDelay) {
+            ws.phase = 'landed';
+            landedCount++;
           }
         }
       }
 
-      // "NEXT" preview
-      if (wordsStarted < words.length) {
-        const nextWord = words[wordsStarted];
-        this._drawNextPreview(nextWord);
+      // Draw
+      this.ctx.fillStyle = this.options.backgroundColor;
+      this.ctx.fillRect(0, 0, this._width, this._height);
+
+      for (let i = 0; i < nextSpawnIdx; i++) {
+        const word = words[i];
+        const ws = wordStates[i];
+
+        if (ws.phase === 'landed' || ws.phase === 'locking') {
+          // Draw at final position
+          this._drawWord(word);
+        } else if (ws.phase === 'rotate') {
+          // At spawn: show at final X, spawn Y. Snap rotation halfway through pause.
+          const rotElapsed = elapsed - (ws.lastStepTime);
+          const rot = (word.rotation !== 0 && rotElapsed >= rotatePause / 2)
+            ? word.rotation : 0;
+          this._drawWordInLayout(word, ws.finalX, ws.spawnLayoutY, rot);
+        } else if (ws.phase === 'dropping') {
+          // Stepped position
+          const curY = ws.spawnLayoutY + ws.currentStep * ws.stepSize;
+          this._drawWordInLayout(word, ws.finalX, curY, word.rotation);
+        }
       }
 
-      if (!allDone || landed < words.length) {
-        this._animationFrame = requestAnimationFrame(step);
+      // NEXT preview
+      if (nextSpawnIdx < words.length) {
+        this._drawNextPreview(words[nextSpawnIdx]);
+      }
+
+      if (landedCount < words.length) {
+        this._animationFrame = requestAnimationFrame(tick);
       }
     };
 
     const startTime = performance.now();
-    this._animationFrame = requestAnimationFrame(step);
+    this._animationFrame = requestAnimationFrame(tick);
   }
 
-  _drawWordAt(word, screenX, screenY, rotation) {
+  _drawWordInLayout(word, layoutX, layoutY, rotation) {
+    // Draw a word at arbitrary layout-space coords with zoom transform
+    // (same transform as _drawWord, but with custom position)
     const ctx = this.ctx;
+    const z = this._zoom;
+
     ctx.save();
+    ctx.translate(z.tx, z.ty);
+    ctx.scale(z.scale, z.scale);
 
     ctx.font = `${word.fontSize}px ${this.options.fontFamily}`;
     ctx.fillStyle = word.color;
     ctx.textBaseline = 'alphabetic';
 
     if (rotation !== 0) {
-      ctx.translate(screenX, screenY);
+      ctx.translate(layoutX + word.spriteW / 2, layoutY + word.spriteH / 2);
       ctx.rotate(rotation);
       ctx.fillText(word.text, word.textX, word.textY);
     } else {
-      ctx.fillText(word.text, screenX + word.textX, screenY + word.textY);
+      ctx.fillText(word.text, layoutX + word.textX, layoutY + word.textY);
     }
 
     ctx.restore();
