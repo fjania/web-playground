@@ -68,8 +68,13 @@ export class WordCloud {
     this.clear();
     if (!words || words.length === 0) return;
 
-    // Wait for Google Fonts to be fully loaded before measuring
-    await document.fonts.ready;
+    // Load the specific font before measuring — document.fonts.ready is
+    // insufficient because it resolves immediately if no downloads are pending,
+    // even when the selected font hasn't been triggered yet.
+    await Promise.all([
+      document.fonts.load(`400 48px ${this.options.fontFamily}`),
+      document.fonts.load(`700 48px ${this.options.fontFamily}`),
+    ]);
 
     words = words
       .slice()
