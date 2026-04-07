@@ -365,6 +365,7 @@
           <button class="chip" data-value="wander-line">Diagonal</button>
           <button class="chip" data-value="wander-curl">Curl</button>
           <button class="chip" data-value="wander-wisp">Wisp</button>
+          <button class="chip" data-value="wander-feather">Feather</button>
           <button class="chip" data-value="wander-ring">Ring</button>
           <button class="chip" data-value="rectangular">Rectangular</button>
           <button class="chip" data-value="tetris">Tetris</button>
@@ -461,6 +462,7 @@
   <footer>
     <span id="status"></span>
     <span id="stats"></span>
+    <label style="cursor:pointer;user-select:none;color:#444466"><input type="checkbox" id="debug-path-toggle" style="margin-right:4px">Show path</label>
   </footer>
 
   <!-- Layout Worker — placement only (rasterization happens on main thread for font access) -->
@@ -611,6 +613,7 @@ function getPlaceFn(layout) {
     case 'wander-line': return placeWanderLine;
     case 'wander-curl': return placeWanderCurl;
     case 'wander-wisp': return placeWanderWisp;
+    case 'wander-feather': return placeWanderFeather;
     case 'wander-ring': return placeWanderRing;
     default: return placeSpiral;
   }
@@ -641,29 +644,54 @@ function placeWanderLine(sprite, board, boardW32, boardH, cx, cy, aspect, si, to
   if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
   const lineAngle = wanderBaseAngle;
   const spacing = Math.min(cx, cy) * 1.2 / Math.max(total, 1);
-  const dist = si * spacing;
+  const sign = si % 2 === 0 ? 1 : -1;
+  const dist = Math.ceil(si / 2) * spacing * sign;
   const originX = cx + Math.round(dist * Math.cos(lineAngle) * aspect);
   const originY = cy + Math.round(dist * Math.sin(lineAngle));
   wanderingOrigins.push({ x: originX - cx, y: originY - cy });
   return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
 }
 
-// --- Layout 2b: Wandering Curl ---
-// Origins follow a slow, large Archimedean spiral — the cloud curls outward.
+// --- Layout 2b: Wandering Curl (pinwheel) ---
+// Two arms extend from center in opposite directions, each curving ~90°.
+// Even words on one arm, odd words on the other. Rotationally symmetric.
 function placeWanderCurl(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
   if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
   const maxR = Math.min(cx, cy) * 0.7;
-  const theta = wanderBaseAngle + (si / Math.max(total - 1, 1)) * Math.PI;
-  const r = (si / Math.max(total - 1, 1)) * maxR;
+  const arm = si % 2;  // 0 or 1
+  const armIndex = Math.floor(si / 2);
+  const armTotal = Math.ceil(total / 2);
+  const t = armIndex / Math.max(armTotal - 1, 1);
+  const armOffset = arm * Math.PI; // opposite arm is 180° away
+  const theta = wanderBaseAngle + armOffset + t * Math.PI / 2; // each arm curves 90°
+  const r = t * maxR;
   const originX = cx + Math.round(r * Math.cos(theta) * aspect);
   const originY = cy + Math.round(r * Math.sin(theta));
   wanderingOrigins.push({ x: originX - cx, y: originY - cy });
   return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
 }
 
-// --- Layout 2c: Wandering Wisp ---
-// Origins follow a very subtle spiral — no more than 45 degrees. A gentle arc.
+// --- Layout 2c: Wandering Wisp (pinwheel, subtle) ---
+// Two arms, each curving only ~22.5°. Tighter pinwheel.
 function placeWanderWisp(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
+  if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
+  const maxR = Math.min(cx, cy) * 0.7;
+  const arm = si % 2;
+  const armIndex = Math.floor(si / 2);
+  const armTotal = Math.ceil(total / 2);
+  const t = armIndex / Math.max(armTotal - 1, 1);
+  const armOffset = arm * Math.PI;
+  const theta = wanderBaseAngle + armOffset + t * Math.PI / 8; // each arm curves 22.5°
+  const r = t * maxR;
+  const originX = cx + Math.round(r * Math.cos(theta) * aspect);
+  const originY = cy + Math.round(r * Math.sin(theta));
+  wanderingOrigins.push({ x: originX - cx, y: originY - cy });
+  return placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspect);
+}
+
+// --- Layout 2d: Wandering Feather ---
+// Single gentle 45° arc, no alternation. The original wisp behavior.
+function placeWanderFeather(sprite, board, boardW32, boardH, cx, cy, aspect, si, total) {
   if (si === 0) { wanderingOrigins = []; wanderBaseAngle = Math.random() * Math.PI * 2; }
   const maxR = Math.min(cx, cy) * 0.7;
   const theta = wanderBaseAngle + (si / Math.max(total - 1, 1)) * Math.PI / 4;
@@ -751,6 +779,7 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
   }
   return null;
 }
+
   </script>
 
   <script>
@@ -1117,6 +1146,7 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
       }
 
       _drawDebugOrigins() {
+        if (!this.options.showDebugPath) return;
         const origins = this._debugOrigins;
         if (!origins || origins.length < 2) return;
 
@@ -1702,6 +1732,7 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
         rotationProbability: parseFloat(getChipValue('rotation-chips')),
         padding: getPaddingValue(),
         dynamicSpacing: dynamicBtn.classList.contains('active'),
+        showDebugPath: document.getElementById('debug-path-toggle').checked,
         backgroundColor: '#1a1a2e',
       });
 
@@ -1851,6 +1882,12 @@ function placeTetris(sprite, board, boardW32, boardH, cx, cy, aspect) {
     datasetSelect.addEventListener('change', () => { userChangedScaling = false; renderDataset(datasetSelect.value); });
     // (font picker events handled above)
     regenerateBtn.addEventListener('click', () => renderDataset(datasetSelect.value));
+    document.getElementById('debug-path-toggle').addEventListener('change', () => {
+      if (wc) {
+        wc.options.showDebugPath = document.getElementById('debug-path-toggle').checked;
+        wc._redrawAll();
+      }
+    });
 
     cancelBtn.addEventListener('click', () => {
       textOverlay.classList.remove('visible');
