@@ -334,10 +334,10 @@ export class WordCloud {
     const z = this._zoom;
 
     // Timing — scaled proportionally with step sizes
-    const gravityTick = 130;  // ms per drop step (large vertical jumps need more time)
-    const hMoveTick = 25;     // ms per horizontal step
-    const lockDelay = 80;     // ms pause after landing
-    const entryDelay = 40;    // ms before next piece spawns
+    const gravityTick = 195;  // ms per drop step
+    const hMoveTick = 38;     // ms per horizontal step
+    const lockDelay = 120;    // ms pause after landing
+    const entryDelay = 60;    // ms before next piece spawns
 
     // Spawn position in layout space
     const spawnLayoutY = (-z.ty / z.scale) - 40;
@@ -383,7 +383,7 @@ export class WordCloud {
     let curRot = 0;
     let rotTriggered = false;
     let rotTriggerTime = 0;
-    const rotStepDuration = 100; // ms per 90° step
+    const rotStepDuration = 150; // ms per 90° step
     let phaseStart = 0;
 
     function initPiece(elapsed) {
