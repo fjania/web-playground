@@ -348,17 +348,17 @@ export class WordCloud {
       const finalX = this._width / 2 + word.x;
       const finalY = this._height / 2 + word.y;
 
-      // Vertical: big chunky steps
-      const vStepSize = Math.max(12, word.fontSize * 2);
+      // Horizontal: large jumpy steps
+      const hDistance = finalX - spawnLayoutX;
+      const hStepSize = Math.max(20, word.fontSize * 3);
+      const hSteps = Math.max(0, Math.ceil(Math.abs(hDistance) / hStepSize));
+      const hStep = hSteps > 0 ? hDistance / hSteps : 0;
+
+      // Vertical: 5x the horizontal step size
+      const vStepSize = hStepSize * 5;
       const vDistance = finalY - spawnLayoutY;
       const vSteps = Math.max(1, Math.ceil(vDistance / vStepSize));
       const vStep = vDistance / vSteps;
-
-      // Horizontal: big chunky steps, concurrent with gravity
-      const hDistance = finalX - spawnLayoutX;
-      const hStepSize = Math.max(12, word.fontSize * 1.5);
-      const hSteps = Math.max(0, Math.ceil(Math.abs(hDistance) / hStepSize));
-      const hStep = hSteps > 0 ? hDistance / hSteps : 0;
 
       // Rotation trigger: random point 10-60% through the fall
       const rotTriggerStep = word.rotation !== 0
