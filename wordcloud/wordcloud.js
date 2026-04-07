@@ -334,7 +334,7 @@ export class WordCloud {
     const z = this._zoom;
 
     // The clock: gravity is the metronome
-    const GRAVITY_INTERVAL = 180; // ms between each drop step
+    const GRAVITY_INTERVAL = 90;  // ms between each drop step
     const DROP_STEP = 40;         // pixels per gravity tick (fixed for all words)
 
     // The player: acts faster than gravity
