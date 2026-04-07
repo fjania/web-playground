@@ -348,10 +348,11 @@ export class WordCloud {
       const finalX = this._width / 2 + word.x;
       const finalY = this._height / 2 + word.y;
 
-      // Horizontal: large jumpy steps
+      // Horizontal: uniform steps toward final X
       const hDistance = finalX - spawnLayoutX;
       const hStepSize = Math.max(20, word.fontSize * 3);
-      const hSteps = Math.max(0, Math.ceil(Math.abs(hDistance) / hStepSize));
+      const hSteps = Math.abs(hDistance) < 1 ? 0
+        : Math.max(1, Math.round(Math.abs(hDistance) / hStepSize));
       const hStep = hSteps > 0 ? hDistance / hSteps : 0;
 
       // Vertical: 5x the horizontal step size
@@ -380,7 +381,9 @@ export class WordCloud {
     let curX = spawnLayoutX;
     let curY = spawnLayoutY;
     let curRot = 0;
-    let rotated = false;
+    let rotTriggered = false;
+    let rotTriggerTime = 0;
+    const rotStepDuration = 100; // ms per 90° step
     let phaseStart = 0;
 
     function initPiece(elapsed) {
@@ -392,7 +395,8 @@ export class WordCloud {
       curX = spawnLayoutX;
       curY = spawnLayoutY;
       curRot = 0;
-      rotated = false;
+      rotTriggered = false;
+      rotTriggerTime = 0;
       phase = 'falling';
     }
 
@@ -411,20 +415,27 @@ export class WordCloud {
           curY = spawnLayoutY + dropStep * geo.vStep;
         }
 
-        // 2. LATERAL — concurrent with gravity
+        // 2. LATERAL — concurrent with gravity, uniform steps
         while (hStep < geo.hSteps && elapsed - lastHTime >= hMoveTick) {
           hStep++;
           lastHTime += hMoveTick;
-          curX = spawnLayoutX + hStep * geo.hStep;
         }
-        if (hStep >= geo.hSteps) {
-          curX = geo.finalX;
-        }
+        curX = hStep >= geo.hSteps
+          ? geo.finalX
+          : spawnLayoutX + hStep * geo.hStep;
 
-        // 3. ROTATION — snap at trigger point during fall
-        if (!rotated && geo.rotTriggerStep >= 0 && dropStep >= geo.rotTriggerStep) {
-          curRot = word.rotation;
-          rotated = true;
+        // 3. ROTATION — 90° step every 100ms, triggered mid-fall
+        if (!rotTriggered && geo.rotTriggerStep >= 0 && dropStep >= geo.rotTriggerStep) {
+          rotTriggered = true;
+          rotTriggerTime = elapsed;
+        }
+        if (rotTriggered && curRot !== word.rotation) {
+          const rotElapsed = elapsed - rotTriggerTime;
+          const stepsCompleted = Math.floor(rotElapsed / rotStepDuration);
+          // Each step is 90° (PI/2) toward the target
+          const direction = word.rotation > 0 ? 1 : -1;
+          const stepsNeeded = Math.abs(word.rotation) / (Math.PI / 2);
+          curRot = direction * Math.min(stepsCompleted, stepsNeeded) * (Math.PI / 2);
         }
 
         // 4. LANDING — gravity reached bottom
