@@ -151,7 +151,8 @@ def main():
         # Print dataset
         print(f"  {key.replace('-', '_')}: [")
         for w in words:
-            print(f"    {{text:'{w['text']}',value:{w['value']}}},")
+            escaped = w['text'].replace("'", "\\'")
+            print(f"    {{text:'{escaped}',value:{w['value']}}},")
         print(f"  ],")
         print()
 
