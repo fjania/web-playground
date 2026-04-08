@@ -1,0 +1,2670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a Word Cloud Actually Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Pacifico&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #f6f5f1;
+  --bg-card: #ffffff;
+  --text: #1a1a1a;
+  --text-muted: #6b6b6b;
+  --border: #e0ddd8;
+  --code-bg: #edeae4;
+  --blue: #4a7fff;
+  --blue-light: rgba(74, 127, 255, 0.15);
+  --red: #e85d4a;
+  --red-light: rgba(232, 93, 74, 0.15);
+  --green: #2a9d6e;
+  --link: #3b6fd4;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --transition: 200ms ease;
+  --accent: #e94560;
+  --accent2: #53d8fb;
+  --accent3: #f5a623;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416;
+    --bg-card: #1e1e22;
+    --text: #e8e6e1;
+    --text-muted: #8a8a8a;
+    --border: #2e2e34;
+    --code-bg: #1e1e24;
+    --blue: #5b9eff;
+    --blue-light: rgba(91, 158, 255, 0.15);
+    --red: #f07060;
+    --red-light: rgba(240, 112, 96, 0.15);
+    --green: #3dc88a;
+    --link: #6ba4ff;
+    --shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+}
+
+html { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+article {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(24px, 5vw, 60px) clamp(16px, 4vw, 32px);
+}
+
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-bottom: 40px;
+}
+.subtitle a { color: var(--link); text-decoration: none; }
+.subtitle a:hover { text-decoration: underline; }
+
+h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin-top: 52px;
+  margin-bottom: 16px;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 32px;
+  margin-bottom: 12px;
+}
+
+p { margin-bottom: 16px; }
+a { color: var(--link); }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 20px;
+  margin: 24px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+ul, ol { margin: 12px 0 16px 24px; }
+li { margin-bottom: 6px; }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 48px 0;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 32px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.back-link:hover { color: var(--link); }
+
+/* -- Widgets -- */
+.widget {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin: 28px 0;
+}
+
+.widget canvas {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius);
+}
+
+.widget-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.widget-controls label {
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.widget-controls input[type="range"] {
+  flex: 1;
+  min-width: 100px;
+  accent-color: var(--blue);
+}
+
+.widget-controls input[type="checkbox"],
+.widget-controls input[type="radio"] {
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+.widget-controls input[type="text"] {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  width: 120px;
+}
+
+.widget-controls select {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.widget-controls button {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.widget-controls button:hover {
+  background: var(--blue-light);
+  border-color: var(--blue);
+}
+
+.widget-stats {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+
+.widget-label {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+figcaption {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 10px;
+  line-height: 1.4;
+}
+
+/* Toggle button group */
+.btn-group {
+  display: flex;
+  gap: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.btn-group button {
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btn-group button:last-child { border-right: none; }
+.btn-group button.active {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Layout button row for hero */
+.layout-btn-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.layout-btn-row button {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.layout-btn-row button:hover {
+  background: var(--blue-light);
+  border-color: var(--blue);
+}
+.layout-btn-row button.active {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+
+/* Layout grid for section 5 */
+.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+.layout-cell {
+  text-align: center;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius);
+  transition: background var(--transition);
+}
+.layout-cell:hover { background: var(--blue-light); }
+.layout-cell.active { background: var(--blue-light); }
+.layout-cell canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.layout-cell .lc-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+/* Detail pair for layout section */
+.layout-detail-pair {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+.layout-detail-pair canvas {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* Triptych for scaling */
+.triptych {
+  display: flex;
+  gap: 12px;
+}
+.triptych-panel {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+.triptych-panel canvas {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.triptych-panel .tp-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+/* Sparkline row */
+.sparkline-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+.sparkline-item {
+  flex: 1;
+  text-align: center;
+}
+.sparkline-item canvas {
+  width: 100%;
+  height: 60px;
+  border-radius: 4px;
+}
+.sparkline-item .sp-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.sparkline-item .sp-desc {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+/* Slider readout */
+.slider-readout {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  min-width: 36px;
+  text-align: right;
+}
+
+@media (max-width: 600px) {
+  .triptych { flex-direction: column; }
+  .layout-grid { grid-template-columns: repeat(2, 1fr); }
+  .sparkline-row { flex-direction: column; }
+  .layout-detail-pair { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; }
+}
+</style>
+</head>
+<body>
+<article>
+
+<a href="index.html" class="back-link">&larr; Back to the tool</a>
+
+<h1>How a Word Cloud Actually Works</h1>
+<p class="subtitle">The algorithms behind fitting words into shapes.</p>
+
+<!-- ====== SECTION 1: Hero ====== -->
+<h2>What makes a good word cloud?</h2>
+
+<p>Most word clouds are boring. You have seen them: words floating in a rectangle, evenly spaced, surrounded by dead space. Each word sits inside an invisible bounding box that keeps everything politely distant. The result looks like a parking lot &mdash; orderly, utilitarian, forgettable.</p>
+
+<p>The interesting word clouds are the ones where words nestle into each other's curves, where the letter <em>y</em> dips into the gap above a lowercase <em>a</em>, where the whole composition feels dense and intentional. Achieving that requires solving a surprisingly rich problem: how do you pack hundreds of words at wildly different sizes without any overlap, fast enough that a user can watch it happen?</p>
+
+<p>The answer involves bitmaps, bitwise arithmetic, Archimedean spirals, and some clever geometry. This essay walks through each piece.</p>
+
+<figure class="widget" id="widget-hero">
+  <canvas id="heroCanvas" style="height: 260px;"></canvas>
+  <div class="layout-btn-row" id="heroLayoutBtns"></div>
+  <figcaption>Click a layout to regenerate the cloud. The origin path flashes briefly to connect the layout name to the placement pattern.</figcaption>
+</figure>
+
+<!-- ====== SECTION 2: From text to bitmap ====== -->
+<h2>From text to bitmap</h2>
+
+<p>This is what the algorithm sees when it looks at a word.</p>
+
+<figure class="widget" id="widget-anatomy">
+  <canvas id="anatomyCanvas" style="height: 280px;"></canvas>
+  <div class="widget-controls">
+    <label>Word:</label>
+    <input type="text" id="anatomyWord" value="Pixel" maxlength="20">
+    <div class="btn-group" id="anatomyMode">
+      <button data-mode="rendered">Rendered</button>
+      <button data-mode="padded">With padding</button>
+      <button class="active" data-mode="grid">Bit grid</button>
+    </div>
+    <div class="btn-group" id="anatomyRotation">
+      <button class="active" data-rot="0">0&deg;</button>
+      <button data-rot="90">90&deg;</button>
+      <button data-rot="270">270&deg;</button>
+    </div>
+    <label>Padding: <span id="anatomyPadVal">4</span>px</label>
+    <input type="range" id="anatomyPadding" min="0" max="12" value="4">
+  </div>
+  <figcaption>A word at three levels of abstraction. The padding stroke creates a buffer zone. The bit grid shows the Uint32Array packing &mdash; each cell is one bit, 32 columns per integer. Toggle rotation to see how the bitmap changes shape.</figcaption>
+</figure>
+
+<p>Each colored cell is one bit, 32 bits packed into a single integer &mdash; one row of the word's shape stored as a handful of numbers. A single bitwise AND can test 32 pixels for overlap simultaneously.</p>
+
+<p>We render onto an <code>OffscreenCanvas</code> rather than a visible one because the rasterization is a throwaway step &mdash; we only need the pixel data, and OffscreenCanvas avoids polluting the DOM or triggering reflows. We use <code>textBaseline = 'alphabetic'</code> because it gives a consistent anchor across fonts; other baselines shift depending on ascender/descender metrics, which would misalign the bitmap relative to the placement coordinates.</p>
+
+<p>Why pack 32 pixels into a single integer? The next section makes that clear.</p>
+
+<p>Words can also be placed at 90&deg; or 270&deg; rotation. Rotating a word changes the shape of its bitmap entirely &mdash; a wide, short word becomes tall and narrow &mdash; which alters how tightly it can pack against its neighbors and often improves density in regions where vertical gaps dominate.</p>
+
+<!-- ====== SECTION 3: The collision problem ====== -->
+<h2>The collision problem</h2>
+
+<p>These two words need to share the canvas. How do we check if they overlap? Drag the second word around to find out.</p>
+
+<figure class="widget" id="widget-collision">
+  <canvas id="collisionCanvas" style="height: 300px; cursor: crosshair;"></canvas>
+  <div class="widget-controls">
+    <div class="btn-group" id="collisionMode">
+      <button class="active" data-mode="bbox">Bounding box</button>
+      <button data-mode="pixel">Pixel-by-pixel</button>
+      <button data-mode="bitwise">Bit-packed AND</button>
+    </div>
+  </div>
+  <div class="widget-stats" id="collisionStats"></div>
+  <figcaption>Drag the second word to test overlap. Three methods compared: bounding box, pixel scan, bit-packed AND.</figcaption>
+</figure>
+
+<p>The actual implementation handles the case where a sprite is not aligned to a 32-pixel boundary by bit-shifting. If a sprite starts at pixel position 17, its first 32-bit word needs to be split across two board words using right-shift and left-shift operations. The code tests <code>(bits &gt;&gt;&gt; rShift) &amp; board[idx]</code> for the first part and <code>(bits &lt;&lt; lShift) &amp; board[idx + 1]</code> for the spillover. This is the trickiest part of the implementation, but it means we never sacrifice accuracy for speed.</p>
+
+<p>The packing is straightforward. For each row, we iterate through the pixels left to right. Pixel <em>x</em> lands in integer <code>x &gt;&gt; 5</code> (integer division by 32) at bit position <code>31 - (x &amp; 31)</code> (the remainder, counted from the most significant bit). A set bit means occupied. The result is a compact binary mask of the word's shape, typically just a few hundred bytes for even large words.</p>
+
+<!-- ====== SECTION 4: Searching for a home (Spiral) ====== -->
+<h2>Searching for a home</h2>
+
+<p>A 1000&times;600 canvas has 600,000 pixel positions. We cannot test them all. Scrub through the spiral to see how the algorithm narrows the search.</p>
+
+<figure class="widget" id="widget-spiral">
+  <canvas id="spiralCanvas" style="height: 320px;"></canvas>
+  <div class="widget-controls">
+    <label>Step:</label>
+    <input type="range" id="spiralScrubber" min="0" max="1000" value="0" style="flex:2;">
+    <button id="spiralPlay">Play</button>
+    <button id="spiralRestart">Restart</button>
+    <span class="widget-label" id="spiralCounter">Positions tested: 0</span>
+  </div>
+  <div class="widget-controls">
+    <label>Radial growth:</label>
+    <input type="range" id="spiralRadial" min="5" max="100" value="25" style="max-width:100px;">
+    <span class="slider-readout" id="spiralRadialVal">0.025</span>
+    <label>Angular speed:</label>
+    <input type="range" id="spiralAngular" min="10" max="200" value="50" style="max-width:100px;">
+    <span class="slider-readout" id="spiralAngularVal">0.050</span>
+    <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="spiralNoCollision"> Disable collision</label>
+  </div>
+  <figcaption>Drag the scrubber to step through the spiral search. Pre-placed words are gray. The new word (blue outline) traces an Archimedean spiral from center. Red = collision, green = placed. Try the "Disable collision" checkbox to see every word pile up at the origin.</figcaption>
+</figure>
+
+<p>The classic approach is an <strong>Archimedean spiral</strong>. Starting from the placement origin (usually the center of the canvas), a point traces an outward spiral, and at each position along the spiral we test whether the word fits. The beauty of the spiral is that it searches nearby positions first, then gradually expands. This means words cluster tightly near the origin, creating dense packing.</p>
+
+<p>The spiral's angular increment determines the spacing between successive test positions: too large and you skip over valid gaps, too small and the search takes forever. For each word, the spiral search terminates the moment it finds a position where the bit-packed collision test returns clear. If it exhausts its step budget (30,000 steps in this implementation) without finding a position, the word is skipped. In practice, the first few large words place quickly near the center, while later small words may need to search longer to find gaps &mdash; but the fast collision test keeps each step cheap.</p>
+
+<!-- ====== SECTION 4.5: Building a Cloud (Capstone) ====== -->
+<h2>Building a cloud</h2>
+
+<p>Now you have seen the pieces: rasterize a word into bits, test collisions in parallel, spiral outward to find a home. Here is the full process. Watch each word go through the pipeline &mdash; rasterize, search, place &mdash; as a cloud takes shape one word at a time.</p>
+
+<figure class="widget" id="widget-capstone">
+  <canvas id="capstoneCanvas" style="height: 320px;"></canvas>
+  <div class="widget-controls">
+    <button id="capstoneNext">Next word</button>
+    <button id="capstonePlayAll">Play all</button>
+    <button id="capstoneReset">Reset</button>
+    <span class="widget-label" id="capstoneStatus">Ready. 0 / 10 words placed.</span>
+  </div>
+  <div class="widget-label" id="capstonePixelCount">Board: 0 px (0.0%)</div>
+  <div class="widget-label" id="capstoneTiming"></div>
+  <figcaption>Step through word placement one at a time, or play all. The spiral search dots flash briefly before each word snaps to its final position. The badge shows how many spiral steps each word needed.</figcaption>
+</figure>
+
+<!-- ====== SECTION 5: Shaping the cloud (Layouts) ====== -->
+<h2>Shaping the cloud</h2>
+
+<p>Layouts distribute placement origins along different curves. The spiral places everything from center. The wandering family distributes origins along lines, pinwheels, arcs, and rings. The grid below shows each layout's origin path &mdash; click one to see it larger with a mini word cloud.</p>
+
+<figure class="widget" id="widget-layouts">
+  <div class="layout-grid" id="layoutGrid"></div>
+  <div class="layout-detail-pair">
+    <canvas id="layoutDetail" style="height: 200px;"></canvas>
+    <canvas id="layoutCloudDetail" style="height: 200px;"></canvas>
+  </div>
+  <div class="widget-label" id="layoutDesc">Click a layout to see its origin path and resulting cloud.</div>
+  <figcaption>Each layout distributes placement origins differently. Left: the origin path. Right: a mini word cloud rendered with that layout.</figcaption>
+</figure>
+
+<!-- ====== SECTION 6: Reading the distribution (sparklines) - MOVED UP ====== -->
+<h2>Reading the distribution</h2>
+
+<p>Before choosing a scaling function, it helps to understand the shape of your data. A <strong>sparkline</strong> &mdash; a tiny chart of word frequencies, sorted from highest to lowest &mdash; immediately reveals the distribution type.</p>
+
+<p>A steep cliff that drops off fast is a power-law distribution: a few words dominate, and most words are rare. Square root or log scaling will keep the smaller words visible. A gradual slope is a more even distribution: linear scaling works fine. A nearly flat line means all words have similar frequencies &mdash; the cloud will look uniform regardless of scaling, so layout choice matters more than sizing.</p>
+
+<p>The full word cloud tool displays this sparkline in its description bar, alongside the min and max frequencies and the total word count. This metadata is not decoration &mdash; it is the information you need to make informed choices about how to render the cloud.</p>
+
+<figure class="widget" id="widget-sparklines">
+  <div class="sparkline-row" id="sparklineRow"></div>
+  <figcaption>Three distribution shapes and the layout/scaling recommendations that follow from each.</figcaption>
+</figure>
+
+<!-- ====== SECTION 7: Sizing and scaling ====== -->
+<h2>Sizing and scaling</h2>
+
+<p>A word's frequency in the source text determines its size in the cloud. But the mapping from frequency to font size is not obvious. If the most common word appears 500 times and the tenth most common appears 50, should the first word be 10x larger? That would make it dominate the entire canvas while everything else is tiny.</p>
+
+<p>Three scaling functions offer different tradeoffs. <strong>Linear scaling</strong> maps frequency directly to font size &mdash; a word with twice the count is twice as large. This works well when word frequencies are relatively uniform, but with real-world text (which typically follows a power-law distribution), the top word dwarfs everything else. <strong>Square root scaling</strong> compresses the range: a word with 4x the count is only 2x as large. This is the default and works well for most data. <strong>Logarithmic scaling</strong> compresses even further, making the size differences between common and rare words quite subtle.</p>
+
+<p>The right choice depends on your data's distribution. A nearly uniform distribution (all words have similar counts) can handle linear scaling. A steep power-law distribution (a few words dominate) needs sqrt or log scaling to keep the smaller words visible.</p>
+
+<figure class="widget" id="widget-scaling">
+  <canvas id="scalingBars" style="height: 60px;"></canvas>
+  <div class="triptych" id="scalingTriptych" style="margin-top: 12px;"></div>
+  <div class="widget-controls">
+    <label>Dataset:</label>
+    <div class="btn-group" id="scalingDataset">
+      <button class="active" data-set="power">Power-law</button>
+      <button data-set="uniform">Uniform</button>
+    </div>
+  </div>
+  <figcaption>The bar chart shows raw word frequencies. Below, three word clouds use the same data with different scaling functions. Notice how linear scaling is overwhelmed by the top word in power-law data.</figcaption>
+</figure>
+
+<!-- ====== SECTION 8: Color, font, and spacing ====== -->
+<h2>Color, font, and spacing</h2>
+
+<p>The algorithmic core &mdash; rasterization, collision detection, spiral search, layout &mdash; determines where each word goes. But the aesthetic impression comes from the surface choices: color palette, typeface, and padding.</p>
+
+<p>Color palettes assign colors to words in sequence, cycling through 8 hues. The palette choice dramatically changes the mood &mdash; vibrant neons versus muted earth tones versus monochrome. Padding, set via the stroke width during rasterization, controls how tightly words pack. Zero padding means words can touch (sometimes overlap at the anti-aliased edges). High padding creates visible gaps. And the font changes everything about the shapes of the letter silhouettes, which in turn changes how tightly the collision detection can pack them.</p>
+
+<figure class="widget" id="widget-style">
+  <canvas id="styleCanvas" style="height: 240px;"></canvas>
+  <div class="widget-controls">
+    <label>Palette:</label>
+    <select id="stylePalette"></select>
+    <label>Font:</label>
+    <select id="styleFont">
+      <option value="DM Sans, sans-serif">DM Sans</option>
+      <option value="Georgia, serif">Georgia</option>
+      <option value="Courier New, monospace">Courier New</option>
+      <option value="Pacifico, cursive">Pacifico</option>
+    </select>
+    <label>Spacing:</label>
+    <input type="range" id="styleSpacing" min="0" max="10" value="4" style="max-width: 100px;">
+    <span class="slider-readout" id="styleSpacingVal">4</span>
+    <button id="styleRegen">Regenerate</button>
+  </div>
+  <figcaption>Same words, same layout. Different palette, font, and spacing change the feel entirely.</figcaption>
+</figure>
+
+<!-- ====== SECTION 9: Try it yourself ====== -->
+<h2>Try it yourself</h2>
+
+<p>That is the full pipeline: text goes in, bitmaps come out, spirals search for open space, bits collide at 32 pixels per operation. Every word cloud you generate runs this process from scratch &mdash; rasterize, pack, place, repeat &mdash; typically finishing in under a second.</p>
+
+<p>The details matter. The bit-packing makes collision detection 30x faster. The spiral search produces dense, natural-looking packing. The layout algorithms give each cloud a distinctive silhouette. And the scaling functions ensure your data's story comes through in the relative sizes.</p>
+
+<p>Explore the full tool: <a href="index.html">Word Cloud Generator</a>.</p>
+
+<hr>
+
+<p style="color: var(--text-muted); font-size: 0.85rem;">Built with Canvas 2D. No libraries, no frameworks, no dependencies. Read the source on <a href="https://github.com">GitHub</a>.</p>
+
+</article>
+
+<script>
+'use strict';
+
+// ============================================================
+//  SHARED: palettes, word data, bit-packing utilities
+// ============================================================
+
+const PALETTES = {
+  vibrant:   ['#e94560', '#53d8fb', '#f5a623', '#7ed957', '#bd93f9', '#ff79c6', '#f1fa8c', '#50fa7b'],
+  sunset:    ['#ff6b6b', '#ee5a24', '#ffa502', '#ffd93d', '#e84393', '#fd79a8', '#fab1a0', '#fdcb6e'],
+  ocean:     ['#74b9ff', '#a29bfe', '#81ecec', '#55efc4', '#0984e3', '#6c5ce7', '#00cec9', '#dfe6e9'],
+  forest:    ['#00b894', '#55efc4', '#fdcb6e', '#e17055', '#00cec9', '#badc58', '#f9ca24', '#6ab04c'],
+  neon:      ['#ff00ff', '#00ffff', '#ffff00', '#ff3366', '#33ff99', '#ff6600', '#9933ff', '#00ff66'],
+  pastel:    ['#fab1a0', '#ffeaa7', '#81ecec', '#a29bfe', '#dfe6e9', '#55efc4', '#fdcb6e', '#fd79a8'],
+  berry:     ['#6a0572', '#ab83a1', '#e36bae', '#f79cd4', '#c964cf', '#8e44ad', '#d63384', '#f4a6d7'],
+  ember:     ['#ff4500', '#ff6347', '#ff8c00', '#ffa07a', '#dc143c', '#b22222', '#ff2400', '#e25822'],
+  arctic:    ['#e0f7fa', '#b2ebf2', '#80deea', '#4dd0e1', '#26c6da', '#00acc1', '#0097a7', '#00838f'],
+  tropical:  ['#ff6f61', '#ffcc5c', '#88d8b0', '#6bc5d2', '#ff8a5c', '#ea5455', '#2ecc71', '#f9ca24'],
+  earth:     ['#8b7355', '#a0926b', '#c4a76c', '#d4c5a9', '#7c6f5b', '#6b5b3e', '#9c8e7e', '#bfb399'],
+  sakura:    ['#ffb7c5', '#ff69b4', '#ffc0cb', '#db7093', '#f4a7b9', '#e8adaa', '#d4a5a5', '#ffe4e1'],
+};
+
+const SAMPLE_WORDS = [
+  { text: 'algorithm', value: 80 },
+  { text: 'collision', value: 65 },
+  { text: 'bitmap', value: 55 },
+  { text: 'spiral', value: 50 },
+  { text: 'canvas', value: 45 },
+  { text: 'pixel', value: 40 },
+  { text: 'layout', value: 35 },
+  { text: 'packing', value: 30 },
+  { text: 'render', value: 25 },
+  { text: 'bitwise', value: 20 },
+];
+
+const HERO_WORDS = [
+  { text: 'algorithm', value: 90 },
+  { text: 'collision', value: 75 },
+  { text: 'bitmap', value: 65 },
+  { text: 'spiral', value: 58 },
+  { text: 'canvas', value: 52 },
+  { text: 'pixel', value: 48 },
+  { text: 'layout', value: 44 },
+  { text: 'packing', value: 40 },
+  { text: 'render', value: 37 },
+  { text: 'bitwise', value: 34 },
+  { text: 'transform', value: 31 },
+  { text: 'frequency', value: 28 },
+  { text: 'density', value: 26 },
+  { text: 'overlap', value: 24 },
+  { text: 'rotation', value: 22 },
+  { text: 'scaling', value: 20 },
+  { text: 'origin', value: 18 },
+  { text: 'search', value: 17 },
+  { text: 'integer', value: 16 },
+  { text: 'mask', value: 15 },
+  { text: 'glyph', value: 14 },
+  { text: 'raster', value: 13 },
+  { text: 'board', value: 12 },
+];
+
+const POWER_LAW_WORDS = [
+  { text: 'the', value: 200 }, { text: 'of', value: 90 }, { text: 'and', value: 70 },
+  { text: 'to', value: 55 }, { text: 'in', value: 40 }, { text: 'is', value: 30 },
+  { text: 'for', value: 22 }, { text: 'that', value: 16 }, { text: 'with', value: 12 },
+  { text: 'this', value: 9 }, { text: 'from', value: 7 }, { text: 'data', value: 5 },
+];
+
+const UNIFORM_WORDS = [
+  { text: 'alpha', value: 25 }, { text: 'bravo', value: 23 }, { text: 'charlie', value: 22 },
+  { text: 'delta', value: 21 }, { text: 'echo', value: 20 }, { text: 'foxtrot', value: 19 },
+  { text: 'golf', value: 18 }, { text: 'hotel', value: 18 }, { text: 'india', value: 17 },
+  { text: 'juliet', value: 17 }, { text: 'kilo', value: 16 }, { text: 'lima', value: 16 },
+];
+
+function getDpr() { return Math.min(window.devicePixelRatio || 1, 3); }
+
+function sizeCanvas(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = getDpr();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: rect.width, h: rect.height, dpr };
+}
+
+function getCSS(prop) {
+  return getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
+}
+
+// ============================================================
+//  RASTERIZATION ENGINE (ported from wordcloud.js)
+// ============================================================
+
+function rasterizeWord(text, fontSize, fontFamily, rotation, padding) {
+  const font = `${fontSize}px ${fontFamily}`;
+  const probe = document.createElement('canvas');
+  probe.width = fontSize * text.length + padding * 4;
+  probe.height = fontSize * 3 + padding * 4;
+  const pctx = probe.getContext('2d');
+  pctx.font = font;
+  pctx.textBaseline = 'alphabetic';
+  const metrics = pctx.measureText(text);
+
+  const textW = Math.ceil(metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight);
+  const textH = Math.ceil(metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent);
+  if (textW <= 0 || textH <= 0) return null;
+
+  const natW = textW + padding * 4;
+  const natH = textH + padding * 4;
+  const natTextX = metrics.actualBoundingBoxLeft + padding * 2;
+  const natTextY = metrics.actualBoundingBoxAscent + padding * 2;
+
+  const spriteW = rotation !== 0 ? natH : natW;
+  const spriteH = rotation !== 0 ? natW : natH;
+
+  const c = document.createElement('canvas');
+  c.width = spriteW;
+  c.height = spriteH;
+  const ctx = c.getContext('2d');
+  ctx.font = font;
+  ctx.textBaseline = 'alphabetic';
+
+  let textX, textY;
+  if (rotation !== 0) {
+    ctx.translate(spriteW / 2, spriteH / 2);
+    ctx.rotate(rotation);
+    textX = -natW / 2 + natTextX;
+    textY = -natH / 2 + natTextY;
+  } else {
+    textX = natTextX;
+    textY = natTextY;
+  }
+
+  if (padding > 0) {
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = padding * 2;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(text, textX, textY);
+  }
+  ctx.fillStyle = '#000';
+  ctx.fillText(text, textX, textY);
+
+  const imageData = ctx.getImageData(0, 0, spriteW, spriteH);
+  const pixels = imageData.data;
+  const w32 = Math.ceil(spriteW / 32);
+  const packed = new Uint32Array(w32 * spriteH);
+
+  for (let y = 0; y < spriteH; y++) {
+    for (let x = 0; x < spriteW; x++) {
+      if (pixels[(y * spriteW + x) * 4 + 3] > 32) {
+        packed[y * w32 + (x >> 5)] |= 1 << (31 - (x & 31));
+      }
+    }
+  }
+
+  return { data: packed, w: spriteW, h: spriteH, w32, textX, textY, canvas: c };
+}
+
+// ============================================================
+//  COLLISION ENGINE (ported from layout-worker.js)
+// ============================================================
+
+function testPosition(spriteData, sw32, sh, bx, by, board, boardW32, boardH) {
+  if (bx < 0 || by < 0 || by + sh > boardH) return false;
+  const bitOffset = bx & 31;
+  const wordOffset = bx >> 5;
+  if (bx + sw32 * 32 > boardW32 * 32) return false;
+
+  if (bitOffset === 0) {
+    for (let y = 0; y < sh; y++) {
+      const boardRow = (by + y) * boardW32;
+      const spriteRow = y * sw32;
+      for (let i = 0; i < sw32; i++) {
+        if (spriteData[spriteRow + i] & board[boardRow + wordOffset + i]) return false;
+      }
+    }
+  } else {
+    const rShift = bitOffset;
+    const lShift = 32 - bitOffset;
+    for (let y = 0; y < sh; y++) {
+      const boardRow = (by + y) * boardW32;
+      const spriteRow = y * sw32;
+      for (let i = 0; i < sw32; i++) {
+        const bits = spriteData[spriteRow + i];
+        if (bits === 0) continue;
+        const bIdx = wordOffset + i;
+        if ((bits >>> rShift) & board[boardRow + bIdx]) return false;
+        if (bIdx + 1 < boardW32) {
+          if ((bits << lShift) & board[boardRow + bIdx + 1]) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+function placeOnBoard(spriteData, sw32, sh, bx, by, board, boardW32) {
+  const bitOffset = bx & 31;
+  const wordOffset = bx >> 5;
+  if (bitOffset === 0) {
+    for (let y = 0; y < sh; y++) {
+      const boardRow = (by + y) * boardW32;
+      const spriteRow = y * sw32;
+      for (let i = 0; i < sw32; i++) {
+        board[boardRow + wordOffset + i] |= spriteData[spriteRow + i];
+      }
+    }
+  } else {
+    const rShift = bitOffset;
+    const lShift = 32 - bitOffset;
+    for (let y = 0; y < sh; y++) {
+      const boardRow = (by + y) * boardW32;
+      const spriteRow = y * sw32;
+      for (let i = 0; i < sw32; i++) {
+        const bits = spriteData[spriteRow + i];
+        if (bits === 0) continue;
+        const bIdx = wordOffset + i;
+        if (bIdx < boardW32) board[boardRow + bIdx] |= bits >>> rShift;
+        if (bIdx + 1 < boardW32) board[boardRow + bIdx + 1] |= bits << lShift;
+      }
+    }
+  }
+}
+
+function countBoardPixels(board) {
+  let count = 0;
+  for (let i = 0; i < board.length; i++) {
+    let v = board[i];
+    // popcount via Brian Kernighan
+    while (v) { v &= v - 1; count++; }
+  }
+  return count;
+}
+
+// ============================================================
+//  MINI WORD CLOUD RENDERER (for demos)
+// ============================================================
+
+function miniWordCloud(canvas, words, opts = {}) {
+  const { ctx, w, h } = sizeCanvas(canvas);
+  const {
+    palette = PALETTES.vibrant,
+    scaling = 'sqrt',
+    padding = 4,
+    fontFamily = 'DM Sans, sans-serif',
+    layout = 'spiral',
+    bgColor = null,
+    returnPlaced = false,
+  } = opts;
+
+  const bg = bgColor || getCSS('--bg-card');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  if (!words || words.length === 0) return returnPlaced ? [] : undefined;
+
+  const maxValue = words[0].value;
+  const maxFontSize = Math.round(h * 0.28);
+  const minFontSize = Math.round(h * 0.06);
+
+  // Rasterize all words
+  const sprites = [];
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const norm = word.value / maxValue;
+    let scaled;
+    if (scaling === 'log') scaled = Math.log(word.value + 1) / Math.log(maxValue + 1);
+    else if (scaling === 'linear') scaled = norm;
+    else scaled = Math.sqrt(norm);
+    const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * scaled);
+    const color = palette[i % palette.length];
+    const sprite = rasterizeWord(word.text, fontSize, fontFamily, 0, padding);
+    if (sprite) {
+      sprites.push({ ...sprite, text: word.text, fontSize, color, rotation: 0 });
+    }
+  }
+
+  // Layout on a board
+  const boardW = Math.ceil(w * 2);
+  const boardH = Math.ceil(h * 2);
+  const boardW32 = Math.ceil(boardW / 32);
+  const board = new Uint32Array(boardW32 * boardH);
+  const cx = Math.floor(boardW / 2);
+  const cy = Math.floor(boardH / 2);
+  const aspect = w / h;
+
+  const placed = [];
+  const origins = [];
+
+  for (let si = 0; si < sprites.length; si++) {
+    const s = sprites[si];
+    let originX = cx, originY = cy;
+
+    // Layout origin computation
+    if (layout === 'wander-line') {
+      const lineAngle = 0.5;
+      const spacing = Math.min(cx, cy) * 1.2 / Math.max(sprites.length, 1);
+      const sign = si % 2 === 0 ? 1 : -1;
+      const dist = Math.ceil(si / 2) * spacing * sign;
+      originX = cx + Math.round(dist * Math.cos(lineAngle) * aspect);
+      originY = cy + Math.round(dist * Math.sin(lineAngle));
+    } else if (layout === 'wander-curl') {
+      const maxR = Math.min(cx, cy) * 0.7;
+      const arm = si % 2;
+      const armIndex = Math.floor(si / 2);
+      const armTotal = Math.ceil(sprites.length / 2);
+      const t = armIndex / Math.max(armTotal - 1, 1);
+      const theta = arm * Math.PI + t * Math.PI / 2;
+      const r = t * maxR;
+      originX = cx + Math.round(r * Math.cos(theta) * aspect);
+      originY = cy + Math.round(r * Math.sin(theta));
+    } else if (layout === 'wander-wisp') {
+      const maxR = Math.min(cx, cy) * 0.7;
+      const arm = si % 2;
+      const armIndex = Math.floor(si / 2);
+      const armTotal = Math.ceil(sprites.length / 2);
+      const t = armIndex / Math.max(armTotal - 1, 1);
+      const theta = arm * Math.PI + t * Math.PI / 8;
+      const r = t * maxR;
+      originX = cx + Math.round(r * Math.cos(theta) * aspect);
+      originY = cy + Math.round(r * Math.sin(theta));
+    } else if (layout === 'wander-feather') {
+      const maxR = Math.min(cx, cy) * 0.7;
+      const t = si / Math.max(sprites.length - 1, 1);
+      const theta = t * Math.PI / 4;
+      const r = t * maxR;
+      originX = cx + Math.round(r * Math.cos(theta) * aspect);
+      originY = cy + Math.round(r * Math.sin(theta));
+    } else if (layout === 'wander-ring') {
+      const radius = Math.min(cx, cy) * 0.35;
+      const theta = (si / Math.max(sprites.length, 1)) * Math.PI * 2;
+      originX = cx + Math.round(radius * Math.cos(theta) * aspect);
+      originY = cy + Math.round(radius * Math.sin(theta));
+    } else if (layout === 'rectangular') {
+      // Use rectangular spiral search directly
+      const step = 2;
+      const ra = 1.4;
+      let x = cx - Math.floor(s.w / 2);
+      let y = cy - Math.floor(s.h / 2);
+      let dx = Math.round(step * ra), dy = 0;
+      let segmentLen = Math.round(step * 4 * ra);
+      let segmentPassed = 0;
+      let turnCount = 0;
+      let horizontal = true;
+      let found = false;
+      for (let i = 0; i < 100000; i++) {
+        if (testPosition(s.data, s.w32, s.h, x, y, board, boardW32, boardH)) {
+          placeOnBoard(s.data, s.w32, s.h, x, y, board, boardW32);
+          placed.push({ ...s, bx: x, by: y });
+          found = true;
+          break;
+        }
+        x += dx; y += dy;
+        segmentPassed += Math.abs(dx || dy);
+        if (segmentPassed >= segmentLen) {
+          segmentPassed = 0;
+          turnCount++;
+          const tmp = dx; dx = -dy; dy = tmp;
+          horizontal = !horizontal;
+          const baseLen = step * 4;
+          const growth = Math.floor(turnCount / 2) * step * 4;
+          segmentLen = Math.round((baseLen + growth) * (horizontal ? ra : 1));
+        }
+      }
+      if (found) continue;
+      else continue; // skip if can't place
+    } else if (layout === 'square') {
+      const step = 2;
+      let x = cx - Math.floor(s.w / 2);
+      let y = cy - Math.floor(s.h / 2);
+      let dx = step, dy = 0;
+      let segmentLen = step * 4;
+      let segmentPassed = 0;
+      let turnCount = 0;
+      let found = false;
+      for (let i = 0; i < 100000; i++) {
+        if (testPosition(s.data, s.w32, s.h, x, y, board, boardW32, boardH)) {
+          placeOnBoard(s.data, s.w32, s.h, x, y, board, boardW32);
+          placed.push({ ...s, bx: x, by: y });
+          found = true;
+          break;
+        }
+        x += dx; y += dy;
+        segmentPassed += Math.abs(dx || dy);
+        if (segmentPassed >= segmentLen) {
+          segmentPassed = 0;
+          turnCount++;
+          const tmp = dx; dx = -dy; dy = tmp;
+          const baseLen = step * 4;
+          const growth = Math.floor(turnCount / 2) * step * 4;
+          segmentLen = baseLen + growth;
+        }
+      }
+      if (found) continue;
+      else continue;
+    }
+
+    origins.push({ x: originX - cx, y: originY - cy });
+
+    // Spiral search from origin
+    const maxSteps = 30000;
+    const dt = 0.05;
+    for (let t = 0; t < maxSteps; t++) {
+      const theta = dt * t;
+      const r = dt * t * 0.5;
+      const x = Math.round(originX + r * Math.cos(theta) * aspect - s.w / 2);
+      const y = Math.round(originY + r * Math.sin(theta) - s.h / 2);
+      if (testPosition(s.data, s.w32, s.h, x, y, board, boardW32, boardH)) {
+        placeOnBoard(s.data, s.w32, s.h, x, y, board, boardW32);
+        placed.push({ ...s, bx: x, by: y });
+        break;
+      }
+    }
+  }
+
+  if (placed.length === 0) return returnPlaced ? [] : undefined;
+
+  // Compute bounds and zoom
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of placed) {
+    const lx = p.bx - cx;
+    const ly = p.by - cy;
+    minX = Math.min(minX, lx);
+    minY = Math.min(minY, ly);
+    maxX = Math.max(maxX, lx + p.w);
+    maxY = Math.max(maxY, ly + p.h);
+  }
+  const cloudW = maxX - minX;
+  const cloudH = maxY - minY;
+  if (cloudW <= 0 || cloudH <= 0) return returnPlaced ? placed : undefined;
+
+  const margin = 0.05;
+  const availW = w * (1 - margin * 2);
+  const availH = h * (1 - margin * 2);
+  const scale = Math.min(availW / cloudW, availH / cloudH);
+  const cloudCX = w / 2 + (minX + maxX) / 2;
+  const cloudCY = h / 2 + (minY + maxY) / 2;
+  const tx = w / 2 - cloudCX * scale;
+  const ty = h / 2 - cloudCY * scale;
+
+  // Draw words
+  for (const p of placed) {
+    const sx = w / 2 + (p.bx - cx);
+    const sy = h / 2 + (p.by - cy);
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.scale(scale, scale);
+    ctx.font = `${p.fontSize}px ${fontFamily}`;
+    ctx.fillStyle = p.color;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(p.text, sx + p.textX, sy + p.textY);
+    ctx.restore();
+  }
+
+  if (returnPlaced) return placed;
+}
+
+
+// ============================================================
+//  SECTION 1: Hero with clickable layout buttons + origin flash
+// ============================================================
+
+function initHero() {
+  const canvas = document.getElementById('heroCanvas');
+  const btnRow = document.getElementById('heroLayoutBtns');
+  const layouts = [
+    { id: 'spiral', name: 'Spiral' },
+    { id: 'wander-line', name: 'Diagonal' },
+    { id: 'wander-curl', name: 'Curl' },
+    { id: 'wander-wisp', name: 'Wisp' },
+    { id: 'wander-feather', name: 'Feather' },
+    { id: 'wander-ring', name: 'Ring' },
+    { id: 'rectangular', name: 'Rectangle' },
+    { id: 'square', name: 'Square' },
+  ];
+  let currentLayout = 'spiral';
+  let flashAlpha = 0;
+  let flashAnim = null;
+  let cachedCloudImage = null;
+  let cachedCloudW = 0;
+  let cachedCloudH = 0;
+
+  // Precompute origins for overlay
+  function computeHeroOrigins(layoutId, w, h) {
+    const cx = w / 2;
+    const cy = h / 2;
+    const aspect = w / h;
+    const count = HERO_WORDS.length;
+    const origins = [];
+    for (let si = 0; si < count; si++) {
+      let ox = cx, oy = cy;
+      if (layoutId === 'wander-line') {
+        const lineAngle = 0.5;
+        const spacing = Math.min(cx, cy) * 1.2 / Math.max(count, 1);
+        const sign = si % 2 === 0 ? 1 : -1;
+        const dist = Math.ceil(si / 2) * spacing * sign;
+        ox = cx + dist * Math.cos(lineAngle) * aspect;
+        oy = cy + dist * Math.sin(lineAngle);
+      } else if (layoutId === 'wander-curl') {
+        const maxR = Math.min(cx, cy) * 0.7;
+        const arm = si % 2;
+        const armIndex = Math.floor(si / 2);
+        const armTotal = Math.ceil(count / 2);
+        const t = armIndex / Math.max(armTotal - 1, 1);
+        const theta = arm * Math.PI + t * Math.PI / 2;
+        const r = t * maxR;
+        ox = cx + r * Math.cos(theta) * aspect;
+        oy = cy + r * Math.sin(theta);
+      } else if (layoutId === 'wander-wisp') {
+        const maxR = Math.min(cx, cy) * 0.7;
+        const arm = si % 2;
+        const armIndex = Math.floor(si / 2);
+        const armTotal = Math.ceil(count / 2);
+        const t = armIndex / Math.max(armTotal - 1, 1);
+        const theta = arm * Math.PI + t * Math.PI / 8;
+        const r = t * maxR;
+        ox = cx + r * Math.cos(theta) * aspect;
+        oy = cy + r * Math.sin(theta);
+      } else if (layoutId === 'wander-feather') {
+        const maxR = Math.min(cx, cy) * 0.7;
+        const t = si / Math.max(count - 1, 1);
+        const theta = t * Math.PI / 4;
+        const r = t * maxR;
+        ox = cx + r * Math.cos(theta) * aspect;
+        oy = cy + r * Math.sin(theta);
+      } else if (layoutId === 'wander-ring') {
+        const radius = Math.min(cx, cy) * 0.35;
+        const theta = (si / Math.max(count, 1)) * Math.PI * 2;
+        ox = cx + radius * Math.cos(theta) * aspect;
+        oy = cy + radius * Math.sin(theta);
+      } else if (layoutId === 'rectangular') {
+        const step = 3; const ra = 1.5;
+        let x = cx, y = cy, dx = step * ra, dy = 0;
+        let segmentLen = step * 6 * ra, segmentPassed = 0, turnCount = 0, horizontal = true;
+        for (let i = 0; i < si * 80; i++) {
+          x += dx; y += dy; segmentPassed += Math.abs(dx || dy);
+          if (segmentPassed >= segmentLen) {
+            segmentPassed = 0; turnCount++;
+            const tmp = dx; dx = -dy; dy = tmp; horizontal = !horizontal;
+            segmentLen = (step * 6 + Math.floor(turnCount / 2) * step * 6) * (horizontal ? ra : 1);
+          }
+        }
+        ox = x; oy = y;
+      } else if (layoutId === 'square') {
+        const step = 3;
+        let x = cx, y = cy, dx = step, dy = 0;
+        let segmentLen = step * 6, segmentPassed = 0, turnCount = 0;
+        for (let i = 0; i < si * 80; i++) {
+          x += dx; y += dy; segmentPassed += Math.abs(dx || dy);
+          if (segmentPassed >= segmentLen) {
+            segmentPassed = 0; turnCount++;
+            const tmp = dx; dx = -dy; dy = tmp;
+            segmentLen = step * 6 + Math.floor(turnCount / 2) * step * 6;
+          }
+        }
+        ox = x; oy = y;
+      }
+      origins.push({ x: ox, y: oy });
+    }
+    return origins;
+  }
+
+  function render(doFlash) {
+    const paletteNames = Object.keys(PALETTES);
+    const palIdx = layouts.findIndex(l => l.id === currentLayout);
+    const paletteName = paletteNames[palIdx % paletteNames.length];
+    miniWordCloud(canvas, HERO_WORDS, {
+      palette: PALETTES[paletteName],
+      layout: currentLayout,
+      padding: 3,
+    });
+
+    // Cache the rendered cloud for flash animation
+    const dpr = getDpr();
+    cachedCloudImage = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    cachedCloudW = canvas.width;
+    cachedCloudH = canvas.height;
+
+    if (doFlash) {
+      flashAlpha = 0.7;
+      if (flashAnim) cancelAnimationFrame(flashAnim);
+      const startTime = performance.now();
+      function fadeStep(now) {
+        const elapsed = now - startTime;
+        flashAlpha = Math.max(0, 0.7 * (1 - elapsed / 500));
+        if (flashAlpha <= 0) { flashAnim = null; return; }
+        // Restore cached cloud instead of re-running layout engine
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(cachedCloudImage, 0, 0);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawOriginOverlay(flashAlpha);
+        flashAnim = requestAnimationFrame(fadeStep);
+      }
+      drawOriginOverlay(flashAlpha);
+      flashAnim = requestAnimationFrame(fadeStep);
+    }
+  }
+
+  function drawOriginOverlay(alpha) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = getDpr();
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = rect.width, h = rect.height;
+    const origins = computeHeroOrigins(currentLayout, w, h);
+
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.strokeStyle = '#53d8fb';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < origins.length; i++) {
+      if (i === 0) ctx.moveTo(origins[i].x, origins[i].y);
+      else ctx.lineTo(origins[i].x, origins[i].y);
+    }
+    ctx.stroke();
+    for (let i = 0; i < origins.length; i++) {
+      ctx.beginPath();
+      ctx.arc(origins[i].x, origins[i].y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? '#e94560' : '#53d8fb';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  layouts.forEach((layout, idx) => {
+    const btn = document.createElement('button');
+    btn.textContent = layout.name;
+    if (idx === 0) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      btnRow.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentLayout = layout.id;
+      render(true);
+    });
+    btnRow.appendChild(btn);
+  });
+
+  render(false);
+  window.addEventListener('resize', () => render(false));
+}
+
+// ============================================================
+//  SECTION 2: Anatomy of a Word (with text input, default grid)
+// ============================================================
+
+function initAnatomy() {
+  const canvas = document.getElementById('anatomyCanvas');
+  const modeGroup = document.getElementById('anatomyMode');
+  const rotationGroup = document.getElementById('anatomyRotation');
+  const paddingSlider = document.getElementById('anatomyPadding');
+  const padValLabel = document.getElementById('anatomyPadVal');
+  const wordInput = document.getElementById('anatomyWord');
+  let mode = 'grid';
+  let rotation = 0;
+
+  modeGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    modeGroup.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    mode = btn.dataset.mode;
+    draw();
+  });
+
+  rotationGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    rotationGroup.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const deg = parseInt(btn.dataset.rot);
+    rotation = deg * Math.PI / 180;
+    draw();
+  });
+
+  paddingSlider.addEventListener('input', () => {
+    padValLabel.textContent = paddingSlider.value;
+    draw();
+  });
+  wordInput.addEventListener('input', () => { draw(); });
+
+  function draw() {
+    const { ctx, w, h } = sizeCanvas(canvas);
+    const bg = getCSS('--bg-card');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    const padding = parseInt(paddingSlider.value);
+    const word = wordInput.value.trim() || 'Pixel';
+    const fontFamily = 'DM Sans, sans-serif';
+    const fontSize = Math.round(h * 0.35);
+    const font = `${fontSize}px ${fontFamily}`;
+
+    if (mode === 'rendered') {
+      if (rotation !== 0) {
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.rotate(rotation);
+        ctx.font = font;
+        ctx.fillStyle = getCSS('--text');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(word, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.font = font;
+        ctx.fillStyle = getCSS('--text');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(word, w / 2, h / 2);
+      }
+
+    } else if (mode === 'padded') {
+      ctx.save();
+      if (rotation !== 0) {
+        ctx.translate(w / 2, h / 2);
+        ctx.rotate(rotation);
+      }
+      const tx = rotation !== 0 ? 0 : w / 2;
+      const ty = rotation !== 0 ? 0 : h / 2;
+      ctx.font = font;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (padding > 0) {
+        ctx.strokeStyle = 'rgba(74, 127, 255, 0.3)';
+        ctx.lineWidth = padding * 2;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(word, tx, ty);
+      }
+      ctx.fillStyle = getCSS('--text');
+      ctx.fillText(word, tx, ty);
+
+      ctx.font = font;
+      const metrics = ctx.measureText(word);
+      const tw = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
+      const th = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+      const bx = tx - tw / 2 - padding * 2;
+      const by = ty - th / 2 - padding * 2;
+      const bw = tw + padding * 4;
+      const bh = th + padding * 4;
+      ctx.strokeStyle = getCSS('--blue');
+      ctx.lineWidth = 1;
+      ctx.lineJoin = 'miter';
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.setLineDash([]);
+      ctx.restore();
+
+    } else if (mode === 'grid') {
+      const sprite = rasterizeWord(word, fontSize, fontFamily, rotation, padding);
+      if (!sprite) return;
+
+      const gridW = sprite.w32 * 32;
+      const gridH = sprite.h;
+      const cellSize = Math.min(
+        (w - 40) / gridW,
+        (h - 40) / gridH,
+        6
+      );
+      const totalW = gridW * cellSize;
+      const totalH = gridH * cellSize;
+      const ox = (w - totalW) / 2;
+      const oy = (h - totalH) / 2;
+
+      const onColor = getCSS('--blue');
+      const offColor = getCSS('--border');
+
+      for (let y = 0; y < gridH; y++) {
+        for (let x = 0; x < gridW; x++) {
+          const word32 = x >> 5;
+          const bit = 31 - (x & 31);
+          const isSet = (sprite.data[y * sprite.w32 + word32] >>> bit) & 1;
+
+          ctx.fillStyle = isSet ? onColor : offColor;
+          ctx.globalAlpha = isSet ? 0.8 : 0.15;
+          ctx.fillRect(
+            ox + x * cellSize + 0.5,
+            oy + y * cellSize + 0.5,
+            cellSize - 1,
+            cellSize - 1
+          );
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = getCSS('--red');
+      ctx.lineWidth = 0.5;
+      ctx.globalAlpha = 0.4;
+      for (let col32 = 1; col32 < sprite.w32; col32++) {
+        const lx = ox + col32 * 32 * cellSize;
+        ctx.beginPath();
+        ctx.moveTo(lx, oy);
+        ctx.lineTo(lx, oy + totalH);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.font = `11px ${getCSS('--font-mono')}`;
+      ctx.fillStyle = getCSS('--text-muted');
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${sprite.w}x${sprite.h}px  |  ${sprite.w32} x Uint32 per row  |  ${sprite.data.length} total integers`, w / 2, oy + totalH + 8);
+    }
+  }
+
+  draw();
+  window.addEventListener('resize', draw);
+}
+
+// ============================================================
+//  SECTION 3: Collision Detection with drag-to-position
+// ============================================================
+
+function initCollision() {
+  const canvas = document.getElementById('collisionCanvas');
+  const modeGroup = document.getElementById('collisionMode');
+  const statsEl = document.getElementById('collisionStats');
+  let mode = 'bbox';
+
+  const fontFamily = 'DM Sans, sans-serif';
+
+  // Drag state for word B
+  let dragBx = null;
+  let dragBy = null;
+  let isDragging = false;
+
+  // Cache sprite B to avoid rasterizing on every pointermove
+  let cachedSprB = null;
+
+  modeGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    modeGroup.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    mode = btn.dataset.mode;
+    draw();
+  });
+
+  // Two fixed words
+  const wordA = { text: 'Cloud', fontSize: 48 };
+  const wordB = { text: 'Type', fontSize: 36 };
+
+  function ensureSprBCached() {
+    if (!cachedSprB) {
+      cachedSprB = rasterizeWord(wordB.text, wordB.fontSize, fontFamily, 0, 4);
+    }
+    return cachedSprB;
+  }
+
+  function getPositions(w, h) {
+    const sprA = rasterizeWord(wordA.text, wordA.fontSize, fontFamily, 0, 4);
+    const sprB = ensureSprBCached();
+    if (!sprA || !sprB) return null;
+    const ax = Math.round(w * 0.3 - sprA.w / 2);
+    const ay = Math.round(h * 0.45 - sprA.h / 2);
+    const bx = dragBx !== null ? dragBx : Math.round(w * 0.48 - sprB.w / 2);
+    const by = dragBy !== null ? dragBy : Math.round(h * 0.5 - sprB.h / 2);
+    return { sprA, sprB, ax, ay, bx, by };
+  }
+
+  function onPointerDown(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const { ctx, w, h } = sizeCanvas(canvas);
+    const pos = getPositions(w, h);
+    if (!pos) return;
+    isDragging = true;
+    canvas.setPointerCapture(e.pointerId);
+    dragBx = Math.round(mx - pos.sprB.w / 2);
+    dragBy = Math.round(my - pos.sprB.h / 2);
+    draw();
+  }
+
+  function onPointerMove(e) {
+    if (!isDragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const sprB = ensureSprBCached();
+    if (!sprB) return;
+    dragBx = Math.round(mx - sprB.w / 2);
+    dragBy = Math.round(my - sprB.h / 2);
+    draw();
+  }
+
+  function onPointerUp() {
+    isDragging = false;
+  }
+
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerUp);
+
+  function draw() {
+    const { ctx, w, h } = sizeCanvas(canvas);
+    ctx.fillStyle = getCSS('--bg-card');
+    ctx.fillRect(0, 0, w, h);
+
+    const pos = getPositions(w, h);
+    if (!pos) return;
+    const { sprA, sprB, ax, ay, bx, by } = pos;
+
+    // Draw the actual words
+    ctx.font = `${wordA.fontSize}px ${fontFamily}`;
+    ctx.fillStyle = PALETTES.vibrant[0];
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(wordA.text, ax + sprA.textX, ay + sprA.textY);
+
+    ctx.font = `${wordB.fontSize}px ${fontFamily}`;
+    ctx.fillStyle = PALETTES.vibrant[1];
+    ctx.fillText(wordB.text, bx + sprB.textX, by + sprB.textY);
+
+    if (mode === 'bbox') {
+      // Draw bounding boxes
+      ctx.strokeStyle = PALETTES.vibrant[0];
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(ax, ay, sprA.w, sprA.h);
+      ctx.strokeStyle = PALETTES.vibrant[1];
+      ctx.strokeRect(bx, by, sprB.w, sprB.h);
+      ctx.setLineDash([]);
+
+      // Overlap region
+      const ox1 = Math.max(ax, bx);
+      const oy1 = Math.max(ay, by);
+      const ox2 = Math.min(ax + sprA.w, bx + sprB.w);
+      const oy2 = Math.min(ay + sprA.h, by + sprB.h);
+      if (ox2 > ox1 && oy2 > oy1) {
+        ctx.fillStyle = 'rgba(232, 93, 74, 0.2)';
+        ctx.fillRect(ox1, oy1, ox2 - ox1, oy2 - oy1);
+        ctx.strokeStyle = getCSS('--red');
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(ox1, oy1, ox2 - ox1, oy2 - oy1);
+        ctx.setLineDash([]);
+        statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION (false positive) &mdash; 4 comparisons</span>`;
+      } else {
+        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; 4 comparisons</span>`;
+      }
+
+      ctx.font = '12px ' + getCSS('--font-mono');
+      ctx.fillStyle = getCSS('--text-muted');
+      ctx.textAlign = 'center';
+      if (ox2 > ox1 && oy2 > oy1) {
+        ctx.fillText('False positive: boxes overlap but pixels may not', w / 2, h - 16);
+      }
+
+    } else if (mode === 'pixel') {
+      // Instant pixel collision test with visual feedback
+      const ox1 = Math.max(ax, bx);
+      const oy1 = Math.max(ay, by);
+      const ox2 = Math.min(ax + sprA.w, bx + sprB.w);
+      const oy2 = Math.min(ay + sprA.h, by + sprB.h);
+      const overlapW = Math.max(0, ox2 - ox1);
+      const overlapH = Math.max(0, oy2 - oy1);
+      let pixelCollisions = 0;
+      const totalPixels = overlapW * overlapH;
+
+      for (let py = 0; py < overlapH; py++) {
+        for (let px = 0; px < overlapW; px++) {
+          const sx = ox1 + px;
+          const sy = oy1 + py;
+          const aLocalX = sx - ax;
+          const aLocalY = sy - ay;
+          const bLocalX = sx - bx;
+          const bLocalY = sy - by;
+          let aSet = false, bSet = false;
+          if (aLocalX >= 0 && aLocalX < sprA.w && aLocalY >= 0 && aLocalY < sprA.h) {
+            const aw = aLocalX >> 5;
+            const ab = 31 - (aLocalX & 31);
+            aSet = (sprA.data[aLocalY * sprA.w32 + aw] >>> ab) & 1;
+          }
+          if (bLocalX >= 0 && bLocalX < sprB.w && bLocalY >= 0 && bLocalY < sprB.h) {
+            const bw = bLocalX >> 5;
+            const bb = 31 - (bLocalX & 31);
+            bSet = (sprB.data[bLocalY * sprB.w32 + bw] >>> bb) & 1;
+          }
+          if (aSet && bSet) {
+            ctx.fillStyle = 'rgba(232, 93, 74, 0.7)';
+            ctx.fillRect(sx, sy, 1, 1);
+            pixelCollisions++;
+          } else {
+            ctx.fillStyle = 'rgba(42, 157, 110, 0.08)';
+            ctx.fillRect(sx, sy, 1, 1);
+          }
+        }
+      }
+      if (pixelCollisions > 0) {
+        statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${pixelCollisions} overlapping pixels, ${totalPixels} checks</span>`;
+      } else {
+        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${totalPixels} pixel comparisons</span>`;
+      }
+
+    } else if (mode === 'bitwise') {
+      // Instant bitwise test with visual feedback
+      const ox1 = Math.max(ax, bx);
+      const oy1 = Math.max(ay, by);
+      const ox2 = Math.min(ax + sprA.w, bx + sprB.w);
+      const oy2 = Math.min(ay + sprA.h, by + sprB.h);
+      const overlapW = Math.max(0, ox2 - ox1);
+      const overlapH = Math.max(0, oy2 - oy1);
+      const totalPixels = overlapW * overlapH;
+      const w32count = Math.ceil(overlapW / 32);
+      const ops = w32count * overlapH;
+
+      // Build tiny boards for visual test
+      let collision = false;
+      for (let y = 0; y < overlapH; y++) {
+        for (let c = 0; c < w32count; c++) {
+          const chunkX = ox1 + c * 32;
+          const chunkW = Math.min(32, ox2 - chunkX);
+          ctx.fillStyle = 'rgba(74, 127, 255, 0.15)';
+          ctx.fillRect(chunkX, oy1 + y, chunkW, 1);
+        }
+      }
+
+      // Draw faint 32-pixel boundary lines in the overlap region
+      if (overlapW > 0 && overlapH > 0) {
+        ctx.strokeStyle = getCSS('--red');
+        ctx.lineWidth = 0.5;
+        ctx.globalAlpha = 0.3;
+        const firstBoundary = Math.ceil(ox1 / 32) * 32;
+        for (let bnd = firstBoundary; bnd < ox2; bnd += 32) {
+          if (bnd <= ox1) continue;
+          ctx.beginPath();
+          ctx.moveTo(bnd, oy1);
+          ctx.lineTo(bnd, oy2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Real collision check
+      const boardW = Math.ceil(w);
+      const boardH = Math.ceil(h);
+      const boardW32 = Math.ceil(boardW / 32);
+      const board = new Uint32Array(boardW32 * boardH);
+      if (ax >= 0 && ay >= 0 && ay + sprA.h <= boardH && ax + sprA.w32 * 32 <= boardW32 * 32) {
+        placeOnBoard(sprA.data, sprA.w32, sprA.h, ax, ay, board, boardW32);
+      }
+      if (bx >= 0 && by >= 0 && by + sprB.h <= boardH && bx + sprB.w32 * 32 <= boardW32 * 32) {
+        collision = !testPosition(sprB.data, sprB.w32, sprB.h, bx, by, board, boardW32, boardH);
+      }
+
+      if (totalPixels === 0) {
+        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">No overlap &mdash; 0 ops needed</span>`;
+      } else {
+        const speedup = Math.round(totalPixels / Math.max(ops, 1));
+        if (collision) {
+          statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${ops} bit ops (${speedup}x faster than pixel-by-pixel)</span>`;
+        } else {
+          statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${ops} bit ops (${speedup}x faster than pixel-by-pixel)</span>`;
+        }
+      }
+    }
+  }
+
+  draw();
+  window.addEventListener('resize', () => { cachedSprB = null; draw(); });
+}
+
+// ============================================================
+//  SECTION 4: Spiral Search with scrubber + coefficient sliders
+// ============================================================
+
+function initSpiral() {
+  const canvas = document.getElementById('spiralCanvas');
+  const scrubber = document.getElementById('spiralScrubber');
+  const playBtn = document.getElementById('spiralPlay');
+  const restartBtn = document.getElementById('spiralRestart');
+  const counterLabel = document.getElementById('spiralCounter');
+  const radialSlider = document.getElementById('spiralRadial');
+  const angularSlider = document.getElementById('spiralAngular');
+  const radialVal = document.getElementById('spiralRadialVal');
+  const angularVal = document.getElementById('spiralAngularVal');
+  const noCollisionCheckbox = document.getElementById('spiralNoCollision');
+  let animFrame = null;
+  let isPlaying = false;
+
+  const fontFamily = 'DM Sans, sans-serif';
+
+  const bgWords = [
+    { text: 'render', fontSize: 36, color: '#555' },
+    { text: 'canvas', fontSize: 28, color: '#555' },
+    { text: 'pixel', fontSize: 24, color: '#555' },
+  ];
+  const newWord = { text: 'layout', fontSize: 30, color: PALETTES.vibrant[1] };
+
+  let spiralPoints = [];
+  let foundAt = -1;
+  let bgSprites = [];
+  let newSpr = null;
+  let boardW, boardH, boardW32, board, cx, cy;
+
+  function updateSliderReadouts() {
+    radialVal.textContent = (parseInt(radialSlider.value) / 1000).toFixed(3);
+    angularVal.textContent = (parseInt(angularSlider.value) / 1000).toFixed(3);
+  }
+
+  function buildScene() {
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+    isPlaying = false;
+    playBtn.textContent = 'Play';
+    updateSliderReadouts();
+
+    const { ctx, w, h } = sizeCanvas(canvas);
+    boardW = Math.ceil(w);
+    boardH = Math.ceil(h);
+    boardW32 = Math.ceil(boardW / 32);
+    board = new Uint32Array(boardW32 * boardH);
+    cx = Math.floor(boardW / 2);
+    cy = Math.floor(boardH / 2);
+
+    const positions = [
+      { x: -30, y: -15 },
+      { x: 40, y: 20 },
+      { x: -50, y: 30 },
+    ];
+
+    const noCollision = noCollisionCheckbox.checked;
+
+    bgSprites = [];
+    for (let i = 0; i < bgWords.length; i++) {
+      const bw = bgWords[i];
+      const spr = rasterizeWord(bw.text, bw.fontSize, fontFamily, 0, 4);
+      if (!spr) continue;
+      let px, py;
+      if (noCollision) {
+        // All at origin (0,0) center
+        px = cx - Math.floor(spr.w / 2);
+        py = cy - Math.floor(spr.h / 2);
+      } else {
+        px = cx + positions[i].x - Math.floor(spr.w / 2);
+        py = cy + positions[i].y - Math.floor(spr.h / 2);
+      }
+      if (px >= 0 && py >= 0 && py + spr.h <= boardH && px + spr.w32 * 32 <= boardW32 * 32) {
+        placeOnBoard(spr.data, spr.w32, spr.h, px, py, board, boardW32);
+        bgSprites.push({ ...spr, ...bw, px, py });
+      }
+    }
+
+    newSpr = rasterizeWord(newWord.text, newWord.fontSize, fontFamily, 0, 4);
+    if (!newSpr) return;
+
+    const radialGrowth = parseInt(radialSlider.value) / 1000;
+    const angularSpeed = parseInt(angularSlider.value) / 1000;
+
+    const maxSteps = 30000;
+    spiralPoints = [];
+    foundAt = -1;
+
+    if (noCollision) {
+      // Place at origin immediately, show the catastrophic overlap
+      const x = cx - Math.floor(newSpr.w / 2);
+      const y = cy - Math.floor(newSpr.h / 2);
+      spiralPoints.push({ x, y, dotX: cx, dotY: cy, fits: true });
+      foundAt = 0;
+    } else {
+      for (let t = 0; t < maxSteps; t++) {
+        const theta = angularSpeed * t;
+        const r = radialGrowth * t;
+        const x = Math.round(cx + r * Math.cos(theta) - newSpr.w / 2);
+        const y = Math.round(cy + r * Math.sin(theta) - newSpr.h / 2);
+        const dotX = cx + r * Math.cos(theta);
+        const dotY = cy + r * Math.sin(theta);
+        const fits = testPosition(newSpr.data, newSpr.w32, newSpr.h, x, y, board, boardW32, boardH);
+        spiralPoints.push({ x, y, dotX, dotY, fits });
+        if (fits && foundAt < 0) {
+          foundAt = t;
+          break;
+        }
+      }
+    }
+
+    scrubber.max = spiralPoints.length - 1;
+    scrubber.value = 0;
+    drawFrame(0);
+  }
+
+  function drawFrame(step) {
+    const { ctx, w, h } = sizeCanvas(canvas);
+    const bg = getCSS('--bg-card');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw background words
+    for (const bs of bgSprites) {
+      ctx.font = `${bs.fontSize}px ${fontFamily}`;
+      ctx.fillStyle = '#888';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(bs.text, bs.px + bs.textX, bs.py + bs.textY);
+    }
+
+    if (spiralPoints.length === 0 || !newSpr) return;
+    step = Math.min(step, spiralPoints.length - 1);
+
+    // Draw spiral trail
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(74, 127, 255, 0.2)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= step; i++) {
+      const p = spiralPoints[i];
+      if (i === 0) ctx.moveTo(p.dotX, p.dotY);
+      else ctx.lineTo(p.dotX, p.dotY);
+    }
+    ctx.stroke();
+
+    // Draw collision/success markers
+    const markInterval = Math.max(1, Math.floor(step / 200));
+    for (let i = 0; i <= step; i += markInterval) {
+      const p = spiralPoints[i];
+      if (i === step && foundAt >= 0 && step >= foundAt) {
+        ctx.fillStyle = 'rgba(42, 157, 110, 0.8)';
+        ctx.beginPath();
+        ctx.arc(p.dotX, p.dotY, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (!p.fits) {
+        ctx.fillStyle = 'rgba(232, 93, 74, 0.3)';
+        ctx.beginPath();
+        ctx.arc(p.dotX, p.dotY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Draw new word at current or found position
+    const current = spiralPoints[step];
+    if (foundAt >= 0 && step >= foundAt) {
+      const fp = spiralPoints[foundAt];
+      ctx.font = `${newWord.fontSize}px ${fontFamily}`;
+      ctx.fillStyle = newWord.color;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(newWord.text, fp.x + newSpr.textX, fp.y + newSpr.textY);
+
+      ctx.strokeStyle = 'rgba(42, 157, 110, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(fp.x, fp.y, newSpr.w, newSpr.h);
+      ctx.setLineDash([]);
+    } else {
+      ctx.globalAlpha = 0.3;
+      ctx.font = `${newWord.fontSize}px ${fontFamily}`;
+      ctx.fillStyle = newWord.color;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(newWord.text, current.x + newSpr.textX, current.y + newSpr.textY);
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = 'rgba(232, 93, 74, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(current.x, current.y, newSpr.w, newSpr.h);
+    }
+
+    // Current dot
+    ctx.fillStyle = PALETTES.vibrant[1];
+    ctx.beginPath();
+    ctx.arc(current.dotX, current.dotY, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    counterLabel.textContent = `Positions tested: ${step + 1}`;
+
+    // Equation on canvas
+    const radialGrowth = parseInt(radialSlider.value) / 1000;
+    const angularSpeed = parseInt(angularSlider.value) / 1000;
+    ctx.font = `11px ${getCSS('--font-mono')}`;
+    ctx.fillStyle = getCSS('--text-muted');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`r = ${radialGrowth.toFixed(3)}t, \u03b8 = ${angularSpeed.toFixed(3)}t`, 12, 12);
+  }
+
+  scrubber.addEventListener('input', () => {
+    if (isPlaying) {
+      isPlaying = false;
+      if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+      playBtn.textContent = 'Play';
+    }
+    drawFrame(parseInt(scrubber.value));
+  });
+
+  playBtn.addEventListener('click', () => {
+    if (isPlaying) {
+      isPlaying = false;
+      if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+      playBtn.textContent = 'Play';
+      return;
+    }
+    isPlaying = true;
+    playBtn.textContent = 'Pause';
+    let step = parseInt(scrubber.value);
+    if (step >= spiralPoints.length - 1) step = 0;
+
+    function tick() {
+      if (!isPlaying) return;
+      step = Math.min(step + 5, spiralPoints.length - 1);
+      scrubber.value = step;
+      drawFrame(step);
+      if (foundAt >= 0 && step >= foundAt) {
+        isPlaying = false;
+        playBtn.textContent = 'Play';
+        return;
+      }
+      if (step < spiralPoints.length - 1) {
+        animFrame = requestAnimationFrame(tick);
+      } else {
+        isPlaying = false;
+        playBtn.textContent = 'Play';
+      }
+    }
+    animFrame = requestAnimationFrame(tick);
+  });
+
+  restartBtn.addEventListener('click', () => {
+    buildScene();
+  });
+
+  radialSlider.addEventListener('input', () => { buildScene(); });
+  angularSlider.addEventListener('input', () => { buildScene(); });
+  noCollisionCheckbox.addEventListener('change', () => { buildScene(); });
+
+  buildScene();
+  window.addEventListener('resize', buildScene);
+}
+
+// ============================================================
+//  SECTION 4.5: Capstone - Building a Cloud step by step
+// ============================================================
+
+function initCapstone() {
+  const canvas = document.getElementById('capstoneCanvas');
+  const nextBtn = document.getElementById('capstoneNext');
+  const playAllBtn = document.getElementById('capstonePlayAll');
+  const resetBtn = document.getElementById('capstoneReset');
+  const statusLabel = document.getElementById('capstoneStatus');
+  const pixelLabel = document.getElementById('capstonePixelCount');
+  const timingLabel = document.getElementById('capstoneTiming');
+
+  const fontFamily = 'DM Sans, sans-serif';
+  const words = SAMPLE_WORDS.slice(0, 10);
+
+  let placed = [];
+  let placedSteps = []; // spiral steps each word took
+  let boardW, boardH, boardW32, board, cx, cy, boardAspect;
+  let sprites = [];
+  let wordIndex = 0;
+  let animFrame = null;
+  let isPlaying = false;
+  let totalPlaceTime = 0;
+
+  function initBoard() {
+    const { w, h } = sizeCanvas(canvas);
+    boardW = Math.ceil(w * 2);
+    boardH = Math.ceil(h * 2);
+    boardW32 = Math.ceil(boardW / 32);
+    board = new Uint32Array(boardW32 * boardH);
+    cx = Math.floor(boardW / 2);
+    cy = Math.floor(boardH / 2);
+    boardAspect = w / h;
+
+    const maxValue = words[0].value;
+    const maxFontSize = Math.round(h * 0.25);
+    const minFontSize = Math.round(h * 0.07);
+
+    sprites = [];
+    for (let i = 0; i < words.length; i++) {
+      const norm = words[i].value / maxValue;
+      const scaled = Math.sqrt(norm);
+      const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * scaled);
+      const color = PALETTES.vibrant[i % PALETTES.vibrant.length];
+      const sprite = rasterizeWord(words[i].text, fontSize, fontFamily, 0, 4);
+      if (sprite) {
+        sprites.push({ ...sprite, text: words[i].text, fontSize, color });
+      }
+    }
+
+    placed = [];
+    placedSteps = [];
+    wordIndex = 0;
+    isPlaying = false;
+    totalPlaceTime = 0;
+    timingLabel.textContent = '';
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+  }
+
+  function computeViewTransform(w, h) {
+    if (placed.length === 0) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of placed) {
+      const lx = p.bx - cx;
+      const ly = p.by - cy;
+      minX = Math.min(minX, lx);
+      minY = Math.min(minY, ly);
+      maxX = Math.max(maxX, lx + p.w);
+      maxY = Math.max(maxY, ly + p.h);
+    }
+    const cloudW = maxX - minX;
+    const cloudH = maxY - minY;
+    if (cloudW <= 0 || cloudH <= 0) return null;
+    const margin = 0.08;
+    const availW = w * (1 - margin * 2);
+    const availH = h * (1 - margin * 2);
+    const scale = Math.min(availW / cloudW, availH / cloudH);
+    const cloudCX = w / 2 + (minX + maxX) / 2;
+    const cloudCY = h / 2 + (minY + maxY) / 2;
+    const tx = w / 2 - cloudCX * scale;
+    const ty = h / 2 - cloudCY * scale;
+    return { scale, tx, ty };
+  }
+
+  function stepBadgeColor(steps) {
+    if (steps < 50) return '#2a9d6e';
+    if (steps <= 200) return '#d4a017';
+    return '#e85d4a';
+  }
+
+  function drawBoard(spiralDots) {
+    const { ctx, w, h } = sizeCanvas(canvas);
+    ctx.fillStyle = getCSS('--bg-card');
+    ctx.fillRect(0, 0, w, h);
+
+    if (placed.length === 0) {
+      statusLabel.textContent = `Ready. 0 / ${words.length} words placed.`;
+      pixelLabel.textContent = 'Board: 0 px (0.0%)';
+      return;
+    }
+
+    const vt = computeViewTransform(w, h);
+    if (!vt) return;
+
+    // Draw spiral search dots if provided (brief flash)
+    if (spiralDots && spiralDots.length > 0) {
+      ctx.save();
+      ctx.translate(vt.tx, vt.ty);
+      ctx.scale(vt.scale, vt.scale);
+      const dotInterval = Math.max(1, Math.floor(spiralDots.length / 60));
+      for (let i = 0; i < spiralDots.length; i += dotInterval) {
+        const d = spiralDots[i];
+        const sx = w / 2 + (d.dotX - cx);
+        const sy = h / 2 + (d.dotY - cy);
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2 / vt.scale, 0, Math.PI * 2);
+        ctx.fillStyle = d.fits ? 'rgba(42, 157, 110, 0.6)' : 'rgba(232, 93, 74, 0.3)';
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    for (let pi = 0; pi < placed.length; pi++) {
+      const p = placed[pi];
+      const sx = w / 2 + (p.bx - cx);
+      const sy = h / 2 + (p.by - cy);
+      ctx.save();
+      ctx.translate(vt.tx, vt.ty);
+      ctx.scale(vt.scale, vt.scale);
+      ctx.font = `${p.fontSize}px ${fontFamily}`;
+      ctx.fillStyle = p.color;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(p.text, sx + p.textX, sy + p.textY);
+
+      // Draw step count badge with suffix and color
+      if (placedSteps[pi] !== undefined) {
+        const steps = placedSteps[pi];
+        const badgeText = `${steps} steps`;
+        const bx = sx + p.w + 2;
+        const by = sy + 4;
+        const rawSize = Math.round(9 / vt.scale);
+        const badgeFontSize = Math.min(14, Math.max(8, rawSize));
+        ctx.font = `${badgeFontSize}px ${getCSS('--font-mono')}`;
+        ctx.fillStyle = stepBadgeColor(steps);
+        ctx.globalAlpha = 0.8;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.fillText(badgeText, bx, by);
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+    }
+
+    statusLabel.textContent = `${placed.length} / ${words.length} words placed.`;
+    const pxCount = countBoardPixels(board);
+    const totalArea = boardW32 * 32 * boardH;
+    const pct = (pxCount / totalArea * 100).toFixed(1);
+    pixelLabel.textContent = `Board: ${pxCount.toLocaleString()} px (${pct}%)`;
+  }
+
+  function placeNextWord(callback) {
+    if (wordIndex >= sprites.length) {
+      statusLabel.textContent = `All ${words.length} words placed.`;
+      if (callback) callback(false);
+      return;
+    }
+
+    const s = sprites[wordIndex];
+    wordIndex++;
+
+    // Collect spiral search dots for the flash
+    const dt = 0.05;
+    const maxSteps = 30000;
+    const searchDots = [];
+    let foundStep = -1;
+    let foundX = 0, foundY = 0;
+
+    const t0 = performance.now();
+    for (let t = 0; t < maxSteps; t++) {
+      const theta = dt * t;
+      const r = dt * t * 0.5;
+      const x = Math.round(cx + r * Math.cos(theta) * boardAspect - s.w / 2);
+      const y = Math.round(cy + r * Math.sin(theta) - s.h / 2);
+      const dotX = cx + r * Math.cos(theta) * boardAspect;
+      const dotY = cy + r * Math.sin(theta);
+      const fits = testPosition(s.data, s.w32, s.h, x, y, board, boardW32, boardH);
+      searchDots.push({ dotX, dotY, fits });
+      if (fits) {
+        foundStep = t;
+        foundX = x;
+        foundY = y;
+        break;
+      }
+    }
+    const elapsed = performance.now() - t0;
+    totalPlaceTime += elapsed;
+
+    if (foundStep >= 0) {
+      placeOnBoard(s.data, s.w32, s.h, foundX, foundY, board, boardW32);
+      placed.push({ ...s, bx: foundX, by: foundY });
+      placedSteps.push(foundStep + 1);
+
+      // Flash the spiral dots briefly, then settle
+      statusLabel.textContent = `Placed "${s.text}" in ${foundStep + 1} steps.`;
+      timingLabel.textContent = `${placed.length} words placed in ${totalPlaceTime.toFixed(1)}ms`;
+      drawBoard(searchDots);
+
+      // After 300ms, redraw without dots
+      setTimeout(() => {
+        drawBoard(null);
+        if (callback) callback(true);
+      }, 300);
+    } else {
+      // Could not place
+      drawBoard(null);
+      if (callback) callback(true);
+    }
+  }
+
+  nextBtn.addEventListener('click', () => {
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+    isPlaying = false;
+    playAllBtn.textContent = 'Play all';
+    placeNextWord(null);
+  });
+
+  playAllBtn.addEventListener('click', () => {
+    if (isPlaying) {
+      isPlaying = false;
+      if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+      playAllBtn.textContent = 'Play all';
+      return;
+    }
+    isPlaying = true;
+    playAllBtn.textContent = 'Stop';
+
+    function placeNext() {
+      if (!isPlaying || wordIndex >= sprites.length) {
+        isPlaying = false;
+        playAllBtn.textContent = 'Play all';
+        timingLabel.textContent = `${placed.length} words placed in ${totalPlaceTime.toFixed(1)}ms`;
+        return;
+      }
+      placeNextWord((hasMore) => {
+        if (hasMore && isPlaying) {
+          setTimeout(placeNext, 400);
+        } else {
+          isPlaying = false;
+          playAllBtn.textContent = 'Play all';
+          timingLabel.textContent = `${placed.length} words placed in ${totalPlaceTime.toFixed(1)}ms`;
+        }
+      });
+    }
+    placeNext();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+    isPlaying = false;
+    playAllBtn.textContent = 'Play all';
+    initBoard();
+    drawBoard(null);
+  });
+
+  // Auto-place first word on init
+  function autoInit() {
+    initBoard();
+    if (sprites.length > 0) {
+      const s = sprites[0];
+      wordIndex = 1;
+      let foundX = cx - Math.floor(s.w / 2);
+      let foundY = cy - Math.floor(s.h / 2);
+      let steps = 1;
+      const t0 = performance.now();
+      // First word always fits at center
+      if (testPosition(s.data, s.w32, s.h, foundX, foundY, board, boardW32, boardH)) {
+        placeOnBoard(s.data, s.w32, s.h, foundX, foundY, board, boardW32);
+        placed.push({ ...s, bx: foundX, by: foundY });
+        placedSteps.push(steps);
+      }
+      totalPlaceTime = performance.now() - t0;
+      timingLabel.textContent = `${placed.length} words placed in ${totalPlaceTime.toFixed(1)}ms`;
+      drawBoard(null);
+    }
+  }
+
+  autoInit();
+  window.addEventListener('resize', () => {
+    autoInit();
+  });
+}
+
+// ============================================================
+//  SECTION 5: Layout Origins with linked cloud view
+// ============================================================
+
+function initLayouts() {
+  const gridEl = document.getElementById('layoutGrid');
+  const detailCanvas = document.getElementById('layoutDetail');
+  const cloudDetailCanvas = document.getElementById('layoutCloudDetail');
+  const descEl = document.getElementById('layoutDesc');
+
+  const layouts = [
+    { id: 'spiral', name: 'Spiral', desc: 'All words start from center. Classic radial packing.' },
+    { id: 'wander-line', name: 'Diagonal', desc: 'Origins alternate along a straight line through center.' },
+    { id: 'wander-curl', name: 'Curl', desc: 'Two arms curve 90 degrees each. Pinwheel shape.' },
+    { id: 'wander-wisp', name: 'Wisp', desc: 'Two arms curve only 22.5 degrees. Tighter pinwheel.' },
+    { id: 'wander-feather', name: 'Feather', desc: 'Single arc curving 45 degrees. No alternation.' },
+    { id: 'wander-ring', name: 'Ring', desc: 'Origins distributed evenly around a circle.' },
+    { id: 'rectangular', name: 'Rectangle', desc: 'Rectangular spiral search. Sharp-edged clouds.' },
+    { id: 'square', name: 'Square', desc: 'Square spiral search. Equal-sided rectangular shape.' },
+  ];
+
+  let activeIdx = 0;
+
+  // Small word set for mini clouds in detail view
+  const miniWords = SAMPLE_WORDS.slice(0, 8);
+
+  function computeOrigins(layoutId, count, canvasW, canvasH) {
+    const cx = canvasW / 2;
+    const cy = canvasH / 2;
+    const aspect = canvasW / canvasH;
+    const origins = [];
+
+    for (let si = 0; si < count; si++) {
+      let ox = cx, oy = cy;
+
+      if (layoutId === 'spiral') {
+        ox = cx; oy = cy;
+      } else if (layoutId === 'wander-line') {
+        const lineAngle = 0.5;
+        const spacing = Math.min(cx, cy) * 1.2 / Math.max(count, 1);
+        const sign = si % 2 === 0 ? 1 : -1;
+        const dist = Math.ceil(si / 2) * spacing * sign;
+        ox = cx + dist * Math.cos(lineAngle) * aspect;
+        oy = cy + dist * Math.sin(lineAngle);
+      } else if (layoutId === 'wander-curl') {
+        const maxR = Math.min(cx, cy) * 0.7;
+        const arm = si % 2;
+        const armIndex = Math.floor(si / 2);
+        const armTotal = Math.ceil(count / 2);
+        const t = armIndex / Math.max(armTotal - 1, 1);
+        const theta = arm * Math.PI + t * Math.PI / 2;
+        const r = t * maxR;
+        ox = cx + r * Math.cos(theta) * aspect;
+        oy = cy + r * Math.sin(theta);
+      } else if (layoutId === 'wander-wisp') {
+        const maxR = Math.min(cx, cy) * 0.7;
+        const arm = si % 2;
+        const armIndex = Math.floor(si / 2);
+        const armTotal = Math.ceil(count / 2);
+        const t = armIndex / Math.max(armTotal - 1, 1);
+        const theta = arm * Math.PI + t * Math.PI / 8;
+        const r = t * maxR;
+        ox = cx + r * Math.cos(theta) * aspect;
+        oy = cy + r * Math.sin(theta);
+      } else if (layoutId === 'wander-feather') {
+        const maxR = Math.min(cx, cy) * 0.7;
+        const t = si / Math.max(count - 1, 1);
+        const theta = t * Math.PI / 4;
+        const r = t * maxR;
+        ox = cx + r * Math.cos(theta) * aspect;
+        oy = cy + r * Math.sin(theta);
+      } else if (layoutId === 'wander-ring') {
+        const radius = Math.min(cx, cy) * 0.35;
+        const theta = (si / Math.max(count, 1)) * Math.PI * 2;
+        ox = cx + radius * Math.cos(theta) * aspect;
+        oy = cy + radius * Math.sin(theta);
+      } else if (layoutId === 'rectangular') {
+        const step = 3;
+        const ra = 1.5;
+        let x = cx, y = cy;
+        let dx = step * ra, dy = 0;
+        let segmentLen = step * 6 * ra;
+        let segmentPassed = 0;
+        let turnCount = 0;
+        let horizontal = true;
+        for (let i = 0; i < si * 80; i++) {
+          x += dx; y += dy;
+          segmentPassed += Math.abs(dx || dy);
+          if (segmentPassed >= segmentLen) {
+            segmentPassed = 0;
+            turnCount++;
+            const tmp = dx; dx = -dy; dy = tmp;
+            horizontal = !horizontal;
+            const baseLen = step * 6;
+            const growth = Math.floor(turnCount / 2) * step * 6;
+            segmentLen = (baseLen + growth) * (horizontal ? ra : 1);
+          }
+        }
+        ox = x; oy = y;
+      } else if (layoutId === 'square') {
+        const step = 3;
+        let x = cx, y = cy;
+        let dx = step, dy = 0;
+        let segmentLen = step * 6;
+        let segmentPassed = 0;
+        let turnCount = 0;
+        for (let i = 0; i < si * 80; i++) {
+          x += dx; y += dy;
+          segmentPassed += Math.abs(dx || dy);
+          if (segmentPassed >= segmentLen) {
+            segmentPassed = 0;
+            turnCount++;
+            const tmp = dx; dx = -dy; dy = tmp;
+            const baseLen = step * 6;
+            const growth = Math.floor(turnCount / 2) * step * 6;
+            segmentLen = baseLen + growth;
+          }
+        }
+        ox = x; oy = y;
+      }
+
+      origins.push({ x: ox, y: oy });
+    }
+    return origins;
+  }
+
+  function drawOrigins(canvas, layoutId, large) {
+    const { ctx, w, h } = sizeCanvas(canvas);
+    ctx.fillStyle = getCSS('--bg-card');
+    ctx.fillRect(0, 0, w, h);
+
+    const count = large ? 20 : 12;
+    const origins = computeOrigins(layoutId, count, w, h);
+
+    ctx.beginPath();
+    ctx.strokeStyle = large ? 'rgba(83, 216, 251, 0.4)' : '#53d8fb';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < origins.length; i++) {
+      if (i === 0) ctx.moveTo(origins[i].x, origins[i].y);
+      else ctx.lineTo(origins[i].x, origins[i].y);
+    }
+    ctx.stroke();
+
+    for (let i = 0; i < origins.length; i++) {
+      const r = large ? 5 : 3;
+      ctx.beginPath();
+      ctx.arc(origins[i].x, origins[i].y, r, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? '#e94560' : '#53d8fb';
+      ctx.fill();
+
+      if (large) {
+        ctx.font = `9px ${getCSS('--font-mono')}`;
+        ctx.fillStyle = getCSS('--text-muted');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(i + 1, origins[i].x, origins[i].y - 7);
+      }
+    }
+
+    ctx.strokeStyle = 'rgba(150, 150, 150, 0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
+    ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawDetailCloud(layoutId) {
+    miniWordCloud(cloudDetailCanvas, miniWords, {
+      palette: PALETTES.vibrant,
+      layout: layoutId,
+      padding: 3,
+    });
+  }
+
+  // Build grid
+  layouts.forEach((layout, idx) => {
+    const cell = document.createElement('div');
+    cell.className = 'layout-cell' + (idx === 0 ? ' active' : '');
+    cell.innerHTML = `<canvas></canvas><div class="lc-label">${layout.name}</div>`;
+    cell.addEventListener('click', () => {
+      gridEl.querySelectorAll('.layout-cell').forEach(c => c.classList.remove('active'));
+      cell.classList.add('active');
+      activeIdx = idx;
+      drawOrigins(detailCanvas, layout.id, true);
+      drawDetailCloud(layout.id);
+      descEl.textContent = layout.desc;
+    });
+    gridEl.appendChild(cell);
+  });
+
+  function drawAll() {
+    const cells = gridEl.querySelectorAll('.layout-cell canvas');
+    cells.forEach((c, i) => drawOrigins(c, layouts[i].id, false));
+    drawOrigins(detailCanvas, layouts[activeIdx].id, true);
+    drawDetailCloud(layouts[activeIdx].id);
+    descEl.textContent = layouts[activeIdx].desc;
+  }
+
+  drawAll();
+  window.addEventListener('resize', drawAll);
+}
+
+// ============================================================
+//  SECTION 6 (was 8): Sparklines
+// ============================================================
+
+function initSparklines() {
+  const row = document.getElementById('sparklineRow');
+
+  const distributions = [
+    {
+      name: 'Power-law',
+      desc: 'Use sqrt or log scaling. Spiral layout works well.',
+      data: [100, 45, 28, 18, 13, 10, 8, 6, 5, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 1],
+    },
+    {
+      name: 'Gradual',
+      desc: 'Linear or sqrt scaling. Any layout works.',
+      data: [30, 27, 25, 23, 21, 19, 17, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 6, 5, 5],
+    },
+    {
+      name: 'Uniform',
+      desc: 'Linear scaling fine. Layout choice matters more than sizing.',
+      data: [15, 15, 14, 14, 14, 13, 13, 13, 13, 12, 12, 12, 12, 12, 11, 11, 11, 11, 11, 10],
+    },
+  ];
+
+  distributions.forEach(dist => {
+    const item = document.createElement('div');
+    item.className = 'sparkline-item';
+    item.innerHTML = `<canvas></canvas><div class="sp-label">${dist.name}</div><div class="sp-desc">${dist.desc}</div>`;
+    row.appendChild(item);
+
+    function draw() {
+      const canvas = item.querySelector('canvas');
+      const { ctx, w, h } = sizeCanvas(canvas);
+      ctx.fillStyle = getCSS('--bg-card');
+      ctx.fillRect(0, 0, w, h);
+
+      const max = dist.data[0];
+      const barW = (w - 8) / dist.data.length;
+      const pad = 4;
+
+      ctx.beginPath();
+      ctx.moveTo(pad, h - pad);
+      for (let i = 0; i < dist.data.length; i++) {
+        const x = pad + i * barW + barW / 2;
+        const y = h - pad - (dist.data[i] / max) * (h - pad * 2);
+        if (i === 0) ctx.lineTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(pad + (dist.data.length - 0.5) * barW, h - pad);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(74, 127, 255, 0.15)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.strokeStyle = getCSS('--blue');
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < dist.data.length; i++) {
+        const x = pad + i * barW + barW / 2;
+        const y = h - pad - (dist.data[i] / max) * (h - pad * 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      const firstX = pad + barW / 2;
+      const firstY = h - pad - (dist.data[0] / max) * (h - pad * 2);
+      const lastX = pad + (dist.data.length - 0.5) * barW;
+      const lastY = h - pad - (dist.data[dist.data.length - 1] / max) * (h - pad * 2);
+
+      ctx.fillStyle = getCSS('--red');
+      ctx.beginPath();
+      ctx.arc(firstX, firstY, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = getCSS('--blue');
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.font = `9px ${getCSS('--font-mono')}`;
+      ctx.fillStyle = getCSS('--text-muted');
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(dist.data[0], firstX + 5, firstY - 2);
+      ctx.textAlign = 'right';
+      ctx.fillText(dist.data[dist.data.length - 1], lastX - 5, lastY - 2);
+    }
+
+    draw();
+    window.addEventListener('resize', draw);
+  });
+}
+
+// ============================================================
+//  SECTION 7 (was 6): Scaling Comparison
+// ============================================================
+
+function initScaling() {
+  const barsCanvas = document.getElementById('scalingBars');
+  const triptychEl = document.getElementById('scalingTriptych');
+  const datasetGroup = document.getElementById('scalingDataset');
+  let currentSet = 'power';
+
+  const scalings = ['linear', 'sqrt', 'log'];
+  const panels = scalings.map(s => {
+    const panel = document.createElement('div');
+    panel.className = 'triptych-panel';
+    panel.innerHTML = `<div class="tp-label">${s === 'sqrt' ? 'Square root' : s.charAt(0).toUpperCase() + s.slice(1)}</div><canvas style="width:100%; height:160px;"></canvas>`;
+    triptychEl.appendChild(panel);
+    return { scaling: s, canvas: panel.querySelector('canvas') };
+  });
+
+  datasetGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    datasetGroup.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSet = btn.dataset.set;
+    draw();
+  });
+
+  function draw() {
+    const words = currentSet === 'power' ? POWER_LAW_WORDS : UNIFORM_WORDS;
+
+    const { ctx: bctx, w: bw, h: bh } = sizeCanvas(barsCanvas);
+    bctx.fillStyle = getCSS('--bg-card');
+    bctx.fillRect(0, 0, bw, bh);
+
+    const maxVal = words[0].value;
+    const barW = (bw - 40) / words.length;
+    for (let i = 0; i < words.length; i++) {
+      const barH = (words[i].value / maxVal) * (bh - 16);
+      const x = 20 + i * barW;
+      bctx.fillStyle = PALETTES.vibrant[i % PALETTES.vibrant.length];
+      bctx.fillRect(x + 2, bh - barH - 4, barW - 4, barH);
+
+      if (barW > 30) {
+        bctx.font = `8px ${getCSS('--font-mono')}`;
+        bctx.fillStyle = getCSS('--text-muted');
+        bctx.textAlign = 'center';
+        bctx.textBaseline = 'bottom';
+        bctx.fillText(words[i].value, x + barW / 2, bh - barH - 6);
+      }
+    }
+
+    for (const panel of panels) {
+      miniWordCloud(panel.canvas, words, {
+        scaling: panel.scaling,
+        padding: 3,
+        layout: 'spiral',
+      });
+    }
+  }
+
+  draw();
+  window.addEventListener('resize', draw);
+}
+
+// ============================================================
+//  SECTION 8 (was 7): Style Controls
+// ============================================================
+
+function initStyle() {
+  const canvas = document.getElementById('styleCanvas');
+  const paletteSelect = document.getElementById('stylePalette');
+  const fontSelect = document.getElementById('styleFont');
+  const spacingSlider = document.getElementById('styleSpacing');
+  const spacingVal = document.getElementById('styleSpacingVal');
+  const regenBtn = document.getElementById('styleRegen');
+
+  for (const name of Object.keys(PALETTES)) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    paletteSelect.appendChild(opt);
+  }
+
+  function render() {
+    const paletteName = paletteSelect.value;
+    const padding = parseInt(spacingSlider.value);
+    const fontFamily = fontSelect.value;
+    spacingVal.textContent = padding;
+    miniWordCloud(canvas, SAMPLE_WORDS, {
+      palette: PALETTES[paletteName],
+      padding,
+      fontFamily,
+      layout: 'spiral',
+    });
+  }
+
+  paletteSelect.addEventListener('change', render);
+  fontSelect.addEventListener('change', render);
+  spacingSlider.addEventListener('input', render);
+  regenBtn.addEventListener('click', render);
+  render();
+  window.addEventListener('resize', render);
+}
+
+
+// ============================================================
+//  INIT ALL
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+  initHero();
+  initAnatomy();
+  initCollision();
+  initSpiral();
+  initCapstone();
+  initLayouts();
+  initSparklines();
+  initScaling();
+  initStyle();
+});
+</script>
+</body>
+</html>
