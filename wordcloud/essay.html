@@ -1490,17 +1490,16 @@ function initCollision() {
   const statsEl = document.getElementById('collisionStats');
   let mode = 'bbox';
 
-  // Organic serif font — has counters (holes in letters like 'g', 'e', 'o')
-  // where small words can nestle, showing the value of pixel-level collision
-  const fontFamily = 'Playfair Display, serif';
+  // Curvy script font — big open loops and counters where small words nestle
+  const fontFamily = 'Pacifico, cursive';
 
-  // Multiple words at different sizes — the draggable word is small enough
-  // to fit inside the counter of a large letter
+  // Large size contrast makes the interaction obvious: tiny word fits
+  // inside the open loops of a huge script letter
   const fixedWords = [
-    { text: 'Rhythm', fontSize: 64, color: PALETTES.vibrant[0] },
-    { text: 'echo', fontSize: 38, color: PALETTES.vibrant[2] },
+    { text: 'happy', fontSize: 86, color: PALETTES.vibrant[0] },
+    { text: 'day', fontSize: 52, color: PALETTES.vibrant[2] },
   ];
-  const dragWord = { text: 'of', fontSize: 22, color: PALETTES.vibrant[1] };
+  const dragWord = { text: 'is', fontSize: 18, color: PALETTES.vibrant[1] };
 
   // Drag state
   let dragBx = null;
