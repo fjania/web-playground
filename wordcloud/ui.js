@@ -424,9 +424,9 @@ colorPickerMenu.querySelectorAll('.font-picker-item').forEach(i => {
   i.classList.toggle('selected', i.dataset.value === randomPalette);
 });
 
-// Random layout
+// Random layout (exclude tetris — it's slow and disorienting on first load)
 const layoutItems = layoutPickerMenu.querySelectorAll('.font-picker-item');
-const layoutArr = [...layoutItems];
+const layoutArr = [...layoutItems].filter(i => i.dataset.value !== 'tetris');
 const randomLayoutItem = layoutArr[Math.floor(Math.random() * layoutArr.length)];
 layoutItems.forEach(i => i.classList.remove('selected'));
 randomLayoutItem.classList.add('selected');
