@@ -15,6 +15,9 @@ cp dst-visualization/daylight-*.js dist/dst-visualization/
 cp dst-visualization/dst-lib.js dist/dst-visualization/
 cp dst-visualization/daylight-style.css dist/dst-visualization/
 
+# Copy self-contained essay (not processed by Vite)
+cp wordcloud/essay.html dist/wordcloud/
+
 echo "Deploying to labs.digitalanalog.net/web-playground/..."
 rsync -avz --delete dist/ "$REMOTE:$REMOTE_PATH"
 
