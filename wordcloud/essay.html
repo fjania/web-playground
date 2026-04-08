@@ -1503,8 +1503,8 @@ function initCollision() {
   let isDragging = false;
 
   function ensureSprites() {
-    if (!sprFixed) sprFixed = rasterizeWord(fixedWord.text, fixedWord.fontSize, fontFamily, 0, 3);
-    if (!sprDrag) sprDrag = rasterizeWord(dragWord.text, dragWord.fontSize, fontFamily, 0, 3);
+    if (!sprFixed) sprFixed = rasterizeWord(fixedWord.text, fixedWord.fontSize, fontFamily, 0, 0);
+    if (!sprDrag) sprDrag = rasterizeWord(dragWord.text, dragWord.fontSize, fontFamily, 0, 0);
   }
 
   modeGroup.addEventListener('click', (e) => {
