@@ -19,18 +19,32 @@ const textInput = document.getElementById('text-input');
 const cancelBtn = document.getElementById('cancel-text-btn');
 const generateBtn = document.getElementById('generate-btn');
 const regenerateBtn = document.getElementById('regenerate-btn');
-const paddingSlider = document.getElementById('padding-slider');
-const paddingDots = paddingSlider.querySelectorAll('.step-dot');
-const paddingFill = paddingSlider.querySelector('.step-fill');
-const dynamicBtn = document.getElementById('dynamic-spacing-btn');
 const descLine1 = document.getElementById('desc-line1');
 const descExtents = document.getElementById('desc-extents');
 const sparkCanvas = document.getElementById('desc-sparkline');
+
+// New dropdown pickers
+const layoutPickerBtn = document.getElementById('layout-picker-btn');
+const layoutPickerMenu = document.getElementById('layout-picker-menu');
+const layoutPickerLabel = document.getElementById('layout-picker-label');
+const scalePickerBtn = document.getElementById('scale-picker-btn');
+const scalePickerMenu = document.getElementById('scale-picker-menu');
+const scalePickerLabel = document.getElementById('scale-picker-label');
+const rotatePickerBtn = document.getElementById('rotate-picker-btn');
+const rotatePickerMenu = document.getElementById('rotate-picker-menu');
+const rotatePickerLabel = document.getElementById('rotate-picker-label');
+const paddingPickerBtn = document.getElementById('padding-picker-btn');
+const paddingPickerMenu = document.getElementById('padding-picker-menu');
+const paddingPickerLabel = document.getElementById('padding-picker-label');
 
 // --- State ---
 const state = {
   selectedFont: 'DM Sans, sans-serif',
   selectedColorScheme: 'vibrant',
+  selectedLayout: 'spiral',
+  selectedScale: 'linear',
+  selectedRotation: 0.3,
+  selectedPadding: 1,
   wc: null,
   customWords: null,
   userChangedScaling: false,
@@ -38,9 +52,79 @@ const state = {
   savedColors: null,
 };
 
+// --- Generic Dropdown Picker ---
+// Reusable: wire up a btn/menu/label trio as a dropdown that updates state and re-renders
+function setupPicker(btn, menu, label, { getSelected, setSelected, onSelect, formatLabel }) {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllMenus();
+    menu.classList.toggle('open');
+  });
+
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('.font-picker-item');
+    if (!item) return;
+    menu.querySelectorAll('.font-picker-item').forEach(i => i.classList.remove('selected'));
+    item.classList.add('selected');
+    const value = item.dataset.value;
+    setSelected(value);
+    label.textContent = formatLabel ? formatLabel(item) : item.textContent;
+    menu.classList.remove('open');
+    if (onSelect) onSelect(value);
+  });
+}
+
+function getPickerValue(menu) {
+  const sel = menu.querySelector('.font-picker-item.selected');
+  return sel ? sel.dataset.value : null;
+}
+
+function setPickerValue(menu, label, value, formatLabel) {
+  menu.querySelectorAll('.font-picker-item').forEach(i => {
+    const match = i.dataset.value === value;
+    i.classList.toggle('selected', match);
+    if (match) {
+      label.textContent = formatLabel ? formatLabel(i) : i.textContent;
+    }
+  });
+}
+
+function closeAllMenus() {
+  document.querySelectorAll('.font-picker-menu').forEach(m => m.classList.remove('open'));
+}
+
+document.addEventListener('click', closeAllMenus);
+
+// --- Layout Picker ---
+setupPicker(layoutPickerBtn, layoutPickerMenu, layoutPickerLabel, {
+  setSelected: (v) => { state.selectedLayout = v; },
+  onSelect: () => renderDataset(datasetSelect.value),
+});
+
+// --- Scale Picker ---
+setupPicker(scalePickerBtn, scalePickerMenu, scalePickerLabel, {
+  setSelected: (v) => { state.selectedScale = v; state.userChangedScaling = true; },
+  onSelect: () => renderDataset(datasetSelect.value),
+});
+
+// --- Rotate Picker ---
+setupPicker(rotatePickerBtn, rotatePickerMenu, rotatePickerLabel, {
+  setSelected: (v) => { state.selectedRotation = parseFloat(v); },
+  onSelect: () => renderDataset(datasetSelect.value),
+  formatLabel: (item) => item.textContent,
+});
+
+// --- Padding Picker ---
+setupPicker(paddingPickerBtn, paddingPickerMenu, paddingPickerLabel, {
+  setSelected: (v) => { state.selectedPadding = parseFloat(v); },
+  onSelect: () => renderDataset(datasetSelect.value),
+  formatLabel: (item) => item.dataset.value + 'x',
+});
+
 // --- Font Picker ---
 fontPickerBtn.addEventListener('click', (e) => {
   e.stopPropagation();
+  closeAllMenus();
   fontPickerMenu.classList.toggle('open');
 });
 
@@ -54,11 +138,6 @@ fontPickerMenu.addEventListener('click', (e) => {
   fontPickerBtn.style.fontFamily = item.style.fontFamily;
   fontPickerMenu.classList.remove('open');
   renderDataset(datasetSelect.value);
-});
-
-document.addEventListener('click', () => {
-  fontPickerMenu.classList.remove('open');
-  colorPickerMenu.classList.remove('open');
 });
 
 // --- Color Picker ---
@@ -101,7 +180,7 @@ function updateColorLabel(name, colors) {
 
 colorPickerBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  fontPickerMenu.classList.remove('open');
+  closeAllMenus();
   colorPickerMenu.classList.toggle('open');
 });
 
@@ -148,69 +227,6 @@ colorPickerMenu.addEventListener('click', (e) => {
   if (state.wc) state.wc.options.colorScheme = state.selectedColorScheme;
 });
 
-// --- Chip Groups ---
-function getChipValue(groupId) {
-  const active = document.querySelector(`#${groupId} .active`);
-  return active ? active.dataset.value : null;
-}
-
-function setChipValue(groupId, value) {
-  document.querySelectorAll(`#${groupId} .chip, #${groupId} .color-chip`).forEach(c => {
-    c.classList.toggle('active', c.dataset.value === value);
-  });
-}
-
-['layout-chips', 'scaling-chips', 'rotation-chips'].forEach(groupId => {
-  document.getElementById(groupId).addEventListener('click', (e) => {
-    const chip = e.target.closest('[data-value]');
-    if (!chip) return;
-    document.querySelectorAll(`#${groupId} .chip, #${groupId} .color-chip`).forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    if (groupId === 'scaling-chips') state.userChangedScaling = true;
-    renderDataset(datasetSelect.value);
-  });
-});
-
-// --- Padding Slider ---
-function updatePaddingSlider() {
-  const dots = [...paddingDots];
-  const activeIdx = dots.findIndex(d => d.classList.contains('active'));
-  if (activeIdx >= 0 && dots.length > 1) {
-    const sliderRect = paddingSlider.getBoundingClientRect();
-    const firstRect = dots[0].getBoundingClientRect();
-    const activeRect = dots[activeIdx].getBoundingClientRect();
-    const start = firstRect.left + firstRect.width / 2 - sliderRect.left;
-    const end = activeRect.left + activeRect.width / 2 - sliderRect.left;
-    paddingFill.style.left = start + 'px';
-    paddingFill.style.width = (end - start) + 'px';
-  }
-  dots.forEach((d, i) => {
-    if (i < activeIdx) { d.className = 'step-dot past'; }
-    else if (i === activeIdx) { d.className = 'step-dot active'; }
-    else { d.className = 'step-dot'; }
-  });
-}
-
-paddingSlider.addEventListener('click', (e) => {
-  const dot = e.target.closest('.step-dot');
-  if (!dot) return;
-  paddingDots.forEach(d => d.classList.remove('active', 'past'));
-  dot.classList.add('active');
-  updatePaddingSlider();
-  renderDataset(datasetSelect.value);
-});
-
-function getPaddingValue() {
-  const active = paddingSlider.querySelector('.step-dot.active');
-  return active ? parseInt(active.dataset.value) : 4;
-}
-
-// --- Dynamic Spacing ---
-dynamicBtn.addEventListener('click', () => {
-  dynamicBtn.classList.toggle('active');
-  renderDataset(datasetSelect.value);
-});
-
 // --- Path Toggle Visibility ---
 const pathToggleBtn = document.getElementById('debug-path-toggle');
 const WANDER_LAYOUTS = new Set(['wander-line', 'wander-curl', 'wander-wisp', 'wander-feather', 'wander-ring']);
@@ -223,17 +239,19 @@ function updatePathToggleVisibility(layout) {
 function createCloud() {
   if (state.wc) state.wc.destroy();
 
-  const layout = getChipValue('layout-chips');
-  updatePathToggleVisibility(layout);
+  updatePathToggleVisibility(state.selectedLayout);
+
+  // Padding: base value scaled by multiplier, always dynamic (proportional to word size)
+  const basePadding = Math.round(4 * state.selectedPadding);
 
   state.wc = new WordCloud(container, {
     fontFamily: state.selectedFont,
-    layout,
-    scaling: getChipValue('scaling-chips'),
+    layout: state.selectedLayout,
+    scaling: state.selectedScale,
     colorScheme: state.selectedColorScheme,
-    rotationProbability: parseFloat(getChipValue('rotation-chips')),
-    padding: getPaddingValue(),
-    dynamicSpacing: dynamicBtn.classList.contains('active'),
+    rotationProbability: state.selectedRotation,
+    padding: basePadding,
+    dynamicSpacing: true,
     showDebugPath: pathToggleBtn.classList.contains('active'),
     backgroundColor: '#1a1a2e',
   });
@@ -327,9 +345,11 @@ function updateDescription(id) {
 function renderDataset(id) {
   if (!state.userChangedScaling) {
     if (LOG_DATASETS.has(id)) {
-      setChipValue('scaling-chips', 'log');
+      state.selectedScale = 'log';
+      setPickerValue(scalePickerMenu, scalePickerLabel, 'log');
     } else {
-      setChipValue('scaling-chips', 'linear');
+      state.selectedScale = 'linear';
+      setPickerValue(scalePickerMenu, scalePickerLabel, 'linear');
     }
   }
 
@@ -382,9 +402,11 @@ generateBtn.addEventListener('click', () => {
 });
 
 // --- Initialization ---
+// Random dataset
 const datasetKeys = Object.keys(DATASETS);
 datasetSelect.value = datasetKeys[Math.floor(Math.random() * datasetKeys.length)];
 
+// Random font
 const fontItemsArr = [...fontItems];
 const randomFontItem = fontItemsArr[Math.floor(Math.random() * fontItemsArr.length)];
 fontItems.forEach(i => i.classList.remove('selected'));
@@ -393,6 +415,7 @@ state.selectedFont = randomFontItem.dataset.value;
 fontPickerLabel.textContent = randomFontItem.textContent;
 fontPickerBtn.style.fontFamily = randomFontItem.style.fontFamily;
 
+// Random palette
 const paletteNames = Object.keys(PALETTES);
 const randomPalette = paletteNames[Math.floor(Math.random() * paletteNames.length)];
 state.selectedColorScheme = randomPalette;
@@ -401,5 +424,13 @@ colorPickerMenu.querySelectorAll('.font-picker-item').forEach(i => {
   i.classList.toggle('selected', i.dataset.value === randomPalette);
 });
 
-updatePaddingSlider();
+// Random layout
+const layoutItems = layoutPickerMenu.querySelectorAll('.font-picker-item');
+const layoutArr = [...layoutItems];
+const randomLayoutItem = layoutArr[Math.floor(Math.random() * layoutArr.length)];
+layoutItems.forEach(i => i.classList.remove('selected'));
+randomLayoutItem.classList.add('selected');
+state.selectedLayout = randomLayoutItem.dataset.value;
+layoutPickerLabel.textContent = randomLayoutItem.textContent;
+
 renderDataset(datasetSelect.value);

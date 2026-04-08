@@ -47,24 +47,38 @@
     <div class="controls">
       <div class="control-group">
         <span class="label">Layout</span>
-        <div class="chip-group" id="layout-chips">
-          <button class="chip active" data-value="spiral">Spiral</button>
-          <button class="chip" data-value="wander-line">Diagonal</button>
-          <button class="chip" data-value="wander-curl">Curl</button>
-          <button class="chip" data-value="wander-wisp">Wisp</button>
-          <button class="chip" data-value="wander-feather">Feather</button>
-          <button class="chip" data-value="wander-ring">Ring</button>
-          <button class="chip" data-value="rectangular">Rectangle</button>
-          <button class="chip" data-value="square">Square</button>
-          <button class="chip" data-value="tetris">Tetris</button>
+        <div class="font-picker" id="layout-picker">
+          <button class="font-picker-btn" id="layout-picker-btn">
+            <span id="layout-picker-label">Spiral</span>
+            <span class="arrow">&#9662;</span>
+          </button>
+          <div class="font-picker-menu" id="layout-picker-menu">
+            <div class="font-picker-item selected" data-value="spiral">Spiral</div>
+            <div class="font-picker-item" data-value="wander-line">Diagonal</div>
+            <div class="font-picker-item" data-value="wander-curl">Curl</div>
+            <div class="font-picker-item" data-value="wander-wisp">Wisp</div>
+            <div class="font-picker-item" data-value="wander-feather">Feather</div>
+            <div class="font-picker-item" data-value="wander-ring">Ring</div>
+            <div class="font-picker-item" data-value="rectangular">Rectangle</div>
+            <div class="font-picker-item" data-value="square">Square</div>
+            <div class="font-picker-item" data-value="tetris">Tetris</div>
+          </div>
         </div>
       </div>
       <div class="control-group">
         <span class="label">Scale</span>
-        <div class="chip-group" id="scaling-chips">
-          <button class="chip" data-value="sqrt">Sqrt</button>
-          <button class="chip" data-value="log">Log</button>
-          <button class="chip active" data-value="linear">Linear</button>
+        <div class="font-picker" id="scale-picker">
+          <button class="font-picker-btn" id="scale-picker-btn">
+            <span id="scale-picker-label">Linear</span>
+            <span class="arrow">&#9662;</span>
+          </button>
+          <div class="font-picker-menu" id="scale-picker-menu">
+            <div class="font-picker-item" data-value="log">Logarithmic</div>
+            <div class="font-picker-item" data-value="sqrt">Square Root</div>
+            <div class="font-picker-item selected" data-value="linear">Linear</div>
+            <div class="font-picker-item" data-value="cbrt">Cube Root</div>
+            <div class="font-picker-item" data-value="rank">Rank</div>
+          </div>
         </div>
       </div>
       <div class="control-group">
@@ -115,28 +129,41 @@
       </div>
       <div class="control-group">
         <span class="label">Rotate</span>
-        <div class="chip-group" id="rotation-chips">
-          <button class="chip active" data-value="0.3">Some</button>
-          <button class="chip" data-value="0.5">More</button>
-          <button class="chip" data-value="0">None</button>
+        <div class="font-picker" id="rotate-picker">
+          <button class="font-picker-btn" id="rotate-picker-btn">
+            <span id="rotate-picker-label">30%</span>
+            <span class="arrow">&#9662;</span>
+          </button>
+          <div class="font-picker-menu" id="rotate-picker-menu">
+            <div class="font-picker-item" data-value="0">None</div>
+            <div class="font-picker-item" data-value="0.1">10%</div>
+            <div class="font-picker-item" data-value="0.2">20%</div>
+            <div class="font-picker-item selected" data-value="0.3">30%</div>
+            <div class="font-picker-item" data-value="0.4">40%</div>
+            <div class="font-picker-item" data-value="0.5">50%</div>
+            <div class="font-picker-item" data-value="0.6">60%</div>
+            <div class="font-picker-item" data-value="0.7">70%</div>
+            <div class="font-picker-item" data-value="0.8">80%</div>
+            <div class="font-picker-item" data-value="0.9">90%</div>
+            <div class="font-picker-item" data-value="1.0">100%</div>
+          </div>
         </div>
       </div>
       <div class="control-group">
-        <span class="label">Spacing</span>
-        <div class="step-slider" id="padding-slider">
-          <div class="step-track"></div>
-          <div class="step-fill"></div>
-          <div class="step-dot past" data-value="1" title="Tight"></div>
-          <div class="step-gap"></div>
-          <div class="step-dot past" data-value="2" title="Snug"></div>
-          <div class="step-gap"></div>
-          <div class="step-dot active" data-value="4" title="Normal"></div>
-          <div class="step-gap"></div>
-          <div class="step-dot" data-value="7" title="Loose"></div>
-          <div class="step-gap"></div>
-          <div class="step-dot" data-value="11" title="Airy"></div>
+        <span class="label">Padding</span>
+        <div class="font-picker" id="padding-picker">
+          <button class="font-picker-btn" id="padding-picker-btn">
+            <span id="padding-picker-label">1.0x</span>
+            <span class="arrow">&#9662;</span>
+          </button>
+          <div class="font-picker-menu" id="padding-picker-menu">
+            <div class="font-picker-item" data-value="0.25">0.25x — Tight</div>
+            <div class="font-picker-item" data-value="0.5">0.5x — Snug</div>
+            <div class="font-picker-item selected" data-value="1">1.0x — Normal</div>
+            <div class="font-picker-item" data-value="2">2.0x — Loose</div>
+            <div class="font-picker-item" data-value="3.5">3.5x — Airy</div>
+          </div>
         </div>
-        <button class="chip" id="dynamic-spacing-btn" title="Scale spacing proportionally with word size">Dynamic</button>
       </div>
     </div>
   </header>

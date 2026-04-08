@@ -95,6 +95,11 @@ export class WordCloud {
         scaled = Math.log(w.value + 1) / Math.log(maxValue + 1);
       } else if (scaling === 'linear') {
         scaled = norm;
+      } else if (scaling === 'cbrt') {
+        scaled = Math.cbrt(norm);
+      } else if (scaling === 'rank') {
+        // Size based on rank position, not value — equal visual weight distribution
+        scaled = 1 - (i / words.length);
       } else {
         scaled = Math.sqrt(norm);
       }
