@@ -247,19 +247,10 @@ footer {
   gap: 16px;
 }
 
-.path-toggle {
-  cursor: pointer;
-  user-select: none;
-  color: #555577;
-  font-size: 11px;
+#debug-path-toggle {
   display: none;
-  align-items: center;
-  gap: 4px;
-  transition: color 0.15s;
 }
-.path-toggle:hover { color: #8888aa; }
-.path-toggle.visible { display: flex; }
-.path-toggle input { margin: 0; }
+#debug-path-toggle.visible { display: inline-block; }
 
 .footer-link {
   color: #555577;

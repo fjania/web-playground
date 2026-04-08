@@ -212,11 +212,11 @@ dynamicBtn.addEventListener('click', () => {
 });
 
 // --- Path Toggle Visibility ---
-const pathToggleLabel = document.getElementById('path-toggle-label');
+const pathToggleBtn = document.getElementById('debug-path-toggle');
 const WANDER_LAYOUTS = new Set(['wander-line', 'wander-curl', 'wander-wisp', 'wander-feather', 'wander-ring']);
 
 function updatePathToggleVisibility(layout) {
-  pathToggleLabel.classList.toggle('visible', WANDER_LAYOUTS.has(layout));
+  pathToggleBtn.classList.toggle('visible', WANDER_LAYOUTS.has(layout));
 }
 
 // --- Cloud Creation ---
@@ -234,7 +234,7 @@ function createCloud() {
     rotationProbability: parseFloat(getChipValue('rotation-chips')),
     padding: getPaddingValue(),
     dynamicSpacing: dynamicBtn.classList.contains('active'),
-    showDebugPath: document.getElementById('debug-path-toggle').checked,
+    showDebugPath: pathToggleBtn.classList.contains('active'),
     backgroundColor: '#1a1a2e',
   });
 
@@ -352,9 +352,10 @@ function renderDataset(id) {
 // --- Event Wiring ---
 datasetSelect.addEventListener('change', () => { state.userChangedScaling = false; renderDataset(datasetSelect.value); });
 regenerateBtn.addEventListener('click', () => renderDataset(datasetSelect.value));
-document.getElementById('debug-path-toggle').addEventListener('change', () => {
+pathToggleBtn.addEventListener('click', () => {
+  pathToggleBtn.classList.toggle('active');
   if (state.wc) {
-    state.wc.options.showDebugPath = document.getElementById('debug-path-toggle').checked;
+    state.wc.options.showDebugPath = pathToggleBtn.classList.contains('active');
     state.wc._redrawAll();
   }
 });
