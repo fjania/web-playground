@@ -137,9 +137,26 @@ function placeOnBoard(spriteData, sw32, sh, bx, by, board, boardW32) {
 var wanderingOrigins = [];
 var wanderBaseAngle = 0;
 
+// Chosen once per layout run, used by rectangular placement
+var rectAspect = 1;
+
 function getPlaceFn(layout) {
   switch (layout) {
-    case 'rectangular': return placeRectangular;
+    case 'rectangular':
+      // Random aspect ratio, biased toward moderate values.
+      // Use a normal-ish distribution: square the random to make extremes less likely.
+      var r = Math.random();
+      var range = 0.4 + r * r * 2.1; // 0.4 to 2.5, biased toward lower end
+      // Randomly pick landscape or portrait
+      rectAspect = Math.random() < 0.5 ? range : 1 / range;
+      // Ensure it's never close enough to 1.0 to look square
+      if (rectAspect > 0.85 && rectAspect < 1.18) {
+        rectAspect = Math.random() < 0.5 ? 0.65 : 1.5;
+      }
+      return placeRectangular;
+    case 'square':
+      rectAspect = 1;
+      return placeRectangular;
     case 'tetris': return placeTetris;
     case 'wander-line': return placeWanderLine;
     case 'wander-curl': return placeWanderCurl;
@@ -262,14 +279,18 @@ function placeFromOrigin(sprite, board, boardW32, boardH, originX, originY, aspe
 }
 
 // --- Layout 3: Rectangular Spiral ---
+// Uses rectAspect to stretch horizontally (>1) or vertically (<1).
 function placeRectangular(sprite, board, boardW32, boardH, cx, cy, aspect) {
   const step = 2;
   let x = cx - Math.floor(sprite.w / 2);
   let y = cy - Math.floor(sprite.h / 2);
-  let dx = step, dy = 0;
-  let segmentLen = step * 4;
+  // Scale step sizes by rectAspect so the spiral traces a rectangle
+  const ra = rectAspect;
+  let dx = Math.round(step * ra), dy = 0;
+  let segmentLen = Math.round(step * 4 * (dx !== 0 ? ra : 1));
   let segmentPassed = 0;
   let turnCount = 0;
+  let horizontal = true; // track which axis we're moving on
 
   for (let i = 0; i < 200000; i++) {
     if (testPosition(sprite.data, sprite.w32, sprite.h, x, y, board, boardW32, boardH)) {
@@ -278,15 +299,20 @@ function placeRectangular(sprite, board, boardW32, boardH, cx, cy, aspect) {
 
     x += dx;
     y += dy;
-    segmentPassed += step;
+    segmentPassed += Math.abs(dx || dy);
 
     if (segmentPassed >= segmentLen) {
       segmentPassed = 0;
       turnCount++;
+      // Rotate 90 degrees
       const tmp = dx;
       dx = -dy;
       dy = tmp;
-      if (turnCount % 2 === 0) segmentLen += step * 4;
+      horizontal = !horizontal;
+      // Scale segment length by aspect on horizontal legs
+      const baseLen = step * 4;
+      const growth = Math.floor(turnCount / 2) * step * 4;
+      segmentLen = Math.round((baseLen + growth) * (horizontal ? ra : 1));
     }
   }
   return null;
