@@ -466,7 +466,7 @@ figcaption {
 <!-- ====== SECTION 3: The collision problem ====== -->
 <h2>The collision problem</h2>
 
-<p>These two words need to share the canvas. How do we check if they overlap? Drag <strong>rug</strong> around to find out &mdash; try tucking it inside the hole in <strong>dude</strong>'s letter <em>d</em>.</p>
+<p>These two words need to share the canvas. How do we check if they overlap? Drag <strong>rug</strong> around to find out &mdash; try tucking it into the open spaces between <strong>dude</strong>'s letters.</p>
 
 <figure class="widget" id="widget-collision">
   <canvas id="collisionCanvas" style="height: 340px;"></canvas>
@@ -1495,7 +1495,7 @@ function initCollision() {
   // Two words — one large, one small enough to fit inside a letter counter.
   // "dude" at 160px has counters (holes in d, u, e) large enough for "rug" at 16px.
   const fixedWord = { text: 'dude', fontSize: 160, color: PALETTES.vibrant[0] };
-  const dragWord  = { text: 'rug',  fontSize: 16,  color: PALETTES.vibrant[1] };
+  const dragWord  = { text: 'rug',  fontSize: 24,  color: PALETTES.vibrant[1] };
 
   // Sprites and drag state
   let sprFixed = null, sprDrag = null;
@@ -1519,14 +1519,14 @@ function initCollision() {
   function getPositions(w, h) {
     ensureSprites();
     if (!sprFixed || !sprDrag) return null;
-    // "dude" centered slightly left
-    const ax = Math.round(w * 0.35 - sprFixed.w / 2);
-    const ay = Math.round(h * 0.48 - sprFixed.h / 2);
-    // "rug" starts inside the counter of the letter "d" — bounding boxes
-    // overlap but pixels don't, so the user sees FALSE POSITIVE on load.
-    // Position: just inside the top-left of dude's bbox, in the d's bowl.
-    const bx = dragX !== null ? dragX : Math.round(ax + sprFixed.w * 0.08);
-    const by = dragY !== null ? dragY : Math.round(ay - sprDrag.h * 0.4);
+    // "dude" centered on the canvas
+    const ax = Math.round(w * 0.5 - sprFixed.w / 2);
+    const ay = Math.round(h * 0.5 - sprFixed.h / 2);
+    // "rug" starts in the gap above the "u" — inside dude's bounding box
+    // but not touching pixels, so the user sees FALSE POSITIVE on load.
+    // The gap between the "d" ascender and "u" top is ~30% across, ~top edge.
+    const bx = dragX !== null ? dragX : Math.round(ax + sprFixed.w * 0.30);
+    const by = dragY !== null ? dragY : Math.round(ay - sprDrag.h * 0.3);
     return { ax, ay, bx, by };
   }
 
