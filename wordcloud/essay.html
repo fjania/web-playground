@@ -1377,18 +1377,21 @@ function initAnatomy() {
       ctx.restore();
 
     } else if (mode === 'grid') {
-      // Rasterize at both padding=0 (for stable sizing) and current padding
-      const baseSprite = rasterizeWord(word, fontSize, fontFamily, rotation, 0);
-      const sprite = padding > 0 ? rasterizeWord(word, fontSize, fontFamily, rotation, padding) : baseSprite;
-      if (!sprite || !baseSprite) return;
+      // Rasterize at max padding (12) to determine stable cell size,
+      // then rasterize at current padding for display. The word never
+      // moves or clips — at low padding there's just empty space that
+      // fills in as you increase the slider.
+      const maxPad = 12;
+      const maxSprite = rasterizeWord(word, fontSize, fontFamily, rotation, maxPad);
+      const sprite = rasterizeWord(word, fontSize, fontFamily, rotation, padding);
+      if (!sprite || !maxSprite) return;
 
-      // Cell size is fixed based on the zero-padding sprite so the word
-      // stays visually stable as padding grows outward around it.
-      const baseGridW = baseSprite.w32 * 32;
-      const baseGridH = baseSprite.h;
+      // Cell size fits the largest possible sprite (max padding)
+      const maxGridW = maxSprite.w32 * 32;
+      const maxGridH = maxSprite.h;
       const cellSize = Math.min(
-        (w - 40) / baseGridW,
-        (h - 40) / baseGridH,
+        (w - 20) / maxGridW,
+        (h - 30) / maxGridH,
         6
       );
 
@@ -1397,49 +1400,60 @@ function initAnatomy() {
       const totalW = gridW * cellSize;
       const totalH = gridH * cellSize;
 
-      // Center the padded grid such that the word region stays in the same
-      // canvas position regardless of padding. The padding adds equally on
-      // all sides, so we offset by the padding difference.
-      const padPixels = padding * 2; // padding added on each side
-      const baseTotalW = baseGridW * cellSize;
-      const baseTotalH = baseGridH * cellSize;
-      const baseCX = w / 2;
-      const baseCY = (h - 20) / 2; // leave room for stats text
-      const ox = baseCX - baseTotalW / 2 - padPixels * cellSize;
-      const oy = baseCY - baseTotalH / 2 - padPixels * cellSize;
+      // Center the current sprite in the space reserved for max sprite
+      const maxTotalW = maxGridW * cellSize;
+      const maxTotalH = maxGridH * cellSize;
+      const ox = (w - maxTotalW) / 2 + (maxTotalW - totalW) / 2;
+      const oy = (h - 24 - maxTotalH) / 2 + (maxTotalH - totalH) / 2;
 
       const onColor = getCSS('--blue');
       const offColor = getCSS('--border');
 
       for (let y = 0; y < gridH; y++) {
         for (let x = 0; x < gridW; x++) {
-          const px = ox + x * cellSize + 0.5;
-          const py = oy + y * cellSize + 0.5;
-          if (px + cellSize < 0 || px > w || py + cellSize < 0 || py > h) continue;
-
           const word32 = x >> 5;
           const bit = 31 - (x & 31);
           const isSet = (sprite.data[y * sprite.w32 + word32] >>> bit) & 1;
 
           ctx.fillStyle = isSet ? onColor : offColor;
           ctx.globalAlpha = isSet ? 0.8 : 0.15;
-          ctx.fillRect(px, py, cellSize - 1, cellSize - 1);
+          ctx.fillRect(
+            ox + x * cellSize + 0.5,
+            oy + y * cellSize + 0.5,
+            cellSize - 1,
+            cellSize - 1
+          );
         }
       }
       ctx.globalAlpha = 1;
 
-      // 32-column boundary lines
-      ctx.strokeStyle = getCSS('--red');
-      ctx.lineWidth = 0.5;
-      ctx.globalAlpha = 0.4;
-      for (let col32 = 1; col32 < sprite.w32; col32++) {
-        const lx = ox + col32 * 32 * cellSize;
-        ctx.beginPath();
-        ctx.moveTo(lx, Math.max(0, oy));
-        ctx.lineTo(lx, Math.min(h, oy + totalH));
-        ctx.stroke();
+      // Uint32 word boundaries — subtle dashed lines showing where
+      // each 32-bit integer starts in the packed row
+      if (sprite.w32 > 1) {
+        ctx.setLineDash([2, 3]);
+        ctx.strokeStyle = getCSS('--text-muted');
+        ctx.lineWidth = 0.5;
+        ctx.globalAlpha = 0.3;
+        for (let col32 = 1; col32 < sprite.w32; col32++) {
+          const lx = ox + col32 * 32 * cellSize;
+          ctx.beginPath();
+          ctx.moveTo(lx, oy);
+          ctx.lineTo(lx, oy + totalH);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        // Small label at top of first boundary
+        ctx.font = `9px ${getCSS('--font-mono')}`;
+        ctx.fillStyle = getCSS('--text-muted');
+        ctx.globalAlpha = 0.5;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        const firstBoundary = ox + 32 * cellSize;
+        ctx.fillText('32 bits', firstBoundary, oy - 2);
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
 
       ctx.font = `11px ${getCSS('--font-mono')}`;
       ctx.fillStyle = getCSS('--text-muted');
