@@ -241,6 +241,34 @@ footer {
 #status { transition: color 0.3s; }
 #status.active { color: #53d8fb; }
 
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.path-toggle {
+  cursor: pointer;
+  user-select: none;
+  color: #555577;
+  font-size: 11px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s;
+}
+.path-toggle:hover { color: #8888aa; }
+.path-toggle.visible { display: flex; }
+.path-toggle input { margin: 0; }
+
+.footer-link {
+  color: #555577;
+  text-decoration: none;
+  font-size: 11px;
+  transition: color 0.15s;
+}
+.footer-link:hover { color: #53d8fb; }
+
 #description-bar {
   padding: 10px 24px;
   background: #12122a;

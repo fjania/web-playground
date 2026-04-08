@@ -211,13 +211,24 @@ dynamicBtn.addEventListener('click', () => {
   renderDataset(datasetSelect.value);
 });
 
+// --- Path Toggle Visibility ---
+const pathToggleLabel = document.getElementById('path-toggle-label');
+const WANDER_LAYOUTS = new Set(['wander-line', 'wander-curl', 'wander-wisp', 'wander-feather', 'wander-ring']);
+
+function updatePathToggleVisibility(layout) {
+  pathToggleLabel.classList.toggle('visible', WANDER_LAYOUTS.has(layout));
+}
+
 // --- Cloud Creation ---
 function createCloud() {
   if (state.wc) state.wc.destroy();
 
+  const layout = getChipValue('layout-chips');
+  updatePathToggleVisibility(layout);
+
   state.wc = new WordCloud(container, {
     fontFamily: state.selectedFont,
-    layout: getChipValue('layout-chips'),
+    layout,
     scaling: getChipValue('scaling-chips'),
     colorScheme: state.selectedColorScheme,
     rotationProbability: parseFloat(getChipValue('rotation-chips')),
