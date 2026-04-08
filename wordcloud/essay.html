@@ -1377,49 +1377,62 @@ function initAnatomy() {
       ctx.restore();
 
     } else if (mode === 'grid') {
-      // Rasterize at max padding (12) to determine stable cell size,
-      // then rasterize at current padding for display. The word never
-      // moves or clips — at low padding there's just empty space that
-      // fills in as you increase the slider.
+      // Always rasterize at max padding to get a stable frame, then
+      // rasterize at current padding. We draw the max-size grid but
+      // fill it with the current sprite's bit data, offset so the
+      // word region stays fixed as padding changes.
       const maxPad = 12;
       const maxSprite = rasterizeWord(word, fontSize, fontFamily, rotation, maxPad);
       const sprite = rasterizeWord(word, fontSize, fontFamily, rotation, padding);
       if (!sprite || !maxSprite) return;
 
-      // Cell size fits the largest possible sprite (max padding)
-      const maxGridW = maxSprite.w32 * 32;
-      const maxGridH = maxSprite.h;
+      // Cell size and grid frame based on max sprite — never changes
+      const gridW = maxSprite.w32 * 32;
+      const gridH = maxSprite.h;
       const cellSize = Math.min(
-        (w - 20) / maxGridW,
-        (h - 30) / maxGridH,
+        (w - 20) / gridW,
+        (h - 30) / gridH,
         6
       );
-
-      const gridW = sprite.w32 * 32;
-      const gridH = sprite.h;
       const totalW = gridW * cellSize;
       const totalH = gridH * cellSize;
+      const ox = (w - totalW) / 2;
+      const oy = (h - 24 - totalH) / 2;
 
-      // Center the current sprite in the space reserved for max sprite
-      const maxTotalW = maxGridW * cellSize;
-      const maxTotalH = maxGridH * cellSize;
-      const ox = (w - maxTotalW) / 2 + (maxTotalW - totalW) / 2;
-      const oy = (h - 24 - maxTotalH) / 2 + (maxTotalH - totalH) / 2;
+      // Offset: current sprite is smaller, its word region starts
+      // at (padding*2, padding*2) within the sprite. The max sprite's
+      // word region starts at (maxPad*2, maxPad*2). The difference
+      // tells us where to place the current sprite's data within
+      // the max-size grid so the word letters stay fixed.
+      const curSpriteGridW = sprite.w32 * 32;
+      const curSpriteGridH = sprite.h;
+      const padDiff = maxPad - padding;
+      const offsetX = padDiff * 2;  // in pixels, how much smaller on each side
+      const offsetY = padDiff * 2;
 
       const onColor = getCSS('--blue');
       const offColor = getCSS('--border');
 
-      for (let y = 0; y < gridH; y++) {
-        for (let x = 0; x < gridW; x++) {
-          const word32 = x >> 5;
-          const bit = 31 - (x & 31);
-          const isSet = (sprite.data[y * sprite.w32 + word32] >>> bit) & 1;
+      // Draw the max-size grid frame, sampling from current sprite
+      // data at the offset position
+      for (let gy = 0; gy < gridH; gy++) {
+        for (let gx = 0; gx < gridW; gx++) {
+          // Map grid position to current sprite position
+          const sx = gx - offsetX;
+          const sy = gy - offsetY;
+
+          let isSet = false;
+          if (sx >= 0 && sx < curSpriteGridW && sy >= 0 && sy < curSpriteGridH) {
+            const word32 = sx >> 5;
+            const bit = 31 - (sx & 31);
+            isSet = !!((sprite.data[sy * sprite.w32 + word32] >>> bit) & 1);
+          }
 
           ctx.fillStyle = isSet ? onColor : offColor;
           ctx.globalAlpha = isSet ? 0.8 : 0.15;
           ctx.fillRect(
-            ox + x * cellSize + 0.5,
-            oy + y * cellSize + 0.5,
+            ox + gx * cellSize + 0.5,
+            oy + gy * cellSize + 0.5,
             cellSize - 1,
             cellSize - 1
           );
@@ -1429,12 +1442,12 @@ function initAnatomy() {
 
       // Uint32 word boundaries — subtle dashed lines showing where
       // each 32-bit integer starts in the packed row
-      if (sprite.w32 > 1) {
+      if (maxSprite.w32 > 1) {
         ctx.setLineDash([2, 3]);
         ctx.strokeStyle = getCSS('--text-muted');
         ctx.lineWidth = 0.5;
         ctx.globalAlpha = 0.3;
-        for (let col32 = 1; col32 < sprite.w32; col32++) {
+        for (let col32 = 1; col32 < maxSprite.w32; col32++) {
           const lx = ox + col32 * 32 * cellSize;
           ctx.beginPath();
           ctx.moveTo(lx, oy);
