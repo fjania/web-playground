@@ -466,7 +466,7 @@ figcaption {
 <!-- ====== SECTION 3: The collision problem ====== -->
 <h2>The collision problem</h2>
 
-<p>These two words need to share the canvas. How do we check if they overlap? Drag <strong>man</strong> around to find out &mdash; try nestling it into the gap between <strong>dude</strong>'s letters.</p>
+<p>These two words need to share the canvas. How do we check if they overlap? Drag <strong>rug</strong> around to find out &mdash; try tucking it inside the hole in <strong>dude</strong>'s letter <em>d</em>.</p>
 
 <figure class="widget" id="widget-collision">
   <canvas id="collisionCanvas" style="height: 340px;"></canvas>
@@ -478,7 +478,7 @@ figcaption {
     </div>
   </div>
   <div class="widget-stats" id="collisionStats"></div>
-  <figcaption>Drag <strong>man</strong> to test overlap against <strong>dude</strong>. Toggle between three detection methods to compare accuracy and cost.</figcaption>
+  <figcaption>Drag <strong>rug</strong> to test overlap against <strong>dude</strong>. Toggle between three detection methods to compare accuracy and cost.</figcaption>
 </figure>
 
 <p>The actual implementation handles the case where a sprite is not aligned to a 32-pixel boundary by bit-shifting. If a sprite starts at pixel position 17, its first 32-bit word needs to be split across two board words using right-shift and left-shift operations. The code tests <code>(bits &gt;&gt;&gt; rShift) &amp; board[idx]</code> for the first part and <code>(bits &lt;&lt; lShift) &amp; board[idx + 1]</code> for the spillover. This is the trickiest part of the implementation, but it means we never sacrifice accuracy for speed.</p>
@@ -1492,11 +1492,10 @@ function initCollision() {
 
   const fontFamily = 'Nunito, sans-serif';
 
-  // Two words only — matches the prose. Sized from Big Lebowski dataset
-  // on a linear scale so the size difference is realistic.
-  // "dude" (793 occurrences) → 120px, "man" (199) → 48px
-  const fixedWord = { text: 'dude', fontSize: 120, color: PALETTES.vibrant[0] };
-  const dragWord  = { text: 'man',  fontSize: 48,  color: PALETTES.vibrant[1] };
+  // Two words — one large, one small enough to fit inside a letter counter.
+  // "dude" at 160px has counters (holes in d, u, e) large enough for "rug" at 16px.
+  const fixedWord = { text: 'dude', fontSize: 160, color: PALETTES.vibrant[0] };
+  const dragWord  = { text: 'rug',  fontSize: 16,  color: PALETTES.vibrant[1] };
 
   // Sprites and drag state
   let sprFixed = null, sprDrag = null;
@@ -1523,10 +1522,11 @@ function initCollision() {
     // "dude" centered slightly left
     const ax = Math.round(w * 0.35 - sprFixed.w / 2);
     const ay = Math.round(h * 0.48 - sprFixed.h / 2);
-    // "man" starts overlapping dude's bounding box but not its pixels —
-    // positioned near the top-right of "dude" where there's empty space
-    const bx = dragX !== null ? dragX : Math.round(ax + sprFixed.w * 0.65);
-    const by = dragY !== null ? dragY : Math.round(ay - sprDrag.h * 0.15);
+    // "rug" starts inside the counter of the letter "d" — bounding boxes
+    // overlap but pixels don't, so the user sees FALSE POSITIVE on load.
+    // Position: just inside the top-left of dude's bbox, in the d's bowl.
+    const bx = dragX !== null ? dragX : Math.round(ax + sprFixed.w * 0.08);
+    const by = dragY !== null ? dragY : Math.round(ay - sprDrag.h * 0.4);
     return { ax, ay, bx, by };
   }
 
