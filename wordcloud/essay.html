@@ -6,7 +6,7 @@
 <title>How a Word Cloud Actually Works</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Pacifico&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Nunito:wght@400;700&family=Pacifico&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1490,16 +1490,17 @@ function initCollision() {
   const statsEl = document.getElementById('collisionStats');
   let mode = 'bbox';
 
-  // Curvy script font — big open loops and counters where small words nestle
-  const fontFamily = 'Pacifico, cursive';
+  const fontFamily = 'Nunito, sans-serif';
 
-  // Large size contrast makes the interaction obvious: tiny word fits
-  // inside the open loops of a huge script letter
+  // Mimic a real cloud: one dominant word, several mid-size, one tiny draggable
   const fixedWords = [
-    { text: 'happy', fontSize: 86, color: PALETTES.vibrant[0] },
-    { text: 'day', fontSize: 52, color: PALETTES.vibrant[2] },
+    { text: 'dude',    fontSize: 82, color: PALETTES.vibrant[0] },
+    { text: 'walter',  fontSize: 48, color: PALETTES.vibrant[2] },
+    { text: 'man',     fontSize: 36, color: PALETTES.vibrant[4] || PALETTES.vibrant[0] },
+    { text: 'rug',     fontSize: 28, color: PALETTES.vibrant[3] || PALETTES.vibrant[2] },
+    { text: 'bowling', fontSize: 22, color: PALETTES.vibrant[1] },
   ];
-  const dragWord = { text: 'is', fontSize: 18, color: PALETTES.vibrant[1] };
+  const dragWord = { text: 'bar', fontSize: 16, color: '#53d8fb' };
 
   // Drag state
   let dragBx = null;
@@ -1532,18 +1533,21 @@ function initCollision() {
 
   function getPositions(w, h) {
     ensureSprites();
-    const sprA = cachedFixedSprites[0];
-    const sprC = cachedFixedSprites[1];
-    const sprB = cachedDragSprite;
-    if (!sprA || !sprB || !sprC) return null;
+    const sprs = cachedFixedSprites;
+    const sprDrag = cachedDragSprite;
+    if (!sprs || sprs.some(s => !s) || !sprDrag) return null;
 
-    const ax = Math.round(w * 0.22 - sprA.w / 2);
-    const ay = Math.round(h * 0.45 - sprA.h / 2);
-    const cx = Math.round(w * 0.65 - sprC.w / 2);
-    const cy = Math.round(h * 0.42 - sprC.h / 2);
-    const bx = dragBx !== null ? dragBx : Math.round(w * 0.38 - sprB.w / 2);
-    const by = dragBy !== null ? dragBy : Math.round(h * 0.40 - sprB.h / 2);
-    return { sprA, sprB, sprC, ax, ay, bx, by, cx, cy };
+    // Pack words like a real cloud: big word center, others clustered around it
+    const positions = [
+      { x: Math.round(w * 0.28 - sprs[0].w / 2), y: Math.round(h * 0.42 - sprs[0].h / 2) }, // dude — center-left
+      { x: Math.round(w * 0.62 - sprs[1].w / 2), y: Math.round(h * 0.28 - sprs[1].h / 2) }, // walter — upper right
+      { x: Math.round(w * 0.54 - sprs[2].w / 2), y: Math.round(h * 0.56 - sprs[2].h / 2) }, // man — below walter
+      { x: Math.round(w * 0.14 - sprs[3].w / 2), y: Math.round(h * 0.22 - sprs[3].h / 2) }, // rug — top left
+      { x: Math.round(w * 0.70 - sprs[4].w / 2), y: Math.round(h * 0.62 - sprs[4].h / 2) }, // bowling — lower right
+    ];
+    const dx = dragBx !== null ? dragBx : Math.round(w * 0.42 - sprDrag.w / 2);
+    const dy = dragBy !== null ? dragBy : Math.round(h * 0.55 - sprDrag.h / 2);
+    return { sprs, sprDrag, positions, dx, dy };
   }
 
   function onPointerDown(e) {
@@ -1604,28 +1608,26 @@ function initCollision() {
 
     const pos = getPositions(w, h);
     if (!pos) return;
-    const { sprA, sprB, sprC, ax, ay, bx, by, cx, cy } = pos;
+    const { sprs, sprDrag, positions, dx, dy } = pos;
 
     // Draw all fixed words
     ctx.textBaseline = 'alphabetic';
-    ctx.font = `${fixedWords[0].fontSize}px ${fontFamily}`;
-    ctx.fillStyle = fixedWords[0].color;
-    ctx.fillText(fixedWords[0].text, ax + sprA.textX, ay + sprA.textY);
-
-    ctx.font = `${fixedWords[1].fontSize}px ${fontFamily}`;
-    ctx.fillStyle = fixedWords[1].color;
-    ctx.fillText(fixedWords[1].text, cx + sprC.textX, cy + sprC.textY);
+    fixedWords.forEach((fw, i) => {
+      ctx.font = `${fw.fontSize}px ${fontFamily}`;
+      ctx.fillStyle = fw.color;
+      ctx.fillText(fw.text, positions[i].x + sprs[i].textX, positions[i].y + sprs[i].textY);
+    });
 
     // Draw draggable word
     ctx.font = `${dragWord.fontSize}px ${fontFamily}`;
     ctx.fillStyle = dragWord.color;
-    ctx.fillText(dragWord.text, bx + sprB.textX, by + sprB.textY);
+    ctx.fillText(dragWord.text, dx + sprDrag.textX, dy + sprDrag.textY);
 
-    // Check collisions of drag word against all fixed words
-    const allFixed = [
-      { spr: sprA, x: ax, y: ay, color: fixedWords[0].color },
-      { spr: sprC, x: cx, y: cy, color: fixedWords[1].color },
-    ];
+    // Build allFixed for collision checks
+    const allFixed = fixedWords.map((fw, i) => ({
+      spr: sprs[i], x: positions[i].x, y: positions[i].y, color: fw.color,
+    }));
+    const bx = dx, by = dy, sprB = sprDrag;
 
     if (mode === 'bbox') {
       // Draw bounding boxes for all words
@@ -1664,7 +1666,7 @@ function initCollision() {
         }
       });
 
-      const totalComparisons = allFixed.length * 4;
+      const totalComparisons = allFixed.length * 2; // 2 edge checks per pair (x and y)
       if (bboxCollisions > 0 && falsePositives > 0) {
         statsEl.innerHTML = `<span style="color:var(--red);">COLLISION</span> <span style="color:var(--text-muted);">&mdash; ${falsePositives} false positive${falsePositives > 1 ? 's' : ''} (boxes overlap, pixels don't) &mdash; ${totalComparisons} comparisons</span>`;
       } else if (bboxCollisions > 0) {
