@@ -1492,15 +1492,16 @@ function initCollision() {
 
   const fontFamily = 'Nunito, sans-serif';
 
-  // Mimic a real cloud: one dominant word, several mid-size, one tiny draggable
+  // Words from The Big Lebowski dataset, sized on a linear scale:
+  // fontSize = 14 + (value / 793) * 76  (range 14px–90px)
+  // dude:793  walter:451  man:199  rug:43  draggable bowling:45
   const fixedWords = [
-    { text: 'dude',    fontSize: 82, color: PALETTES.vibrant[0] },
-    { text: 'walter',  fontSize: 48, color: PALETTES.vibrant[2] },
-    { text: 'man',     fontSize: 36, color: PALETTES.vibrant[4] || PALETTES.vibrant[0] },
-    { text: 'rug',     fontSize: 28, color: PALETTES.vibrant[3] || PALETTES.vibrant[2] },
-    { text: 'bowling', fontSize: 22, color: PALETTES.vibrant[1] },
+    { text: 'dude',   fontSize: 90, color: PALETTES.vibrant[0] },   // 793
+    { text: 'walter', fontSize: 57, color: PALETTES.vibrant[4] },   // 451
+    { text: 'man',    fontSize: 33, color: PALETTES.vibrant[2] },   // 199
+    { text: 'rug',    fontSize: 18, color: PALETTES.vibrant[3] },   // 43
   ];
-  const dragWord = { text: 'bar', fontSize: 16, color: '#53d8fb' };
+  const dragWord = { text: 'bowling', fontSize: 18, color: '#53d8fb' }; // 45
 
   // Drag state
   let dragBx = null;
@@ -1537,16 +1538,15 @@ function initCollision() {
     const sprDrag = cachedDragSprite;
     if (!sprs || sprs.some(s => !s) || !sprDrag) return null;
 
-    // Pack words like a real cloud: big word center, others clustered around it
+    // Pack tightly: big word center, others clustered close around it
     const positions = [
-      { x: Math.round(w * 0.28 - sprs[0].w / 2), y: Math.round(h * 0.42 - sprs[0].h / 2) }, // dude — center-left
-      { x: Math.round(w * 0.62 - sprs[1].w / 2), y: Math.round(h * 0.28 - sprs[1].h / 2) }, // walter — upper right
-      { x: Math.round(w * 0.54 - sprs[2].w / 2), y: Math.round(h * 0.56 - sprs[2].h / 2) }, // man — below walter
-      { x: Math.round(w * 0.14 - sprs[3].w / 2), y: Math.round(h * 0.22 - sprs[3].h / 2) }, // rug — top left
-      { x: Math.round(w * 0.70 - sprs[4].w / 2), y: Math.round(h * 0.62 - sprs[4].h / 2) }, // bowling — lower right
+      { x: Math.round(w * 0.30 - sprs[0].w / 2), y: Math.round(h * 0.44 - sprs[0].h / 2) }, // dude — dominant center
+      { x: Math.round(w * 0.68 - sprs[1].w / 2), y: Math.round(h * 0.32 - sprs[1].h / 2) }, // walter — right of dude
+      { x: Math.round(w * 0.60 - sprs[2].w / 2), y: Math.round(h * 0.60 - sprs[2].h / 2) }, // man — below walter
+      { x: Math.round(w * 0.15 - sprs[3].w / 2), y: Math.round(h * 0.24 - sprs[3].h / 2) }, // rug — top left gap
     ];
-    const dx = dragBx !== null ? dragBx : Math.round(w * 0.42 - sprDrag.w / 2);
-    const dy = dragBy !== null ? dragBy : Math.round(h * 0.55 - sprDrag.h / 2);
+    const dx = dragBx !== null ? dragBx : Math.round(w * 0.44 - sprDrag.w / 2);
+    const dy = dragBy !== null ? dragBy : Math.round(h * 0.30 - sprDrag.h / 2);
     return { sprs, sprDrag, positions, dx, dy };
   }
 
