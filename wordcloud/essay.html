@@ -1494,8 +1494,8 @@ function initCollision() {
 
   // Two words — one large, one small enough to fit inside a letter counter.
   // "dude" at 160px has counters (holes in d, u, e) large enough for "rug" at 16px.
-  const fixedWord = { text: 'dude', fontSize: 160, color: PALETTES.vibrant[0] };
-  const dragWord  = { text: 'rug',  fontSize: 24,  color: PALETTES.vibrant[1] };
+  const fixedWord = { text: 'dude', fontSize: 200, color: PALETTES.vibrant[0] };
+  const dragWord  = { text: 'rug',  fontSize: 30,  color: PALETTES.vibrant[1] };
 
   // Sprites and drag state
   let sprFixed = null, sprDrag = null;
@@ -1683,14 +1683,16 @@ function initCollision() {
         collision = !testPosition(sprDrag.data, sprDrag.w32, sprDrag.h, bx, by, board, boardW32, boardH);
       }
 
-      // Visual: highlight 32-bit chunks being tested
-      if (hasOverlap) {
-        ctx.fillStyle = 'rgba(74, 144, 255, 0.15)';
+      // Visual: highlight 32-bit chunks being tested (only when overlap is
+      // large enough that the chunking pattern is visible, not just a box)
+      if (hasOverlap && overlapW > 64) {
+        ctx.fillStyle = 'rgba(74, 144, 255, 0.10)';
         for (let y = 0; y < overlapH; y++) {
           for (let c = 0; c < w32count; c++) {
             const chunkX = ox1 + c * 32;
             const chunkW = Math.min(32, ox2 - chunkX);
-            ctx.fillRect(chunkX, oy1 + y, chunkW, 1);
+            // Alternate chunks for visibility
+            if (c % 2 === 0) ctx.fillRect(chunkX, oy1 + y, chunkW, 1);
           }
         }
       }
