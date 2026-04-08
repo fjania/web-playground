@@ -1492,16 +1492,20 @@ function initCollision() {
 
   const fontFamily = 'Nunito, sans-serif';
 
-  // Words from The Big Lebowski dataset, sized on a linear scale:
-  // fontSize = 14 + (value / 793) * 76  (range 14px–90px)
-  // dude:793  walter:451  man:199  rug:43  draggable bowling:45
+  // Big Lebowski dataset, linear scale: fontSize = 12 + (value/793) * 148
+  // Range 12–160px so "dude" dominates the canvas like a real cloud
   const fixedWords = [
-    { text: 'dude',   fontSize: 90, color: PALETTES.vibrant[0] },   // 793
-    { text: 'walter', fontSize: 57, color: PALETTES.vibrant[4] },   // 451
-    { text: 'man',    fontSize: 33, color: PALETTES.vibrant[2] },   // 199
-    { text: 'rug',    fontSize: 18, color: PALETTES.vibrant[3] },   // 43
+    { text: 'dude',      fontSize: 160, color: PALETTES.vibrant[0] },  // 793
+    { text: 'walter',    fontSize: 96,  color: PALETTES.vibrant[4] },  // 451
+    { text: 'man',       fontSize: 49,  color: PALETTES.vibrant[2] },  // 199
+    { text: 'lebowski',  fontSize: 40,  color: PALETTES.vibrant[5] },  // 151
+    { text: 'donny',     fontSize: 27,  color: PALETTES.vibrant[3] },  // 82
+    { text: 'car',       fontSize: 26,  color: PALETTES.vibrant[6] },  // 75
+    { text: 'money',     fontSize: 24,  color: PALETTES.vibrant[1] },  // 62
+    { text: 'rug',       fontSize: 20,  color: PALETTES.vibrant[7] },  // 43
+    { text: 'huh',       fontSize: 22,  color: PALETTES.vibrant[3] },  // 53
   ];
-  const dragWord = { text: 'bowling', fontSize: 18, color: '#53d8fb' }; // 45
+  const dragWord = { text: 'bowling', fontSize: 20, color: '#53d8fb' }; // 45
 
   // Drag state
   let dragBx = null;
@@ -1538,15 +1542,25 @@ function initCollision() {
     const sprDrag = cachedDragSprite;
     if (!sprs || sprs.some(s => !s) || !sprDrag) return null;
 
-    // Pack tightly: big word center, others clustered close around it
+    // Positions are anchored relative to the "dude" word, packed tight
+    // like the real cloud. Center "dude", cluster everything around it.
+    const cx = w / 2, cy = h / 2;
+    const d = sprs[0]; // dude sprite for reference
+    const dx0 = Math.round(cx - d.w * 0.45);
+    const dy0 = Math.round(cy - d.h * 0.35);
     const positions = [
-      { x: Math.round(w * 0.30 - sprs[0].w / 2), y: Math.round(h * 0.44 - sprs[0].h / 2) }, // dude — dominant center
-      { x: Math.round(w * 0.68 - sprs[1].w / 2), y: Math.round(h * 0.32 - sprs[1].h / 2) }, // walter — right of dude
-      { x: Math.round(w * 0.60 - sprs[2].w / 2), y: Math.round(h * 0.60 - sprs[2].h / 2) }, // man — below walter
-      { x: Math.round(w * 0.15 - sprs[3].w / 2), y: Math.round(h * 0.24 - sprs[3].h / 2) }, // rug — top left gap
+      { x: dx0, y: dy0 },                                                          // dude — center
+      { x: Math.round(dx0 + d.w * 0.55), y: Math.round(dy0 - sprs[1].h * 0.85) }, // walter — above-right, tucked against dude
+      { x: Math.round(dx0 + d.w * 0.40), y: Math.round(dy0 + d.h * 0.92) },       // man — below dude-right
+      { x: Math.round(dx0 - sprs[3].w * 0.15), y: Math.round(dy0 + d.h * 0.95) }, // lebowski — below dude-left
+      { x: Math.round(dx0 - sprs[4].w - 4), y: Math.round(dy0 + d.h * 0.15) },    // donny — left of dude
+      { x: Math.round(dx0 + d.w + 4), y: Math.round(dy0 + d.h * 0.55) },          // car — right of dude
+      { x: Math.round(dx0 + d.w * 0.05), y: Math.round(dy0 - sprs[6].h - 2) },    // money — above dude-left
+      { x: Math.round(dx0 - sprs[7].w - 2), y: Math.round(dy0 + d.h * 0.62) },    // rug — left of dude, lower
+      { x: Math.round(dx0 + d.w * 0.55), y: Math.round(dy0 + d.h * 0.60) },       // huh — right side, mid
     ];
-    const dx = dragBx !== null ? dragBx : Math.round(w * 0.44 - sprDrag.w / 2);
-    const dy = dragBy !== null ? dragBy : Math.round(h * 0.30 - sprDrag.h / 2);
+    const dx = dragBx !== null ? dragBx : Math.round(dx0 + d.w * 0.25);
+    const dy = dragBy !== null ? dragBy : Math.round(dy0 - sprDrag.h - 4);
     return { sprs, sprDrag, positions, dx, dy };
   }
 
