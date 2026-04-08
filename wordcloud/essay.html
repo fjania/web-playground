@@ -1490,15 +1490,37 @@ function initCollision() {
   const statsEl = document.getElementById('collisionStats');
   let mode = 'bbox';
 
-  const fontFamily = 'DM Sans, sans-serif';
+  // Organic serif font — has counters (holes in letters like 'g', 'e', 'o')
+  // where small words can nestle, showing the value of pixel-level collision
+  const fontFamily = 'Playfair Display, serif';
 
-  // Drag state for word B
+  // Multiple words at different sizes — the draggable word is small enough
+  // to fit inside the counter of a large letter
+  const fixedWords = [
+    { text: 'Rhythm', fontSize: 64, color: PALETTES.vibrant[0] },
+    { text: 'echo', fontSize: 38, color: PALETTES.vibrant[2] },
+  ];
+  const dragWord = { text: 'of', fontSize: 22, color: PALETTES.vibrant[1] };
+
+  // Drag state
   let dragBx = null;
   let dragBy = null;
   let isDragging = false;
 
-  // Cache sprite B to avoid rasterizing on every pointermove
-  let cachedSprB = null;
+  // Cache sprites
+  let cachedFixedSprites = null;
+  let cachedDragSprite = null;
+
+  function ensureSprites() {
+    if (!cachedFixedSprites) {
+      cachedFixedSprites = fixedWords.map(fw =>
+        rasterizeWord(fw.text, fw.fontSize, fontFamily, 0, 3)
+      );
+    }
+    if (!cachedDragSprite) {
+      cachedDragSprite = rasterizeWord(dragWord.text, dragWord.fontSize, fontFamily, 0, 3);
+    }
+  }
 
   modeGroup.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
@@ -1509,39 +1531,31 @@ function initCollision() {
     draw();
   });
 
-  // Two fixed words
-  const wordA = { text: 'Cloud', fontSize: 48 };
-  const wordB = { text: 'Type', fontSize: 36 };
-
-  function ensureSprBCached() {
-    if (!cachedSprB) {
-      cachedSprB = rasterizeWord(wordB.text, wordB.fontSize, fontFamily, 0, 4);
-    }
-    return cachedSprB;
-  }
-
   function getPositions(w, h) {
-    const sprA = rasterizeWord(wordA.text, wordA.fontSize, fontFamily, 0, 4);
-    const sprB = ensureSprBCached();
-    if (!sprA || !sprB) return null;
-    const ax = Math.round(w * 0.3 - sprA.w / 2);
+    ensureSprites();
+    const sprA = cachedFixedSprites[0];
+    const sprC = cachedFixedSprites[1];
+    const sprB = cachedDragSprite;
+    if (!sprA || !sprB || !sprC) return null;
+
+    const ax = Math.round(w * 0.22 - sprA.w / 2);
     const ay = Math.round(h * 0.45 - sprA.h / 2);
-    const bx = dragBx !== null ? dragBx : Math.round(w * 0.48 - sprB.w / 2);
-    const by = dragBy !== null ? dragBy : Math.round(h * 0.5 - sprB.h / 2);
-    return { sprA, sprB, ax, ay, bx, by };
+    const cx = Math.round(w * 0.65 - sprC.w / 2);
+    const cy = Math.round(h * 0.42 - sprC.h / 2);
+    const bx = dragBx !== null ? dragBx : Math.round(w * 0.38 - sprB.w / 2);
+    const by = dragBy !== null ? dragBy : Math.round(h * 0.40 - sprB.h / 2);
+    return { sprA, sprB, sprC, ax, ay, bx, by, cx, cy };
   }
 
   function onPointerDown(e) {
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    const { ctx, w, h } = sizeCanvas(canvas);
-    const pos = getPositions(w, h);
-    if (!pos) return;
+    ensureSprites();
     isDragging = true;
     canvas.setPointerCapture(e.pointerId);
-    dragBx = Math.round(mx - pos.sprB.w / 2);
-    dragBy = Math.round(my - pos.sprB.h / 2);
+    dragBx = Math.round(mx - cachedDragSprite.w / 2);
+    dragBy = Math.round(my - cachedDragSprite.h / 2);
     draw();
   }
 
@@ -1550,10 +1564,9 @@ function initCollision() {
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    const sprB = ensureSprBCached();
-    if (!sprB) return;
-    dragBx = Math.round(mx - sprB.w / 2);
-    dragBy = Math.round(my - sprB.h / 2);
+    ensureSprites();
+    dragBx = Math.round(mx - cachedDragSprite.w / 2);
+    dragBy = Math.round(my - cachedDragSprite.h / 2);
     draw();
   }
 
@@ -1566,6 +1579,25 @@ function initCollision() {
   canvas.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('pointercancel', onPointerUp);
 
+  // Helper: check real pixel collision between two sprites
+  function hasPixelCollision(sprX, sx, sy, sprY, tx, ty) {
+    const ox1 = Math.max(sx, tx);
+    const oy1 = Math.max(sy, ty);
+    const ox2 = Math.min(sx + sprX.w, tx + sprY.w);
+    const oy2 = Math.min(sy + sprX.h, ty + sprY.h);
+    if (ox2 <= ox1 || oy2 <= oy1) return false;
+    for (let py = oy1; py < oy2; py++) {
+      for (let px = ox1; px < ox2; px++) {
+        const alx = px - sx, aly = py - sy;
+        const blx = px - tx, bly = py - ty;
+        const aSet = (sprX.data[aly * sprX.w32 + (alx >> 5)] >>> (31 - (alx & 31))) & 1;
+        const bSet = (sprY.data[bly * sprY.w32 + (blx >> 5)] >>> (31 - (blx & 31))) & 1;
+        if (aSet && bSet) return true;
+      }
+    }
+    return false;
+  }
+
   function draw() {
     const { ctx, w, h } = sizeCanvas(canvas);
     ctx.fillStyle = getCSS('--bg-card');
@@ -1573,146 +1605,148 @@ function initCollision() {
 
     const pos = getPositions(w, h);
     if (!pos) return;
-    const { sprA, sprB, ax, ay, bx, by } = pos;
+    const { sprA, sprB, sprC, ax, ay, bx, by, cx, cy } = pos;
 
-    // Draw the actual words
-    ctx.font = `${wordA.fontSize}px ${fontFamily}`;
-    ctx.fillStyle = PALETTES.vibrant[0];
+    // Draw all fixed words
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(wordA.text, ax + sprA.textX, ay + sprA.textY);
+    ctx.font = `${fixedWords[0].fontSize}px ${fontFamily}`;
+    ctx.fillStyle = fixedWords[0].color;
+    ctx.fillText(fixedWords[0].text, ax + sprA.textX, ay + sprA.textY);
 
-    ctx.font = `${wordB.fontSize}px ${fontFamily}`;
-    ctx.fillStyle = PALETTES.vibrant[1];
-    ctx.fillText(wordB.text, bx + sprB.textX, by + sprB.textY);
+    ctx.font = `${fixedWords[1].fontSize}px ${fontFamily}`;
+    ctx.fillStyle = fixedWords[1].color;
+    ctx.fillText(fixedWords[1].text, cx + sprC.textX, cy + sprC.textY);
+
+    // Draw draggable word
+    ctx.font = `${dragWord.fontSize}px ${fontFamily}`;
+    ctx.fillStyle = dragWord.color;
+    ctx.fillText(dragWord.text, bx + sprB.textX, by + sprB.textY);
+
+    // Check collisions of drag word against all fixed words
+    const allFixed = [
+      { spr: sprA, x: ax, y: ay, color: fixedWords[0].color },
+      { spr: sprC, x: cx, y: cy, color: fixedWords[1].color },
+    ];
 
     if (mode === 'bbox') {
-      // Draw bounding boxes
-      ctx.strokeStyle = PALETTES.vibrant[0];
-      ctx.lineWidth = 2;
+      // Draw bounding boxes for all words
+      ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 4]);
-      ctx.strokeRect(ax, ay, sprA.w, sprA.h);
-      ctx.strokeStyle = PALETTES.vibrant[1];
+      allFixed.forEach(f => {
+        ctx.strokeStyle = f.color;
+        ctx.strokeRect(f.x, f.y, f.spr.w, f.spr.h);
+      });
+      ctx.strokeStyle = dragWord.color;
       ctx.strokeRect(bx, by, sprB.w, sprB.h);
       ctx.setLineDash([]);
 
-      // Overlap region
-      const ox1 = Math.max(ax, bx);
-      const oy1 = Math.max(ay, by);
-      const ox2 = Math.min(ax + sprA.w, bx + sprB.w);
-      const oy2 = Math.min(ay + sprA.h, by + sprB.h);
-      if (ox2 > ox1 && oy2 > oy1) {
-        ctx.fillStyle = 'rgba(232, 93, 74, 0.2)';
-        ctx.fillRect(ox1, oy1, ox2 - ox1, oy2 - oy1);
-        ctx.strokeStyle = getCSS('--red');
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        ctx.strokeRect(ox1, oy1, ox2 - ox1, oy2 - oy1);
-        ctx.setLineDash([]);
-        statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION (false positive) &mdash; 4 comparisons</span>`;
-      } else {
-        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; 4 comparisons</span>`;
-      }
+      // Check bbox overlap with each fixed word
+      let bboxCollisions = 0;
+      let falsePositives = 0;
+      allFixed.forEach(f => {
+        const ox1 = Math.max(f.x, bx);
+        const oy1 = Math.max(f.y, by);
+        const ox2 = Math.min(f.x + f.spr.w, bx + sprB.w);
+        const oy2 = Math.min(f.y + f.spr.h, by + sprB.h);
+        if (ox2 > ox1 && oy2 > oy1) {
+          bboxCollisions++;
+          // Check if it's a real pixel collision or just a false positive
+          const realCollision = hasPixelCollision(f.spr, f.x, f.y, sprB, bx, by);
+          ctx.fillStyle = realCollision
+            ? 'rgba(232, 93, 74, 0.25)'
+            : 'rgba(232, 93, 74, 0.12)';
+          ctx.fillRect(ox1, oy1, ox2 - ox1, oy2 - oy1);
+          ctx.strokeStyle = realCollision ? getCSS('--red') : 'rgba(232, 93, 74, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(ox1, oy1, ox2 - ox1, oy2 - oy1);
+          ctx.setLineDash([]);
+          if (!realCollision) falsePositives++;
+        }
+      });
 
-      ctx.font = '12px ' + getCSS('--font-mono');
-      ctx.fillStyle = getCSS('--text-muted');
-      ctx.textAlign = 'center';
-      if (ox2 > ox1 && oy2 > oy1) {
-        ctx.fillText('False positive: boxes overlap but pixels may not', w / 2, h - 16);
+      const totalComparisons = allFixed.length * 4;
+      if (bboxCollisions > 0 && falsePositives > 0) {
+        statsEl.innerHTML = `<span style="color:var(--red);">COLLISION</span> <span style="color:var(--text-muted);">&mdash; ${falsePositives} false positive${falsePositives > 1 ? 's' : ''} (boxes overlap, pixels don't) &mdash; ${totalComparisons} comparisons</span>`;
+      } else if (bboxCollisions > 0) {
+        statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${totalComparisons} comparisons</span>`;
+      } else {
+        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${totalComparisons} comparisons</span>`;
       }
 
     } else if (mode === 'pixel') {
-      // Instant pixel collision test with visual feedback
-      const ox1 = Math.max(ax, bx);
-      const oy1 = Math.max(ay, by);
-      const ox2 = Math.min(ax + sprA.w, bx + sprB.w);
-      const oy2 = Math.min(ay + sprA.h, by + sprB.h);
-      const overlapW = Math.max(0, ox2 - ox1);
-      const overlapH = Math.max(0, oy2 - oy1);
-      let pixelCollisions = 0;
-      const totalPixels = overlapW * overlapH;
+      let totalChecks = 0;
+      let totalCollisions = 0;
 
-      for (let py = 0; py < overlapH; py++) {
-        for (let px = 0; px < overlapW; px++) {
-          const sx = ox1 + px;
-          const sy = oy1 + py;
-          const aLocalX = sx - ax;
-          const aLocalY = sy - ay;
-          const bLocalX = sx - bx;
-          const bLocalY = sy - by;
-          let aSet = false, bSet = false;
-          if (aLocalX >= 0 && aLocalX < sprA.w && aLocalY >= 0 && aLocalY < sprA.h) {
-            const aw = aLocalX >> 5;
-            const ab = 31 - (aLocalX & 31);
-            aSet = (sprA.data[aLocalY * sprA.w32 + aw] >>> ab) & 1;
-          }
-          if (bLocalX >= 0 && bLocalX < sprB.w && bLocalY >= 0 && bLocalY < sprB.h) {
-            const bw = bLocalX >> 5;
-            const bb = 31 - (bLocalX & 31);
-            bSet = (sprB.data[bLocalY * sprB.w32 + bw] >>> bb) & 1;
-          }
-          if (aSet && bSet) {
-            ctx.fillStyle = 'rgba(232, 93, 74, 0.7)';
-            ctx.fillRect(sx, sy, 1, 1);
-            pixelCollisions++;
-          } else {
-            ctx.fillStyle = 'rgba(42, 157, 110, 0.08)';
-            ctx.fillRect(sx, sy, 1, 1);
+      allFixed.forEach(f => {
+        const ox1 = Math.max(f.x, bx);
+        const oy1 = Math.max(f.y, by);
+        const ox2 = Math.min(f.x + f.spr.w, bx + sprB.w);
+        const oy2 = Math.min(f.y + f.spr.h, by + sprB.h);
+        const overlapW = Math.max(0, ox2 - ox1);
+        const overlapH = Math.max(0, oy2 - oy1);
+        totalChecks += overlapW * overlapH;
+
+        for (let py = 0; py < overlapH; py++) {
+          for (let px = 0; px < overlapW; px++) {
+            const sx = ox1 + px;
+            const sy = oy1 + py;
+            const aLocalX = sx - f.x, aLocalY = sy - f.y;
+            const bLocalX = sx - bx, bLocalY = sy - by;
+            const aSet = (f.spr.data[aLocalY * f.spr.w32 + (aLocalX >> 5)] >>> (31 - (aLocalX & 31))) & 1;
+            const bSet = (sprB.data[bLocalY * sprB.w32 + (bLocalX >> 5)] >>> (31 - (bLocalX & 31))) & 1;
+            if (aSet && bSet) {
+              ctx.fillStyle = 'rgba(232, 93, 74, 0.7)';
+              ctx.fillRect(sx, sy, 2, 2);
+              totalCollisions++;
+            }
           }
         }
-      }
-      if (pixelCollisions > 0) {
-        statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${pixelCollisions} overlapping pixels, ${totalPixels} checks</span>`;
+      });
+
+      if (totalCollisions > 0) {
+        statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${totalCollisions} overlapping pixels, ${totalChecks} checks</span>`;
       } else {
-        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${totalPixels} pixel comparisons</span>`;
+        statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${totalChecks} pixel comparisons</span>`;
       }
 
     } else if (mode === 'bitwise') {
-      // Instant bitwise test with visual feedback
-      const ox1 = Math.max(ax, bx);
-      const oy1 = Math.max(ay, by);
-      const ox2 = Math.min(ax + sprA.w, bx + sprB.w);
-      const oy2 = Math.min(ay + sprA.h, by + sprB.h);
-      const overlapW = Math.max(0, ox2 - ox1);
-      const overlapH = Math.max(0, oy2 - oy1);
-      const totalPixels = overlapW * overlapH;
-      const w32count = Math.ceil(overlapW / 32);
-      const ops = w32count * overlapH;
+      let totalOps = 0;
+      let totalPixels = 0;
 
-      // Build tiny boards for visual test
-      let collision = false;
-      for (let y = 0; y < overlapH; y++) {
-        for (let c = 0; c < w32count; c++) {
-          const chunkX = ox1 + c * 32;
-          const chunkW = Math.min(32, ox2 - chunkX);
-          ctx.fillStyle = 'rgba(74, 127, 255, 0.15)';
-          ctx.fillRect(chunkX, oy1 + y, chunkW, 1);
-        }
-      }
-
-      // Draw faint 32-pixel boundary lines in the overlap region
-      if (overlapW > 0 && overlapH > 0) {
-        ctx.strokeStyle = getCSS('--red');
-        ctx.lineWidth = 0.5;
-        ctx.globalAlpha = 0.3;
-        const firstBoundary = Math.ceil(ox1 / 32) * 32;
-        for (let bnd = firstBoundary; bnd < ox2; bnd += 32) {
-          if (bnd <= ox1) continue;
-          ctx.beginPath();
-          ctx.moveTo(bnd, oy1);
-          ctx.lineTo(bnd, oy2);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-      }
-
-      // Real collision check
+      // Place all fixed words on a board, then test drag word
       const boardW = Math.ceil(w);
       const boardH = Math.ceil(h);
       const boardW32 = Math.ceil(boardW / 32);
       const board = new Uint32Array(boardW32 * boardH);
-      if (ax >= 0 && ay >= 0 && ay + sprA.h <= boardH && ax + sprA.w32 * 32 <= boardW32 * 32) {
-        placeOnBoard(sprA.data, sprA.w32, sprA.h, ax, ay, board, boardW32);
-      }
+
+      allFixed.forEach(f => {
+        if (f.x >= 0 && f.y >= 0 && f.y + f.spr.h <= boardH && f.x + f.spr.w32 * 32 <= boardW32 * 32) {
+          placeOnBoard(f.spr.data, f.spr.w32, f.spr.h, f.x, f.y, board, boardW32);
+        }
+
+        // Visual: show 32-bit chunk highlights in overlap region
+        const ox1 = Math.max(f.x, bx);
+        const oy1 = Math.max(f.y, by);
+        const ox2 = Math.min(f.x + f.spr.w, bx + sprB.w);
+        const oy2 = Math.min(f.y + f.spr.h, by + sprB.h);
+        const overlapW = Math.max(0, ox2 - ox1);
+        const overlapH = Math.max(0, oy2 - oy1);
+        totalPixels += overlapW * overlapH;
+        const w32count = Math.ceil(overlapW / 32);
+        totalOps += w32count * overlapH;
+
+        ctx.fillStyle = 'rgba(74, 127, 255, 0.12)';
+        for (let y = 0; y < overlapH; y++) {
+          for (let c = 0; c < w32count; c++) {
+            const chunkX = ox1 + c * 32;
+            const chunkW = Math.min(32, ox2 - chunkX);
+            ctx.fillRect(chunkX, oy1 + y, chunkW, 1);
+          }
+        }
+      });
+
+      let collision = false;
       if (bx >= 0 && by >= 0 && by + sprB.h <= boardH && bx + sprB.w32 * 32 <= boardW32 * 32) {
         collision = !testPosition(sprB.data, sprB.w32, sprB.h, bx, by, board, boardW32, boardH);
       }
@@ -1720,18 +1754,18 @@ function initCollision() {
       if (totalPixels === 0) {
         statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">No overlap &mdash; 0 ops needed</span>`;
       } else {
-        const speedup = Math.round(totalPixels / Math.max(ops, 1));
+        const speedup = Math.round(totalPixels / Math.max(totalOps, 1));
         if (collision) {
-          statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${ops} bit ops (${speedup}x faster than pixel-by-pixel)</span>`;
+          statsEl.innerHTML = `<span style="color:var(--red); font-weight:600;">COLLISION &mdash; ${totalOps} bit ops (${speedup}x faster than pixel-by-pixel)</span>`;
         } else {
-          statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${ops} bit ops (${speedup}x faster than pixel-by-pixel)</span>`;
+          statsEl.innerHTML = `<span style="color:var(--green); font-weight:600;">NO COLLISION &mdash; ${totalOps} bit ops (${speedup}x faster than pixel-by-pixel)</span>`;
         }
       }
     }
   }
 
   draw();
-  window.addEventListener('resize', () => { cachedSprB = null; draw(); });
+  window.addEventListener('resize', () => { cachedFixedSprites = null; cachedDragSprite = null; draw(); });
 }
 
 // ============================================================
