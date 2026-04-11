@@ -14,7 +14,8 @@ export default defineConfig({
         'tapestry': 'tapestry/index.html',
         'viewmaster-small': 'viewmaster/small.html',
         'viewmaster-large': 'viewmaster/large.html',
-        'cubewise': 'cubewise/index.html'
+        'cubewise': 'cubewise/index.html',
+        'end-grain': 'end-grain/index.html'
       }
     }
   }
