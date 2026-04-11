@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cubewise — Rubik's Cube Solver & Teacher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <h1>Cube<span>wise</span></h1>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="virtual">Virtual</button>
+      <button class="mode-tab" data-mode="augmented">Augmented</button>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-icon" id="btn-notation" title="Move notation guide (?)" aria-label="Notation guide">?</button>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="panel">
+      <div class="panel-title">Solve Steps</div>
+      <ol class="step-list">
+        <li class="step-item active" data-step="0">
+          <span class="step-num">1</span>
+          <span>White Cross</span>
+        </li>
+        <li class="step-item" data-step="1">
+          <span class="step-num">2</span>
+          <span>White Corners</span>
+        </li>
+        <li class="step-item" data-step="2">
+          <span class="step-num">3</span>
+          <span>Middle Layer</span>
+        </li>
+        <li class="step-item" data-step="3">
+          <span class="step-num">4</span>
+          <span>Yellow Cross</span>
+        </li>
+        <li class="step-item" data-step="4">
+          <span class="step-num">5</span>
+          <span>Yellow Edges</span>
+        </li>
+        <li class="step-item" data-step="5">
+          <span class="step-num">6</span>
+          <span>Yellow Corners</span>
+        </li>
+      </ol>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Instructions</div>
+      <div class="instructions" id="instructions">
+        <p><strong>Scramble the cube</strong> to begin, then follow each step to solve it using the beginner method.</p>
+        <p style="margin-top:0.5rem">Use the controls below or keyboard shortcuts to turn faces.</p>
+      </div>
+      <div class="hint-tier-selector">
+        <button class="hint-tier-btn active" data-tier="1">Full</button>
+        <button class="hint-tier-btn" data-tier="2">Partial</button>
+        <button class="hint-tier-btn" data-tier="3">Minimal</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Timer</div>
+      <div class="timer-display" id="timer">0:00.00</div>
+    </div>
+  </aside>
+
+  <!-- 3D Viewport -->
+  <main class="viewport">
+    <div id="cube-canvas"></div>
+    <div class="viewport-overlay">
+      <div class="status-badge" id="status-badge">Ready</div>
+    </div>
+  </main>
+
+  <!-- Controls Bar -->
+  <footer class="controls">
+    <div class="control-group">
+      <span class="control-group-label">Moves</span>
+      <button class="btn-move" data-move="U">U</button>
+      <button class="btn-move" data-move="D">D</button>
+      <button class="btn-move" data-move="R">R</button>
+      <button class="btn-move" data-move="L">L</button>
+      <button class="btn-move" data-move="F">F</button>
+      <button class="btn-move" data-move="B">B</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)">Undo</button>
+      <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <button class="btn primary" id="btn-scramble">Scramble</button>
+      <button class="btn" id="btn-solve">Solve</button>
+      <button class="btn" id="btn-reset">Reset</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <span class="control-group-label">Speed</span>
+      <select class="tempo-select" id="tempo-select">
+        <option value="slow">Slow</option>
+        <option value="medium" selected>Medium</option>
+        <option value="fast">Fast</option>
+      </select>
+    </div>
+  </footer>
+</div>
+
+<!-- Notation Guide Overlay -->
+<div class="notation-overlay" id="notation-overlay">
+  <div class="notation-card">
+    <h2>Move Notation</h2>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1.25rem;">
+      Each letter is a 90° clockwise turn of that face. Add <strong>'</strong> for counter-clockwise, <strong>2</strong> for 180°.
+      <br>Hold <strong>Shift</strong> for prime moves. Press a key twice quickly for double.
+    </p>
+    <div class="notation-grid">
+      <div class="notation-item">
+        <div class="move-name">R</div>
+        <div class="move-desc">Right face</div>
+        <div class="move-key">Key: J</div>
+      </div>
+      <div class="notation-item">
+        <div class="move-name">L</div>
+        <div class="move-desc">Left face</div>
+        <div class="move-key">Key: F</div>
+      </div>
+      <div class="notation-item">
+        <div class="move-name">U</div>
+        <div class="move-desc">Up face</div>
+        <div class="move-key">Key: I</div>
+      </div>
+      <div class="notation-item">
+        <div class="move-name">D</div>
+        <div class="move-desc">Down face</div>
+        <div class="move-key">Key: K</div>
+      </div>
+      <div class="notation-item">
+        <div class="move-name">F</div>
+        <div class="move-desc">Front face</div>
+        <div class="move-key">Key: H</div>
+      </div>
+      <div class="notation-item">
+        <div class="move-name">B</div>
+        <div class="move-desc">Back face</div>
+        <div class="move-key">Key: G</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>

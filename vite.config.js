@@ -13,7 +13,8 @@ export default defineConfig({
         'wordcloud': 'wordcloud/index.html',
         'tapestry': 'tapestry/index.html',
         'viewmaster-small': 'viewmaster/small.html',
-        'viewmaster-large': 'viewmaster/large.html'
+        'viewmaster-large': 'viewmaster/large.html',
+        'cubewise': 'cubewise/index.html'
       }
     }
   }
