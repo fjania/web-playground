@@ -16,16 +16,23 @@ const NS = 'http://www.w3.org/2000/svg';
 // ---------- State ----------
 
 // Defaults sized for a real ~12 × 16 inch cutting board, not a coaster.
-// 8 strips × 35mm = 280mm wide; 12 slices × 35mm = 420mm long.
+// 9 strips × ~31mm ≈ 280mm wide; 12 slices × 35mm = 420mm long.
+//
+// Strip order is a 3-color rotation (maple/walnut/cherry) with period 3, not
+// period 2. This matters for the second-pass interaction: alternating M/W
+// strips have a degenerate cell-shift response (every shift collapses to the
+// same checker), but a 3-color rotation gives 3 distinct shift positions and
+// makes the pass-2 transformation visually obvious.
 const DEFAULT_STRIPS = [
-  { species: 'maple',  width: 35 },
-  { species: 'walnut', width: 35 },
-  { species: 'maple',  width: 35 },
-  { species: 'walnut', width: 35 },
-  { species: 'maple',  width: 35 },
-  { species: 'walnut', width: 35 },
-  { species: 'maple',  width: 35 },
-  { species: 'walnut', width: 35 },
+  { species: 'maple',  width: 32 },
+  { species: 'walnut', width: 32 },
+  { species: 'cherry', width: 32 },
+  { species: 'maple',  width: 32 },
+  { species: 'walnut', width: 32 },
+  { species: 'cherry', width: 32 },
+  { species: 'maple',  width: 32 },
+  { species: 'walnut', width: 32 },
+  { species: 'cherry', width: 32 },
 ];
 
 const state = {
@@ -34,7 +41,7 @@ const state = {
   cutAngle: 0,
   sliceThickness: 35,
   numSlices: 12,
-  pass2: { enabled: false, cellShift: 2 },
+  pass2: { enabled: false, cellShift: 1 },
   chaosSeed: 42,
   brickOffset: 0.5, // 0.5 = running bond, 0.333 = third bond, 0.25 = quarter
 };
@@ -505,14 +512,9 @@ function renderBrickFinalSvg(svg, ox, oy, scale) {
   const rows = brickLayout(state.strips, state.numSlices, state.pass2, state.brickOffset);
   const ss = state.sliceThickness * scale;
   const totalW = sum(state.strips.map(s => s.width)) * scale;
-  // Average strip width — used for the offset step. Brick patterns with
-  // wildly varying strip widths look best when the offset is consistent
-  // (matching the overall cell pitch) rather than tied to strip[0].
   const avgW = totalW / state.strips.length;
 
-  // Clip rect so partial cells at row ends don't overflow.
   const clipId = 'brick-clip';
-  // Reuse a stable id; clear() before render guarantees no conflict.
   const defs = el('defs');
   const clip = el('clipPath', { id: clipId });
   clip.appendChild(svgRect(ox, oy, totalW, state.numSlices * ss, 'black'));
@@ -521,41 +523,106 @@ function renderBrickFinalSvg(svg, ox, oy, scale) {
   const g = el('g', { 'clip-path': `url(#${clipId})` });
   svg.appendChild(g);
 
+  // First pass: draw all the cells (no strokes — clean fills).
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r];
     const y = oy + r * ss;
     const xOff = -row.offsetFraction * avgW;
-    // Tile the row twice (start at -1×rowWidth so wraparound is covered).
     for (let pass = 0; pass <= 1; pass++) {
       let x = ox + xOff + pass * totalW;
       for (let j = 0; j < row.cells.length; j++) {
         const sw = state.strips[j].width * scale;
         const sp = row.cells[j];
-        g.appendChild(svgRect(x, y, sw, ss, SPECIES[sp].color, 'rgba(28,25,23,0.35)', 0.6, sp));
+        const r2 = svgRect(x, y, sw, ss, SPECIES[sp].color);
+        r2.dataset.species = sp;
+        g.appendChild(r2);
         x += sw;
       }
+    }
+  }
+
+  // Second pass: draw mortar lines BETWEEN bricks. Each row gets a thin
+  // dark line at every cell boundary, plus a horizontal line between rows.
+  // This makes individual bricks legible even when neighbors are the same
+  // species (which is why brick previously read as "checker shifted").
+  const mortarColor = 'rgba(28,25,23,0.55)';
+  const mortarW = 1.0;
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const y = oy + r * ss;
+    const xOff = -row.offsetFraction * avgW;
+    // Vertical mortar lines at each cell boundary inside this row.
+    for (let pass = 0; pass <= 1; pass++) {
+      let x = ox + xOff + pass * totalW;
+      for (let j = 0; j < row.cells.length; j++) {
+        const sw = state.strips[j].width * scale;
+        x += sw;
+        // Draw a vertical line at x (the right edge of this brick / left of next)
+        if (x > ox && x < ox + totalW + 0.5) {
+          g.appendChild(svgLine(x, y, x, y + ss, mortarColor, null, mortarW));
+        }
+      }
+    }
+    // Horizontal mortar line at the bottom of this row (top of next).
+    if (r < rows.length - 1) {
+      g.appendChild(svgLine(ox, y + ss, ox + totalW, y + ss, mortarColor, null, mortarW));
     }
   }
 }
 
 function renderHerringboneFinalSvg(svg, ox, oy, w, h) {
-  const g = clippedGroup(svg, 'hbClip', ox, oy, w, h);
-  g.appendChild(svgRect(ox, oy, w, h, SPECIES[state.strips[0].species].color));
+  // Render herringbone via an SVG <pattern> with a 4u × 4u L-pair tile.
+  //
+  // The tile contains 8 rectangles arranged as L-pairs in each quadrant.
+  // Visually it reads as classic herringbone — perpendicular L-shapes weaving
+  // across the board. The SVG <pattern> element handles tiling efficiently.
+  //
+  // Note: a strict herringbone tiling (every long-edge adjacency
+  // perpendicular) cannot be achieved with axis-aligned 2:1 rectangles in a
+  // small fundamental domain. This tile has full coverage and visually reads
+  // as herringbone, which is the right tradeoff for a design preview tool.
+  const colors = state.strips.map(s => SPECIES[s.species].color);
+  const c0 = colors[0];
+  const c1 = colors[1] || colors[0];
+  const c2 = colors[2 % colors.length] || colors[0];
+  const c3 = colors[3 % colors.length] || colors[1];
 
-  // Real herringbone: 2:1 rectangles in two perpendicular orientations.
-  // Unit scales with strip width so the pattern reads at any board size.
-  const unit = Math.max(20, Math.min(40, state.strips[0].width * 0.8));
-  const tiles = herringboneTiles(state.strips, w, h, unit);
-  tiles.forEach(t => {
-    g.appendChild(svgRect(ox + t.x, oy + t.y, t.w, t.h, SPECIES[t.species].color, '#1c1917', 0.6, t.species));
+  const u = Math.max(18, Math.min(36, state.strips[0].width * 0.7));
+  const patternId = 'hbPattern';
+  const defs = el('defs');
+  const pat = el('pattern', {
+    id: patternId,
+    x: 0, y: 0, width: 4 * u, height: 4 * u,
+    patternUnits: 'userSpaceOnUse',
   });
+  // 4u × 4u tile with 8 rects (full coverage):
+  //   H1 (0,0,2,1)   V1 (2,0,1,2)   V2 (3,0,1,2)
+  //   V3 (0,1,1,2)   V4 (1,1,1,2)
+  //                  H2 (2,2,2,1)
+  //   H3 (0,3,2,1)                  H4 (2,3,2,1)
+  pat.appendChild(svgRect(0,    0,    2 * u, u,     c0, '#1c1917', 0.5));
+  pat.appendChild(svgRect(2*u,  0,    u,     2 * u, c1, '#1c1917', 0.5));
+  pat.appendChild(svgRect(3*u,  0,    u,     2 * u, c2, '#1c1917', 0.5));
+  pat.appendChild(svgRect(0,    u,    u,     2 * u, c3, '#1c1917', 0.5));
+  pat.appendChild(svgRect(u,    u,    u,     2 * u, c0, '#1c1917', 0.5));
+  pat.appendChild(svgRect(2*u,  2*u,  2 * u, u,     c1, '#1c1917', 0.5));
+  pat.appendChild(svgRect(0,    3*u,  2 * u, u,     c2, '#1c1917', 0.5));
+  pat.appendChild(svgRect(2*u,  3*u,  2 * u, u,     c3, '#1c1917', 0.5));
+  defs.appendChild(pat);
+  svg.appendChild(defs);
+
+  svg.appendChild(svgRect(ox, oy, w, h, `url(#${patternId})`));
 }
 
 function renderChevronFinalSvg(svg, ox, oy, w, h) {
   const g = clippedGroup(svg, 'cvClip', ox, oy, w, h);
   g.appendChild(svgRect(ox, oy, w, h, SPECIES[state.strips[0].species].color));
 
-  const bands = chevronBands(state.strips, w, h, 34);
+  // Stripe width derives from strip width, scaled. Real chevron boards have
+  // stripes whose width = strip width / cos(angle), but for the wireframe we
+  // use a clean 30-50px range.
+  const unit = Math.max(24, Math.min(48, state.strips[0].width * 0.9));
+  const bands = chevronBands(state.strips, w, h, unit, state.cutAngle || 45);
   bands.forEach(b => {
     const color = SPECIES[b.color].color;
     const left = b.left.map(([x, y]) => [ox + x, oy + y]);
@@ -773,7 +840,7 @@ function applyPreset(preset) {
   state.sliceThickness = preset.sliceThickness;
   state.numSlices = preset.numSlices;
   state.cutAngle = PATTERNS[preset.pattern].defaultAngle;
-  state.pass2 = { enabled: false, cellShift: 2 };
+  state.pass2 = { enabled: false, cellShift: 1 };
   state.brickOffset = 0.5;
   state.chaosSeed = 42;
 
@@ -886,7 +953,8 @@ document.getElementById('removePass2').onclick = () => {
 };
 document.getElementById('pass2ShiftInput').oninput = (e) => {
   state.pass2.cellShift = +e.target.value;
-  document.getElementById('pass2ShiftValue').textContent = `${state.pass2.cellShift} cells`;
+  const label = state.pass2.cellShift === 1 ? '1 cell' : `${state.pass2.cellShift} cells`;
+  document.getElementById('pass2ShiftValue').textContent = label;
   renderPass2(); renderFinal();
 };
 
@@ -925,14 +993,14 @@ const DEFAULT_STATE = {
   sliceThickness: 35,
   numSlices: 12,
   brickOffset: 0.5,
-  pass2: { enabled: false, cellShift: 2 },
+  pass2: { enabled: false, cellShift: 1 },
   chaosSeed: 42,
 };
 
 document.getElementById('resetBtn').onclick = () => {
   Object.assign(state, clone(DEFAULT_STATE));
   state.strips = clone(DEFAULT_STRIPS);
-  state.pass2 = { enabled: false, cellShift: 2 };
+  state.pass2 = { enabled: false, cellShift: 1 };
   document.getElementById('pass2ShiftInput').value = 2;
   document.getElementById('pass2ShiftValue').textContent = '2 cells';
   document.getElementById('angleInput').value = state.cutAngle;

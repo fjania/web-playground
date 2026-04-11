@@ -248,13 +248,22 @@ export function herringboneTiles(strips, boardW, boardH, unit = 30) {
 // ---------- Chevron (geometry) ----------
 
 // Chevron is diagonal bands, mirrored at the board's vertical centerline.
+// `cutAngle` (in degrees, 0-67.5) sets the slope of the bands. 0° = flat
+// horizontal stripes; 45° = classic chevron. Real woodworking chevron boards
+// have a slope determined by the crosscut angle of the strip stock.
+//
 // Returns a list of parallelograms per band.
-export function chevronBands(strips, boardW, boardH, unit = 34) {
+export function chevronBands(strips, boardW, boardH, unit = 34, cutAngle = 45) {
   const colors = strips.map(s => s.species);
   const bands = [];
-  const slope = 1;
+  // Slope = tan(angle). At 45° this is 1.0, at 22.5° it's ~0.41.
+  // Clamp to a sane range to avoid runaway geometry.
+  const angle = Math.max(5, Math.min(67.5, cutAngle));
+  const slope = Math.tan(angle * Math.PI / 180);
   const rise = (boardW / 2) * slope;
-  const rows = Math.ceil(boardH / unit) + 4;
+  // The number of bands needed depends on the slope — steeper slopes mean
+  // bands extend further off the visible area.
+  const rows = Math.ceil((boardH + rise * 2) / unit) + 4;
   let c = 0;
   for (let i = -rows; i < rows; i++) {
     const color = colors[c % colors.length];
