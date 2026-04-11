@@ -509,65 +509,76 @@ function renderCheckerFinal(svg, ox, oy, scale) {
 }
 
 function renderBrickFinalSvg(svg, ox, oy, scale) {
-  const rows = brickLayout(state.strips, state.numSlices, state.pass2, state.brickOffset);
-  const ss = state.sliceThickness * scale;
+  // Brick pattern: render WIDE bricks (2 strip-widths each) with the
+  // selected offset rule. This makes each brick a 2:1 aspect rectangle
+  // which is the recognized look of a real cutting board brick pattern.
+  //
+  // The strip palette defines colors; brick width is 2 strip widths so the
+  // visual reads as bricks regardless of strip dimensions.
+  const N = state.strips.length;
   const totalW = sum(state.strips.map(s => s.width)) * scale;
-  const avgW = totalW / state.strips.length;
+  const avgW = totalW / N;
+  const brickW = avgW * 2;
+  const brickH = state.sliceThickness * scale;
+  const numBricks = Math.ceil(totalW / brickW) + 2;
+  const numRows = state.numSlices;
 
+  // Clip to the board area
   const clipId = 'brick-clip';
   const defs = el('defs');
   const clip = el('clipPath', { id: clipId });
-  clip.appendChild(svgRect(ox, oy, totalW, state.numSlices * ss, 'black'));
+  clip.appendChild(svgRect(ox, oy, totalW, numRows * brickH, 'black'));
   defs.appendChild(clip);
   svg.appendChild(defs);
   const g = el('g', { 'clip-path': `url(#${clipId})` });
   svg.appendChild(g);
 
-  // First pass: draw all the cells (no strokes — clean fills).
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r];
-    const y = oy + r * ss;
-    const xOff = -row.offsetFraction * avgW;
-    for (let pass = 0; pass <= 1; pass++) {
-      let x = ox + xOff + pass * totalW;
-      for (let j = 0; j < row.cells.length; j++) {
-        const sw = state.strips[j].width * scale;
-        const sp = row.cells[j];
-        const r2 = svgRect(x, y, sw, ss, SPECIES[sp].color);
-        r2.dataset.species = sp;
-        g.appendChild(r2);
-        x += sw;
-      }
+  // Compute pass-2 row shift (in brick units, not strip units)
+  const extra = (state.pass2 && state.pass2.enabled) ? state.pass2.cellShift : 0;
+
+  // Draw each row of bricks. Each row gets a horizontal offset based on
+  // the brick offset rule (½ running, ⅓ third, ¼ quarter), measured in
+  // brick widths.
+  for (let r = 0; r < numRows; r++) {
+    const y = oy + r * brickH;
+    // Per-row x offset in brick widths, wrapped to [0, 1)
+    const offsetFrac = ((r * state.brickOffset) % 1);
+    const xOff = -offsetFrac * brickW;
+    // Pass-2 shifts the species index per row by `extra` bricks
+    const speciesShift = r * (1 + extra);
+    for (let i = -1; i < numBricks; i++) {
+      const x = ox + xOff + i * brickW;
+      const speciesIdx = ((i + speciesShift) % N + N) % N;
+      const sp = state.strips[speciesIdx].species;
+      const r2 = svgRect(x, y, brickW, brickH, SPECIES[sp].color);
+      r2.dataset.species = sp;
+      g.appendChild(r2);
     }
   }
 
-  // Second pass: draw mortar lines BETWEEN bricks. Each row gets a thin
-  // dark line at every cell boundary, plus a horizontal line between rows.
-  // This makes individual bricks legible even when neighbors are the same
-  // species (which is why brick previously read as "checker shifted").
-  const mortarColor = 'rgba(28,25,23,0.55)';
-  const mortarW = 1.0;
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r];
-    const y = oy + r * ss;
-    const xOff = -row.offsetFraction * avgW;
-    // Vertical mortar lines at each cell boundary inside this row.
-    for (let pass = 0; pass <= 1; pass++) {
-      let x = ox + xOff + pass * totalW;
-      for (let j = 0; j < row.cells.length; j++) {
-        const sw = state.strips[j].width * scale;
-        x += sw;
-        // Draw a vertical line at x (the right edge of this brick / left of next)
-        if (x > ox && x < ox + totalW + 0.5) {
-          g.appendChild(svgLine(x, y, x, y + ss, mortarColor, null, mortarW));
-        }
+  // Mortar lines: make individual bricks legible.
+  const mortarColor = 'rgba(28,25,23,0.65)';
+  const mortarW = 1.2;
+  for (let r = 0; r < numRows; r++) {
+    const y = oy + r * brickH;
+    const offsetFrac = ((r * state.brickOffset) % 1);
+    const xOff = -offsetFrac * brickW;
+    // Vertical mortar lines at each brick boundary
+    for (let i = 0; i < numBricks; i++) {
+      const x = ox + xOff + i * brickW;
+      if (x > ox - 0.5 && x < ox + totalW + 0.5) {
+        g.appendChild(svgLine(x, y, x, y + brickH, mortarColor, null, mortarW));
       }
     }
-    // Horizontal mortar line at the bottom of this row (top of next).
-    if (r < rows.length - 1) {
-      g.appendChild(svgLine(ox, y + ss, ox + totalW, y + ss, mortarColor, null, mortarW));
+    // Horizontal mortar line between rows
+    if (r > 0) {
+      g.appendChild(svgLine(ox, y, ox + totalW, y, mortarColor, null, mortarW));
     }
   }
+
+  // Strong outer border
+  g.appendChild(svgLine(ox, oy, ox + totalW, oy, mortarColor, null, mortarW));
+  g.appendChild(svgLine(ox, oy + numRows * brickH, ox + totalW, oy + numRows * brickH, mortarColor, null, mortarW));
 }
 
 function renderHerringboneFinalSvg(svg, ox, oy, w, h) {
