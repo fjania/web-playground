@@ -5,6 +5,7 @@ import {
   checkerboardGrid, brickLayout, chaosLayout,
   herringboneTiles, chevronBands, tumblingCubes,
   cutListText, PATTERNS, SPECIES,
+  mmToInches, stockLengthMm, boardFeet,
 } from './pipeline.js';
 
 const defaultStrips = [
@@ -389,5 +390,233 @@ describe('patterns & species metadata', () => {
     Object.values(SPECIES).forEach(s => {
       expect(s.color).toMatch(/^#[0-9a-f]{6}$/i);
     });
+  });
+
+  it('SPECIES does not contain red oak (food-safety)', () => {
+    expect(SPECIES.red_oak).toBeUndefined();
+    // generic 'oak' is also banned because it's ambiguous; only white_oak is OK
+    expect(SPECIES.oak).toBeUndefined();
+    expect(SPECIES.white_oak).toBeDefined();
+  });
+
+  it('each pattern card has a thumb path implied (smoke test for renaming)', () => {
+    // Patterns must keep stable keys — main.js queries by data-pattern attribute.
+    // This guards against accidental renames that break the UI wiring.
+    expect(Object.keys(PATTERNS).sort()).toEqual(
+      ['brick', 'chaos', 'checkerboard', 'chevron', 'herringbone', 'tumbling']
+    );
+  });
+});
+
+// ---------- Unit conversion + cut-list math ----------
+
+describe('mmToInches', () => {
+  it('rounds to nearest 1/16"', () => {
+    expect(mmToInches(25.4)).toBe('1"');
+    expect(mmToInches(50.8)).toBe('2"');
+    expect(mmToInches(0)).toBe('0"');
+  });
+
+  it('returns reduced fractions for non-integer inches', () => {
+    expect(mmToInches(12.7)).toBe('1/2"');     // exactly 0.5"
+    expect(mmToInches(6.35)).toBe('1/4"');     // exactly 0.25"
+    expect(mmToInches(3.175)).toBe('1/8"');    // exactly 0.125"
+    expect(mmToInches(1.5875)).toBe('1/16"');  // exactly 0.0625"
+  });
+
+  it('combines whole + fraction when needed', () => {
+    expect(mmToInches(38.1)).toBe('1 1/2"');   // 1.5"
+    expect(mmToInches(31.75)).toBe('1 1/4"');  // 1.25"
+    expect(mmToInches(34.925)).toBe('1 3/8"'); // 1.375"
+  });
+
+  it('rounds tiny fractions to nearest 1/16', () => {
+    // 33mm = 1.299" → nearest 1/16 = 21/16 = 1 5/16"
+    expect(mmToInches(33)).toBe('1 5/16"');
+  });
+});
+
+describe('stockLengthMm', () => {
+  it('includes kerf allowance and waste factor', () => {
+    // 6 slices × 30mm = 180mm + 5 cuts × 3mm kerf = 15mm → 195mm raw
+    // ×1.20 waste = 234mm
+    expect(stockLengthMm(6, 30)).toBe(234);
+  });
+
+  it('handles a single slice (no kerf)', () => {
+    // 1 slice × 50mm = 50mm + 0 kerf = 50mm × 1.20 = 60mm
+    expect(stockLengthMm(1, 50)).toBe(60);
+  });
+
+  it('scales linearly with slice count', () => {
+    const a = stockLengthMm(4, 25);
+    const b = stockLengthMm(8, 25);
+    // Roughly double (with one extra kerf cut)
+    expect(b).toBeGreaterThan(a * 1.9);
+    expect(b).toBeLessThan(a * 2.2);
+  });
+});
+
+describe('boardFeet', () => {
+  it('returns a per-species breakdown summing to total', () => {
+    const bf = boardFeet(defaultStrips, 6, 30);
+    expect(bf.maple).toBeGreaterThan(0);
+    expect(bf.walnut).toBeGreaterThan(0);
+    const total = Object.values(bf).reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThan(0);
+  });
+
+  it('groups multiple strips of the same species together', () => {
+    const strips = [
+      { species: 'maple',  width: 30 },
+      { species: 'maple',  width: 30 },
+      { species: 'walnut', width: 30 },
+    ];
+    const bf = boardFeet(strips, 6, 30);
+    expect(Object.keys(bf).sort()).toEqual(['maple', 'walnut']);
+    // Maple has 2× the width of walnut
+    expect(bf.maple).toBeCloseTo(bf.walnut * 2, 4);
+  });
+
+  it('uses 4/4 (25mm) stock thickness assumption', () => {
+    // Single 25mm-wide strip × 234mm stock length × 25mm thickness:
+    //   (25/25.4) × (234/25.4) × (25/25.4) / 144 ≈ 0.062 bd-ft
+    const bf = boardFeet([{ species: 'maple', width: 25 }], 6, 30);
+    expect(bf.maple).toBeGreaterThan(0.05);
+    expect(bf.maple).toBeLessThan(0.07);
+  });
+});
+
+// ---------- Regression tests for bugs hit during the visual audit ----------
+
+describe('chevronBands respects cutAngle (regression)', () => {
+  it('different angles produce different band geometries', () => {
+    const at22 = chevronBands(defaultStrips, 400, 400, 30, 22.5);
+    const at45 = chevronBands(defaultStrips, 400, 400, 30, 45);
+    const at60 = chevronBands(defaultStrips, 400, 400, 30, 60);
+    // The center "rise" depends on tan(angle), so the y-coordinate of the
+    // top apex of the first band must differ across angles.
+    expect(at22[0].left[1][1]).not.toBe(at45[0].left[1][1]);
+    expect(at45[0].left[1][1]).not.toBe(at60[0].left[1][1]);
+  });
+
+  it('default angle of 45 produces slope of exactly 1 (rise = boardW/2)', () => {
+    const bands = chevronBands(defaultStrips, 400, 400, 30, 45);
+    // Center apex y = yBase + rise; rise should equal 200 for boardW=400 at 45°
+    const band = bands.find(b => b.left[0][1] === 0); // yBase=0 band
+    expect(band).toBeDefined();
+    expect(band.left[1][1]).toBeCloseTo(200, 1);
+  });
+
+  it('shallow 22.5 angle gives smaller rise', () => {
+    const bands = chevronBands(defaultStrips, 400, 400, 30, 22.5);
+    const band = bands.find(b => b.left[0][1] === 0);
+    expect(band.left[1][1]).toBeCloseTo(200 * Math.tan(22.5 * Math.PI / 180), 1);
+  });
+});
+
+describe('brickLayout offsets compose for multiple rows (regression)', () => {
+  it('quarter bond steps through 0, 1/4, 1/2, 3/4, 0', () => {
+    const rows = brickLayout(defaultStrips, 6, null, 0.25);
+    expect(rows[0].offsetFraction).toBeCloseTo(0,    5);
+    expect(rows[1].offsetFraction).toBeCloseTo(0.25, 5);
+    expect(rows[2].offsetFraction).toBeCloseTo(0.5,  5);
+    expect(rows[3].offsetFraction).toBeCloseTo(0.75, 5);
+    expect(rows[4].offsetFraction).toBeCloseTo(0,    5);
+  });
+
+  it('does not return the dead headSpecies/tailSpecies fields', () => {
+    // Cleanup regression — these fields were duplicated and unused.
+    const rows = brickLayout(defaultStrips, 2);
+    expect(rows[0].headSpecies).toBeUndefined();
+    expect(rows[0].tailSpecies).toBeUndefined();
+  });
+});
+
+describe('pass2Shift state shape compatibility (regression)', () => {
+  it('cellShift takes precedence over angle when both present', () => {
+    expect(pass2Shift({ enabled: true, cellShift: 3, angle: 90 })).toBe(3);
+  });
+
+  it('falsy cellShift falls through to angle (legacy state)', () => {
+    expect(pass2Shift({ enabled: true, angle: 30 })).toBe(2);
+  });
+
+  it('disabled returns 0 regardless of shape', () => {
+    expect(pass2Shift({ enabled: false, cellShift: 5 })).toBe(0);
+    expect(pass2Shift({ enabled: false, angle: 45 })).toBe(0);
+  });
+});
+
+describe('checkerboard pass-2 produces non-degenerate rows (regression)', () => {
+  // The default 9-strip 3-color rotation must produce visibly different
+  // rows for cellShift = 1 (otherwise the user sees vertical stripes and
+  // assumes the feature is broken).
+  const triColor = [
+    { species: 'maple',  width: 30 }, { species: 'walnut', width: 30 }, { species: 'cherry', width: 30 },
+    { species: 'maple',  width: 30 }, { species: 'walnut', width: 30 }, { species: 'cherry', width: 30 },
+    { species: 'maple',  width: 30 }, { species: 'walnut', width: 30 }, { species: 'cherry', width: 30 },
+  ];
+
+  it('cellShift=1 produces a different row 1 than no pass-2', () => {
+    const noPass = checkerboardGrid(triColor, 6);
+    const withPass = checkerboardGrid(triColor, 6, { enabled: true, cellShift: 1 });
+    expect(noPass[1]).not.toEqual(withPass[1]);
+  });
+
+  it('cellShift=1 with 9 period-3 strips uses all 3 species in row 1', () => {
+    const grid = checkerboardGrid(triColor, 6, { enabled: true, cellShift: 1 });
+    const row1 = new Set(grid[1]);
+    expect(row1.size).toBe(3);
+  });
+});
+
+describe('herringboneTiles is non-empty for any board size (regression)', () => {
+  it('returns tiles for very small boards', () => {
+    const tiles = herringboneTiles(defaultStrips, 30, 30);
+    expect(tiles.length).toBeGreaterThan(0);
+  });
+
+  it('returns tiles for very large boards', () => {
+    const tiles = herringboneTiles(defaultStrips, 1200, 1200);
+    expect(tiles.length).toBeGreaterThan(50);
+  });
+});
+
+describe('chaosLayout edge cases (regression)', () => {
+  it('handles a single-species palette without crashing', () => {
+    const layout = chaosLayout([{ species: 'maple', width: 100 }], 4, 30, 1);
+    expect(layout.cells.length).toBe(4);
+    layout.cells.forEach(row => row.forEach(sp => expect(sp).toBe('maple')));
+  });
+
+  it('every row uses cells with width >= 15mm (the minimum)', () => {
+    const layout = chaosLayout(defaultStrips, 6, 30, 12);
+    layout.widths.forEach(row => {
+      row.forEach(w => expect(w).toBeGreaterThanOrEqual(15));
+    });
+  });
+});
+
+describe('cutListText with non-default species (regression)', () => {
+  it('renders for a single-species board', () => {
+    const txt = cutListText({
+      pattern: 'checkerboard',
+      strips: [{ species: 'walnut', width: 50 }, { species: 'walnut', width: 50 }],
+      cutAngle: 0, sliceThickness: 25, numSlices: 8,
+      pass2: { enabled: false, cellShift: 1 },
+    });
+    expect(txt).toContain('walnut');
+    expect(txt).toContain('100 × 200 mm');
+  });
+
+  it('does not crash on a chaos pattern', () => {
+    const txt = cutListText({
+      pattern: 'chaos',
+      strips: defaultStrips,
+      cutAngle: 0, sliceThickness: 30, numSlices: 6,
+      pass2: { enabled: false, cellShift: 1 },
+    });
+    expect(txt).toContain('CHAOS');
   });
 });
