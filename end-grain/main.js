@@ -15,25 +15,79 @@ const NS = 'http://www.w3.org/2000/svg';
 
 // ---------- State ----------
 
-// Defaults sized for a real ~12 × 16 inch cutting board, not a coaster.
-// 9 strips × ~31mm ≈ 280mm wide; 12 slices × 35mm = 420mm long.
+// PATTERN_DEFAULTS: each pattern has a canonical "starter" config so that
+// clicking the pattern card produces a board that visually matches the
+// thumbnail. Without these defaults, switching patterns would just change
+// the rendering rule while keeping the user's previous strip palette,
+// which often produced an unrepresentative first impression.
 //
-// Strip order is a 3-color rotation (maple/walnut/cherry) with period 3, not
-// period 2. This matters for the second-pass interaction: alternating M/W
-// strips have a degenerate cell-shift response (every shift collapses to the
-// same checker), but a 3-color rotation gives 3 distinct shift positions and
-// makes the pass-2 transformation visually obvious.
-const DEFAULT_STRIPS = [
-  { species: 'maple',  width: 32 },
-  { species: 'walnut', width: 32 },
-  { species: 'cherry', width: 32 },
-  { species: 'maple',  width: 32 },
-  { species: 'walnut', width: 32 },
-  { species: 'cherry', width: 32 },
-  { species: 'maple',  width: 32 },
-  { species: 'walnut', width: 32 },
-  { species: 'cherry', width: 32 },
-];
+// Strips are encoded as [speciesKey, widthMm] tuples for compactness.
+const PATTERN_DEFAULTS = {
+  // Classic 2-color checkerboard. 8 strips × 35mm wide × 12 slices × 35mm tall.
+  checkerboard: {
+    strips: [
+      ['maple', 35], ['walnut', 35], ['maple', 35], ['walnut', 35],
+      ['maple', 35], ['walnut', 35], ['maple', 35], ['walnut', 35],
+    ],
+    numSlices: 12, sliceThickness: 35, cutAngle: 0,
+    brickOffset: 0.5, chaosSeed: 42,
+    pass2: { enabled: false, cellShift: 1 },
+  },
+  // Wide brick wall with mortar. Wider strips + thinner slices = 4:1 bricks.
+  brick: {
+    strips: [
+      ['maple', 50], ['walnut', 50], ['maple', 50],
+      ['walnut', 50], ['maple', 50], ['walnut', 50],
+    ],
+    numSlices: 14, sliceThickness: 22, cutAngle: 0,
+    brickOffset: 0.5, chaosSeed: 42,
+    pass2: { enabled: false, cellShift: 1 },
+  },
+  // Herringbone weave. Strip palette alternates 2 colors so the L-pairs read.
+  herringbone: {
+    strips: [
+      ['maple', 35], ['walnut', 35], ['maple', 35],
+      ['walnut', 35], ['maple', 35], ['walnut', 35],
+    ],
+    numSlices: 12, sliceThickness: 35, cutAngle: 45,
+    brickOffset: 0.5, chaosSeed: 42,
+    pass2: { enabled: false, cellShift: 1 },
+  },
+  // Classic 2-color chevron at 45°.
+  chevron: {
+    strips: [
+      ['maple', 35], ['walnut', 35], ['maple', 35], ['walnut', 35],
+      ['maple', 35], ['walnut', 35], ['maple', 35], ['walnut', 35],
+    ],
+    numSlices: 12, sliceThickness: 35, cutAngle: 45,
+    brickOffset: 0.5, chaosSeed: 42,
+    pass2: { enabled: false, cellShift: 1 },
+  },
+  // 3D tumbling cubes need 3 species for the 3 visible faces.
+  tumbling: {
+    strips: [
+      ['maple', 35], ['cherry', 35], ['walnut', 35],
+      ['maple', 35], ['cherry', 35], ['walnut', 35],
+    ],
+    numSlices: 10, sliceThickness: 35, cutAngle: 30,
+    brickOffset: 0.5, chaosSeed: 42,
+    pass2: { enabled: false, cellShift: 1 },
+  },
+  // Chaos uses a wider palette + a known seed so first impression is colorful.
+  chaos: {
+    strips: [
+      ['maple', 30], ['walnut', 30], ['cherry', 30],
+      ['padauk', 30], ['purpleheart', 30],
+    ],
+    numSlices: 12, sliceThickness: 28, cutAngle: 0,
+    brickOffset: 0.5, chaosSeed: 7,
+    pass2: { enabled: false, cellShift: 1 },
+  },
+};
+
+// The very first state shown when the app loads is the checkerboard default.
+const DEFAULT_STRIPS = PATTERN_DEFAULTS.checkerboard.strips
+  .map(([species, width]) => ({ species, width }));
 
 const state = {
   pattern: 'checkerboard',
@@ -43,7 +97,7 @@ const state = {
   numSlices: 12,
   pass2: { enabled: false, cellShift: 1 },
   chaosSeed: 42,
-  brickOffset: 0.5, // 0.5 = running bond, 0.333 = third bond, 0.25 = quarter
+  brickOffset: 0.5,
 };
 
 function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -926,12 +980,48 @@ document.getElementById('patternGrid').addEventListener('click', (e) => {
   if (!card || card.disabled) return;
   const pat = card.dataset.pattern;
   if (!PATTERNS[pat]) return;
-  state.pattern = pat;
-  state.cutAngle = PATTERNS[pat].defaultAngle;
+  applyPatternDefault(pat);
+});
+
+// Apply a pattern's canonical default config to the state. This is what
+// makes the first click on each pattern card show a representative board.
+function applyPatternDefault(patternKey) {
+  const def = PATTERN_DEFAULTS[patternKey];
+  if (!def) return;
+  state.pattern = patternKey;
+  state.strips = def.strips.map(([species, width]) => ({ species, width }));
+  state.numSlices = def.numSlices;
+  state.sliceThickness = def.sliceThickness;
+  state.cutAngle = def.cutAngle;
+  state.brickOffset = def.brickOffset;
+  state.chaosSeed = def.chaosSeed;
+  state.pass2 = { ...def.pass2 };
+
+  // Sync UI controls to the new state
   document.getElementById('angleInput').value = state.cutAngle;
   document.getElementById('angleValue').textContent = `${state.cutAngle}°`;
+  document.getElementById('thicknessInput').value = state.sliceThickness;
+  document.getElementById('thicknessValue').textContent = `${state.sliceThickness}mm`;
+  document.getElementById('slicesInput').value = state.numSlices;
+  document.getElementById('slicesValue').textContent = `${state.numSlices}`;
+
+  document.getElementById('pass2ShiftInput').value = state.pass2.cellShift;
+  const shiftLabel = state.pass2.cellShift === 1 ? '1 cell' : `${state.pass2.cellShift} cells`;
+  document.getElementById('pass2ShiftValue').textContent = shiftLabel;
+
+  if (seedInput) {
+    seedInput.value = state.chaosSeed;
+    document.getElementById('chaosSeedValue').textContent = `${state.chaosSeed}`;
+  }
+
+  // Reset brick offset segmented control
+  document.querySelectorAll('[data-brick]').forEach(b => b.classList.remove('active'));
+  const half = document.querySelector(`[data-brick="${state.brickOffset}"]`)
+    || document.querySelector('[data-brick="0.5"]');
+  if (half) half.classList.add('active');
+
   render();
-});
+}
 
 document.getElementById('addStripBtn').onclick = () => {
   const last = state.strips[state.strips.length - 1];
@@ -998,37 +1088,9 @@ if (seedInput) {
   };
 }
 
-const DEFAULT_STATE = {
-  pattern: 'checkerboard',
-  cutAngle: 0,
-  sliceThickness: 35,
-  numSlices: 12,
-  brickOffset: 0.5,
-  pass2: { enabled: false, cellShift: 1 },
-  chaosSeed: 42,
-};
-
+// Reset = re-apply the checkerboard default. Single source of truth.
 document.getElementById('resetBtn').onclick = () => {
-  Object.assign(state, clone(DEFAULT_STATE));
-  state.strips = clone(DEFAULT_STRIPS);
-  state.pass2 = { enabled: false, cellShift: 1 };
-  document.getElementById('pass2ShiftInput').value = 2;
-  document.getElementById('pass2ShiftValue').textContent = '2 cells';
-  document.getElementById('angleInput').value = state.cutAngle;
-  document.getElementById('thicknessInput').value = state.sliceThickness;
-  document.getElementById('slicesInput').value = state.numSlices;
-  document.getElementById('angleValue').textContent = `${state.cutAngle}°`;
-  document.getElementById('thicknessValue').textContent = `${state.sliceThickness}mm`;
-  document.getElementById('slicesValue').textContent = `${state.numSlices}`;
-  if (seedInput) {
-    seedInput.value = state.chaosSeed;
-    document.getElementById('chaosSeedValue').textContent = `${state.chaosSeed}`;
-  }
-  // Reset brick offset segmented control
-  document.querySelectorAll('[data-brick]').forEach(b => b.classList.remove('active'));
-  const half = document.querySelector('[data-brick="0.5"]');
-  if (half) half.classList.add('active');
-  render();
+  applyPatternDefault('checkerboard');
 };
 
 // Export menu
