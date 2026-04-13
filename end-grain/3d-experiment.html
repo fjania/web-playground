@@ -128,17 +128,53 @@ const stripLen = cubeCount * cubeSize; // 400
 const halfLen = stripLen / 2;          // 200
 const halfZ = cubeSize / 2;            // 25
 
-// ─── Define the cutting plane ──────────────────────────────────────
+// ─── Random cutting plane (full-length) ────────────────────────────
 //
-// Diagonal corner-to-corner: the plane passes through two diagonally
-// opposite vertical edges of the strip:
-//   left  edge: x = -200, z = -25
-//   right edge: x = +200, z = +25
+// Constraints:
+//   1. The plane intersects BOTH end faces of the strip (so the cut
+//      runs the full 400mm length).
+//   2. Random roll, pitch, and yaw — any orientation that satisfies #1.
 //
-// Plane normal = (1, 0, -8) normalized. Plane constant d = 0 (passes
-// through the origin since both edge midpoints average to zero).
+// Method: pick a random point on each end face (with margin so the cut
+// isn't just grazing an edge). These two points define a line that lies
+// in the plane. A random tilt direction completes the plane definition.
+// This gives 3 degrees of freedom (the two endpoint positions + the
+// tilt angle) while guaranteeing full-length intersection.
 
-const cutNormal = new THREE.Vector3(1, 0, -8).normalize();
+function randomFullLengthPlane() {
+  const margin = 8; // stay away from face edges so both halves are solid
+  const yRange = cubeSize - 2 * margin;
+  const zRange = cubeSize - 2 * margin;
+
+  // Random point on left end face (x = -halfLen)
+  const y1 = margin + Math.random() * yRange;
+  const z1 = -halfZ + margin + Math.random() * zRange;
+
+  // Random point on right end face (x = +halfLen)
+  const y2 = margin + Math.random() * yRange;
+  const z2 = -halfZ + margin + Math.random() * zRange;
+
+  const P1 = new THREE.Vector3(-halfLen, y1, z1);
+  const P2 = new THREE.Vector3(halfLen, y2, z2);
+
+  // Direction along the strip through both points
+  const d = new THREE.Vector3().subVectors(P2, P1);
+
+  // Random tilt direction (the "roll" of the cut)
+  const theta = Math.random() * Math.PI * 2;
+  const v = new THREE.Vector3(0, Math.cos(theta), Math.sin(theta));
+
+  // Plane normal = d × v (perpendicular to both)
+  const normal = new THREE.Vector3().crossVectors(d, v).normalize();
+
+  // Plane constant so that P1 lies on the plane
+  const constant = -normal.dot(P1);
+
+  return { normal, constant, P1, P2 };
+}
+
+const cut = randomFullLengthPlane();
+const cutNormal = cut.normal;
 
 // ─── Build the cutting half-space as a CSG Brush ───────────────────
 //
@@ -182,7 +218,14 @@ for (let i = 0; i < cubeCount; i++) {
     cutMat
   );
   halfSpaceBrush.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), cutNormal);
-  halfSpaceBrush.position.copy(cutNormal.clone().multiplyScalar(-halfSpaceSize / 2));
+  // Position: the top face of the half-space box sits ON the cut plane.
+  // The plane equation is: cutNormal · p + cut.constant = 0, so the
+  // plane passes through the point (-cut.constant * cutNormal). Shift
+  // the box center down from there by halfSpaceSize/2.
+  const planePoint = cutNormal.clone().multiplyScalar(-cut.constant);
+  halfSpaceBrush.position.copy(
+    planePoint.clone().add(cutNormal.clone().multiplyScalar(-halfSpaceSize / 2))
+  );
   halfSpaceBrush.updateMatrixWorld();
 
   // SUBTRACTION: cube minus lower half-space = top piece
@@ -213,7 +256,8 @@ const planeViz = new THREE.Mesh(
   })
 );
 planeViz.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), cutNormal);
-planeViz.position.set(0, cubeSize / 2, 0);
+// Position the viz on the plane: n·p + d = 0 → p = -d·n (closest point to origin)
+planeViz.position.copy(cutNormal.clone().multiplyScalar(-cut.constant));
 scene.add(planeViz);
 
 // ─── Ground ────────────────────────────────────────────────────────
