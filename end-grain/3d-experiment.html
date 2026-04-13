@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>End Grain — 3D Experiment</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1c1917; overflow: hidden; font-family: 'Geist Mono', monospace; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 16px; left: 16px;
+    color: #a8a29e; font-size: 11px; line-height: 1.6;
+    pointer-events: none; user-select: none;
+  }
+  #info strong { color: #e4cc8f; font-weight: 500; }
+  #info .accent { color: #c0392b; }
+</style>
+</head>
+<body>
+<div id="info">
+  <strong>End Grain — 3D Slice Experiment</strong><br>
+  8 cubes, 50mm each, 400mm strip<br>
+  <span class="accent">diagonal cut via CSG boolean</span><br>
+  drag to orbit · scroll to zoom
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Brush, Evaluator, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
+
+// ─── Scene ─────────────────────────────────────────────────────────
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1c1917);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.set(350, 250, 400);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 25, 0);
+
+// ─── Lighting ──────────────────────────────────────────────────────
+
+const key = new THREE.DirectionalLight(0xfff5e6, 2.0);
+key.position.set(300, 400, 200);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.near = 50;
+key.shadow.camera.far = 1200;
+key.shadow.camera.left = -500;
+key.shadow.camera.right = 500;
+key.shadow.camera.top = 500;
+key.shadow.camera.bottom = -500;
+scene.add(key);
+
+scene.add(new THREE.DirectionalLight(0xc8d8e8, 0.6).translateX(-200).translateY(100).translateZ(-100));
+scene.add(new THREE.AmbientLight(0x2a2420, 0.8));
+
+// ─── Wood materials ────────────────────────────────────────────────
+
+function makeEndGrainTexture(baseColor, ringColor) {
+  const size = 256, canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor; ctx.fillRect(0, 0, size, size);
+  const cx = size * 0.48, cy = size * 0.52;
+  for (let i = 12; i >= 1; i--) {
+    ctx.beginPath(); ctx.arc(cx, cy, (i / 12) * size * 0.45, 0, Math.PI * 2);
+    ctx.strokeStyle = ringColor; ctx.lineWidth = 1.2;
+    ctx.globalAlpha = 0.25 + (i / 12) * 0.15; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+  ctx.fillStyle = ringColor; ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function makeSideMaterial(baseCSS, grainCSS) {
+  const w = 256, h = 256, canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseCSS; ctx.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * w; ctx.beginPath(); ctx.moveTo(x, 0);
+    for (let y = 0; y < h; y += 10) ctx.lineTo(x + (Math.random() - 0.5) * 4, y);
+    ctx.strokeStyle = grainCSS; ctx.lineWidth = 0.8 + Math.random() * 1.2;
+    ctx.globalAlpha = 0.12 + Math.random() * 0.15; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.65 });
+}
+
+function makeWoodMaterials(baseCSS, ringCSS, grainCSS) {
+  const endTex = makeEndGrainTexture(baseCSS, ringCSS);
+  const endMat = new THREE.MeshStandardMaterial({ map: endTex, roughness: 0.7 });
+  const sideMat = makeSideMaterial(baseCSS, grainCSS);
+  // Box face order: +X, -X, +Y, -Y, +Z, -Z
+  return [sideMat, sideMat, endMat, endMat, sideMat, sideMat];
+}
+
+const mapleMats = makeWoodMaterials('#e4cc8f', '#b5a06a', '#c4aa70');
+const walnutMats = makeWoodMaterials('#3d2416', '#2a1a0e', '#4a2e1a');
+
+// Flat material for the cut face (CSG cap)
+const mapleCutMat = new THREE.MeshStandardMaterial({ color: 0xe4cc8f, roughness: 0.75 });
+const walnutCutMat = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0.75 });
+
+// ─── Strip dimensions ──────────────────────────────────────────────
+
+const cubeSize = 50;
+const cubeCount = 8;
+const stripLen = cubeCount * cubeSize; // 400
+const halfLen = stripLen / 2;          // 200
+const halfZ = cubeSize / 2;            // 25
+
+// ─── Define the cutting plane ──────────────────────────────────────
+//
+// Diagonal corner-to-corner: the plane passes through two diagonally
+// opposite vertical edges of the strip:
+//   left  edge: x = -200, z = -25
+//   right edge: x = +200, z = +25
+//
+// Plane normal = (1, 0, -8) normalized. Plane constant d = 0 (passes
+// through the origin since both edge midpoints average to zero).
+
+const cutNormal = new THREE.Vector3(1, 0, -8).normalize();
+
+// ─── Build the cutting half-space as a CSG Brush ───────────────────
+//
+// A massive box whose TOP face sits on the cutting plane. Everything
+// inside the box = the "below" half-space. CSG INTERSECTION with any
+// mesh gives the "below" piece; SUBTRACTION gives the "above" piece.
+//
+// We orient the box so its local +Y face aligns with the cut plane's
+// normal, then position it so the +Y face sits at d=0.
+
+const halfSpaceSize = 800; // much larger than the strip
+const evaluator = new Evaluator();
+
+// ─── CSG-slice each cube, collect two halves ───────────────────────
+
+const topGroup = new THREE.Group();
+const botGroup = new THREE.Group();
+const separation = 35; // mm gap between halves
+const topOffset = cutNormal.clone().multiplyScalar(separation / 2);
+const botOffset = cutNormal.clone().multiplyScalar(-separation / 2);
+
+for (let i = 0; i < cubeCount; i++) {
+  const x = i * cubeSize - halfLen + cubeSize / 2;
+  const y = cubeSize / 2;
+  const isMaple = i % 2 === 0;
+  const mats = isMaple ? mapleMats : walnutMats;
+  const cutMat = isMaple ? mapleCutMat : walnutCutMat;
+
+  // Create a Brush for this cube
+  const cubeBrush = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+  cubeBrush.position.set(x, y, 0);
+  cubeBrush.updateMatrixWorld();
+
+  // Build a half-space brush WITH the correct wood material for this
+  // cube. The CSG cap triangles (new geometry at the cut surface)
+  // inherit the material from the second operand, so giving the
+  // half-space the right wood color makes the cut face show the
+  // correct species.
+  const halfSpaceBrush = new Brush(
+    new THREE.BoxGeometry(halfSpaceSize, halfSpaceSize, halfSpaceSize),
+    cutMat
+  );
+  halfSpaceBrush.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), cutNormal);
+  halfSpaceBrush.position.copy(cutNormal.clone().multiplyScalar(-halfSpaceSize / 2));
+  halfSpaceBrush.updateMatrixWorld();
+
+  // SUBTRACTION: cube minus lower half-space = top piece
+  const topPiece = evaluator.evaluate(cubeBrush, halfSpaceBrush, SUBTRACTION);
+  topPiece.castShadow = true;
+  topPiece.receiveShadow = true;
+  topGroup.add(topPiece);
+
+  // INTERSECTION: cube intersected with lower half-space = bottom piece
+  const botPiece = evaluator.evaluate(cubeBrush, halfSpaceBrush, INTERSECTION);
+  botPiece.castShadow = true;
+  botPiece.receiveShadow = true;
+  botGroup.add(botPiece);
+}
+
+topGroup.position.copy(topOffset);
+botGroup.position.copy(botOffset);
+scene.add(topGroup);
+scene.add(botGroup);
+
+// ─── Visualize the cut plane ───────────────────────────────────────
+
+const planeViz = new THREE.Mesh(
+  new THREE.PlaneGeometry(500, 150),
+  new THREE.MeshBasicMaterial({
+    color: 0xc0392b, transparent: true, opacity: 0.08,
+    side: THREE.DoubleSide, depthWrite: false,
+  })
+);
+planeViz.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), cutNormal);
+planeViz.position.set(0, cubeSize / 2, 0);
+scene.add(planeViz);
+
+// ─── Ground ────────────────────────────────────────────────────────
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(1200, 1200),
+  new THREE.MeshStandardMaterial({ color: 0x262220, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.5;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ─── Labels ────────────────────────────────────────────────────────
+
+function makeLabel(text, position, color = '#a8a29e') {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 512; canvas.height = 64;
+  ctx.font = '28px monospace'; ctx.fillStyle = color;
+  ctx.textAlign = 'center'; ctx.fillText(text, 256, 44);
+  const tex = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.position.copy(position);
+  sprite.scale.set(120, 15, 1);
+  return sprite;
+}
+
+scene.add(makeLabel('400mm', new THREE.Vector3(0, -15, 70), '#b45309'));
+
+// ─── Animate ───────────────────────────────────────────────────────
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
