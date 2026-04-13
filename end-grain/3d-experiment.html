@@ -69,13 +69,7 @@ scene.add(new THREE.DirectionalLight(0xd4c8b8, 0.7).translateY(-300));
 scene.add(new THREE.DirectionalLight(0xb8c0c8, 0.4).translateX(-100).translateY(200).translateZ(-300));
 scene.add(new THREE.AmbientLight(0x4a4440, 1.2));
 
-// Ground
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(1200, 1200),
-  new THREE.MeshStandardMaterial({ color: 0x262220, roughness: 0.9 })
-);
-ground.rotation.x = -Math.PI / 2; ground.position.y = -0.5;
-ground.receiveShadow = true; scene.add(ground);
+// (ground plane removed — it occluded pieces when orbiting from above)
 
 // ─── Wood materials ────────────────────────────────────────────────
 
