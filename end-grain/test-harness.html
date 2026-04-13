@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>End Grain — Visual Test Harness</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Geist Mono', monospace; background: #faf8f5; color: #1c1917; padding: 24px; }
+  h1 { font-size: 18px; margin-bottom: 24px; }
+  .preset { margin-bottom: 40px; border: 1px solid #d6d3d1; border-radius: 8px; padding: 16px; background: #fff; }
+  .preset h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; color: #78716c; }
+  .pipeline { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+  .stage { flex: 0 0 auto; text-align: center; }
+  .stage-label { font-size: 10px; color: #a8a29e; margin-bottom: 4px; }
+  .stage-dims { font-size: 9px; color: #a8a29e; margin-top: 2px; }
+  .stage svg { background: #faf8f5; border: 1px solid #e7e5e4; border-radius: 4px; }
+  .arrow { align-self: center; color: #d6d3d1; font-size: 18px; }
+  .final { margin-top: 12px; }
+  .final svg { background: #faf8f5; border: 2px solid #1c1917; border-radius: 4px; }
+  .final-label { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<h1>End Grain — Visual Test Harness</h1>
+<div id="root"></div>
+<script type="module" src="test-harness.js"></script>
+</body>
+</html>

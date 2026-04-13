@@ -352,22 +352,13 @@ body {
 
 /* ---- Pipeline row (small stages) ---- */
 .pipeline {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 0.5rem;
 }
-.pipeline.has-pass2 {
-  grid-template-columns: 1fr auto 1fr auto 1fr;
-}
 .pipe-arrow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  color: var(--text-dim);
-  padding: 0 0.1rem;
+  display: none;
 }
 .pipe-arrow.pass2-only { display: none; }
 .pipeline.has-pass2 .pipe-arrow.pass2-only { display: flex; }
@@ -381,6 +372,9 @@ body {
 }
 
 .stage--small {
+  flex: 1 1 160px;
+  min-width: 140px;
+  max-width: 220px;
   padding: 0.7rem 0.85rem 0.85rem;
   display: flex;
   flex-direction: column;
@@ -782,6 +776,36 @@ body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ---- Operation cards ---- */
+.op-list { display: flex; flex-direction: column; gap: 6px; }
+.op-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.op-card-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.75rem; font-weight: 500;
+}
+.op-num {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff;
+  border-radius: 50%; font-size: 0.65rem; font-weight: 600;
+}
+.op-card-body { margin-top: 6px; }
+.op-card-body .control-row { margin-bottom: 4px; }
+
+.stage-dims {
+  font-size: 0.65rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 2px;
+}
+
+.pipeline-stages { width: 100%; }
 
 /* ---- Responsive ---- */
 @media (max-width: 900px) {

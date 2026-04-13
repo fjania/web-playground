@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>End Grain — Operations Workbench</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #faf8f5; --panel: #fff; --border: #e7e5e4; --border-strong: #d6d3d1;
+          --text: #1c1917; --muted: #a8a29e; --dim: #78716c; --accent: #b45309; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Geist Mono', monospace; background: var(--bg); color: var(--text); padding: 20px; font-size: 11px; }
+
+  h1 { font-family: 'Newsreader', serif; font-size: 18px; font-weight: 400; margin-bottom: 16px; }
+  h1 em { font-style: italic; }
+
+  .layout { display: flex; gap: 24px; align-items: flex-start; }
+
+  /* ── Sidebar ── */
+  .sidebar { width: 240px; flex-shrink: 0; position: sticky; top: 20px;
+             max-height: calc(100vh - 40px); overflow-y: auto; }
+  .sb-section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .sb-title { font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--dim); font-weight: 600; margin-bottom: 8px; }
+
+  /* Strip rows */
+  .strip-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .strip-swatch { width: 20px; height: 20px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.08); flex-shrink: 0; }
+  .strip-species { font-size: 10px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .strip-width { display: flex; align-items: center; gap: 4px; }
+  .strip-width input[type=range] { width: 60px; height: 3px; accent-color: var(--accent); }
+  .strip-width .val { font-size: 9px; color: var(--dim); width: 28px; text-align: right; }
+  .strip-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0; }
+  .strip-remove:hover { color: #c0392b; }
+
+  /* Param rows */
+  .param-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .param-row label { font-size: 9px; color: var(--dim); min-width: 36px; text-align: right; }
+  .param-row input[type=range] { flex: 1; height: 3px; accent-color: var(--accent); }
+  .param-row .val { font-size: 9px; color: var(--dim); min-width: 28px; }
+
+  /* Op list */
+  .op-item { padding: 6px 0; border-bottom: 1px solid #f5f5f4; }
+  .op-item:last-child { border-bottom: none; }
+  .op-head { display: flex; align-items: center; gap: 6px; }
+  .op-num { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+            background: var(--accent); color: #fff; border-radius: 50%; font-size: 8px; font-weight: 600; flex-shrink: 0; }
+  .op-name { font-size: 10px; font-weight: 500; flex: 1; }
+  .op-params-block { margin-top: 4px; padding-left: 22px; }
+  .add-row { display: flex; gap: 6px; margin-top: 8px; }
+  select { font-family: inherit; font-size: 10px; padding: 3px 6px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--panel); }
+  button { font-family: inherit; }
+  .btn-sm { font-size: 9px; padding: 3px 8px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--panel); cursor: pointer; }
+  .btn-sm:hover { background: #f5f5f4; }
+  .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ── Main area ── */
+  .main { flex: 1; min-width: 0; }
+
+  /* Strips bar */
+  .strips-bar-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+  .strips-bar-title { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 4px; }
+  .strips-bar { display: flex; gap: 1px; }
+  .strips-bar span { min-width: 8px; height: 18px; border: 1px solid rgba(0,0,0,0.06); border-radius: 2px; }
+
+  /* Pipeline cards */
+  .pipeline-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+          width: 220px; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .card-title { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .card-dims { font-size: 8px; color: var(--muted); }
+  .card svg { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; display: block; width: 100%; }
+
+  /* Result */
+  .result-wrap { background: var(--panel); border: 2px solid var(--accent); border-radius: 10px; padding: 16px; }
+  .result-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .result-title { font-family: 'Newsreader', serif; font-size: 16px; color: var(--accent); font-style: italic; }
+  .result-dims { font-size: 10px; color: var(--dim); }
+  .result-wrap svg { display: block; margin: 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+
+  .error { color: #c0392b; font-size: 11px; padding: 8px; background: #fef2f2; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>End <em>Grain</em> — Operations Workbench</h1>
+<div class="layout">
+  <div class="sidebar" id="controls"></div>
+  <div class="main" id="results"></div>
+</div>
+<script type="module" src="workbench.js"></script>
+</body>
+</html>

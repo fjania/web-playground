@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>End Grain — Operation Tests</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Geist Mono', monospace; background: #faf8f5; color: #1c1917; padding: 16px; }
+  h1 { font-size: 16px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #78716c; padding: 6px 8px; border-bottom: 2px solid #d6d3d1; }
+  th:nth-child(1), th:nth-child(5) { width: 32%; }
+  th:nth-child(3) { width: 26%; }
+  th:nth-child(2), th:nth-child(4) { width: 5%; }
+  td { padding: 6px; border-bottom: 1px solid #e7e5e4; vertical-align: middle; }
+  td.op-name { font-weight: 600; font-size: 12px; text-align: center; }
+  td.viz { background: #fff; text-align: center; }
+  td.viz svg { background: #faf8f5; border: 1px solid #e7e5e4; border-radius: 3px; display: inline-block; max-width: 100%; }
+  .arrow { text-align: center; color: #d6d3d1; font-size: 18px; }
+  label { font-size: 10px; color: #57534e; display: block; margin-bottom: 2px; }
+  input, select { font-family: inherit; font-size: 11px; padding: 2px 4px; border: 1px solid #d6d3d1; border-radius: 3px; width: 60px; }
+  .dims { font-size: 9px; color: #78716c; margin-top: 3px; }
+  .err { color: #c0392b; font-size: 10px; }
+  .controls { margin-bottom: 12px; display: flex; gap: 12px; align-items: center; }
+  .controls label { display: inline; margin: 0; }
+</style>
+</head>
+<body>
+<h1>Operation Input → Output Tests</h1>
+<div class="controls" id="controls"></div>
+<table><thead><tr>
+  <th>Input</th><th class="arrow"></th><th>Operation</th><th class="arrow"></th><th>Output</th>
+</tr></thead><tbody id="tbody"></tbody></table>
+<script type="module" src="ops-test.js"></script>
+</body>
+</html>

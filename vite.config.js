@@ -5,6 +5,10 @@ export default defineConfig({
   server: {
     open: true
   },
+  esbuild: {
+    jsxImportSource: 'preact',
+    jsx: 'automatic',
+  },
   build: {
     rollupOptions: {
       input: {
@@ -15,7 +19,7 @@ export default defineConfig({
         'viewmaster-small': 'viewmaster/small.html',
         'viewmaster-large': 'viewmaster/large.html',
         'cubewise': 'cubewise/index.html',
-        'end-grain': 'end-grain/index.html'
+        'end-grain': 'end-grain/index.html',
       }
     }
   }
