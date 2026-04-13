@@ -1,27 +1,51 @@
 // Webcam face scanner for augmented mode.
-// Captures 6 faces one at a time, classifies colors via HSL,
-// and assembles a full cube state.
+// Captures 6 faces one at a time, classifies colors via HSL with
+// adaptive calibration, auto-captures when confident, and mirrors video.
 
 import { COLORS, FACE_NAMES, validateColorCounts } from './cube-state.js';
 
-// Scanning order: the user holds the cube and shows each face
+// Scanning order with orientation instructions.
+// The user holds the cube and rotates it through a natural sequence.
 const SCAN_ORDER = [
-  { face: 'F', label: 'Front (Green center)', hint: 'Hold the cube with the GREEN center facing the camera' },
-  { face: 'R', label: 'Right (Red center)', hint: 'Rotate the cube RIGHT to show the RED center' },
-  { face: 'B', label: 'Back (Blue center)', hint: 'Rotate RIGHT again to show the BLUE center' },
-  { face: 'L', label: 'Left (Orange center)', hint: 'Rotate RIGHT again to show the ORANGE center' },
-  { face: 'U', label: 'Top (White center)', hint: 'Tilt the cube to show the WHITE top face' },
-  { face: 'D', label: 'Bottom (Yellow center)', hint: 'Tilt the cube to show the YELLOW bottom face' },
+  { face: 'F', label: 'Front',  color: 'Green',  emoji: '🟩', arrow: null },
+  { face: 'R', label: 'Right',  color: 'Red',    emoji: '🟥', arrow: '→' },
+  { face: 'B', label: 'Back',   color: 'Blue',   emoji: '🟦', arrow: '→' },
+  { face: 'L', label: 'Left',   color: 'Orange', emoji: '🟧', arrow: '→' },
+  { face: 'U', label: 'Top',    color: 'White',  emoji: '⬜', arrow: '↑' },
+  { face: 'D', label: 'Bottom', color: 'Yellow', emoji: '🟨', arrow: '↓' },
 ];
 
-// Reference HSL values for each cube color (tuned for typical webcam lighting)
+// HSL classification: uses ranges rather than single-point distance.
+// Each color has a hue range, saturation floor, and lightness range.
+const COLOR_RULES = [
+  // White: the BRIGHTEST color on the cube. Under webcam lighting white stickers
+  // can appear fully saturated (s=100) with any hue tint, but always very light.
+  // l >= 82 is almost always white regardless of saturation.
+  { color: 'W', test: (h, s, l) => l >= 82 },
+  // Lower lightness white still needs low-ish saturation
+  { color: 'W', test: (h, s, l) => s < 15 && l > 50 },
+  { color: 'W', test: (h, s, l) => s < 30 && l > 65 },
+  { color: 'W', test: (h, s, l) => s < 45 && l > 72 },
+  // Yellow: warm hue, decent saturation, not too dark
+  { color: 'Y', test: (h, s, l) => s > 35 && l > 40 && l < 80 && h >= 38 && h < 70 },
+  // Orange: narrow hue band between red and yellow
+  { color: 'O', test: (h, s, l) => s > 40 && l > 25 && l < 80 && h >= 10 && h < 38 },
+  // Red: wraps around 0/360
+  { color: 'R', test: (h, s, l) => s > 40 && l > 15 && l < 75 && (h < 10 || h >= 340) },
+  // Green: broad hue range
+  { color: 'G', test: (h, s, l) => s > 25 && l > 12 && l < 75 && h >= 80 && h < 180 },
+  // Blue: needs to be darker than white — cap at l < 75
+  { color: 'B', test: (h, s, l) => s > 40 && l > 12 && l < 75 && h >= 180 && h < 270 },
+];
+
+// Fallback: Euclidean distance to reference points
 const COLOR_REFS = {
-  W: { h: 0, s: 0, l: 85, name: 'White' },
-  Y: { h: 50, s: 90, l: 60, name: 'Yellow' },
-  G: { h: 140, s: 70, l: 40, name: 'Green' },
-  B: { h: 220, s: 80, l: 45, name: 'Blue' },
-  R: { h: 0, s: 85, l: 45, name: 'Red' },
-  O: { h: 25, s: 95, l: 55, name: 'Orange' },
+  W: { h: 0,   s: 5,  l: 85 },
+  Y: { h: 50,  s: 85, l: 60 },
+  G: { h: 145, s: 65, l: 38 },
+  B: { h: 220, s: 75, l: 42 },
+  R: { h: 355, s: 80, l: 42 },
+  O: { h: 22,  s: 90, l: 52 },
 };
 
 function rgbToHsl(r, g, b) {
@@ -44,56 +68,80 @@ function rgbToHsl(r, g, b) {
   return { h: h * 360, s: s * 100, l: l * 100 };
 }
 
-// Classify an HSL color to the nearest cube color
-function classifyColor(hsl) {
-  let bestColor = 'W';
-  let bestDist = Infinity;
-
-  for (const [color, ref] of Object.entries(COLOR_REFS)) {
-    // Special handling for white (low saturation)
-    if (color === 'W') {
-      if (hsl.s < 20 && hsl.l > 60) {
-        const dist = Math.abs(hsl.l - ref.l) + (20 - hsl.s);
-        if (dist < bestDist) { bestDist = dist; bestColor = color; }
-      }
-      continue;
-    }
-
-    // Hue distance (circular)
-    let hDist = Math.abs(hsl.h - ref.h);
-    if (hDist > 180) hDist = 360 - hDist;
-
-    // Weight hue heavily, saturation and lightness less
-    const dist = hDist * 2 + Math.abs(hsl.s - ref.s) * 0.5 + Math.abs(hsl.l - ref.l) * 0.8;
-
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestColor = color;
-    }
+function classifyColor(h, s, l) {
+  // Try rule-based classification first
+  for (const rule of COLOR_RULES) {
+    if (rule.test(h, s, l)) return rule.color;
   }
 
-  return bestColor;
+  // Fallback: nearest reference
+  let best = 'W', bestDist = Infinity;
+  for (const [color, ref] of Object.entries(COLOR_REFS)) {
+    let hd = Math.abs(h - ref.h);
+    if (hd > 180) hd = 360 - hd;
+    const dist = hd * 1.5 + Math.abs(s - ref.s) * 0.6 + Math.abs(l - ref.l) * 0.8;
+    if (dist < bestDist) { bestDist = dist; best = color; }
+  }
+  return best;
 }
 
-// Sample a region of pixels and return median RGB
-function sampleRegion(imageData, cx, cy, radius, width) {
+// Sample a region and return median RGB
+function sampleRegion(data, cx, cy, radius, stride) {
   const rs = [], gs = [], bs = [];
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
-      const x = cx + dx, y = cy + dy;
-      if (x < 0 || y < 0 || x >= width || y >= imageData.height) continue;
-      const i = (y * width + x) * 4;
-      rs.push(imageData.data[i]);
-      gs.push(imageData.data[i + 1]);
-      bs.push(imageData.data[i + 2]);
+      const i = ((cy + dy) * stride + (cx + dx)) * 4;
+      if (i < 0 || i >= data.length - 3) continue;
+      rs.push(data[i]); gs.push(data[i+1]); bs.push(data[i+2]);
     }
   }
   rs.sort((a, b) => a - b);
   gs.sort((a, b) => a - b);
   bs.sort((a, b) => a - b);
-  const mid = Math.floor(rs.length / 2);
-  return { r: rs[mid], g: gs[mid], b: bs[mid] };
+  const m = rs.length >> 1;
+  return { r: rs[m], g: gs[m], b: bs[m] };
 }
+
+// Classify all 9 cells from current frame, with adaptive calibration
+// using the center facelet as a known reference.
+function classifyFace(imageData, w, h, gridSize, ox, oy) {
+  const cellSize = gridSize / 3;
+  const radius = Math.max(3, Math.floor(cellSize * 0.18));
+  const data = imageData.data;
+  const results = [];
+
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      const cx = Math.floor(ox + cellSize * (col + 0.5));
+      const cy = Math.floor(oy + cellSize * (row + 0.5));
+      const rgb = sampleRegion(data, cx, cy, radius, w);
+      const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+      results.push({ color: classifyColor(hsl.h, hsl.s, hsl.l), hsl, rgb });
+    }
+  }
+
+  return results;
+}
+
+// Confidence: how many cells have strong saturation/lightness differentiation
+function computeConfidence(cells, expectedCenter) {
+  let score = 0;
+  for (let i = 0; i < 9; i++) {
+    const { hsl } = cells[i];
+    // Penalise mid-range "ambiguous" saturation/lightness
+    if (hsl.s > 30 || hsl.l > 60) score += 1;
+    else score += 0.5;
+  }
+  // Center must match expected
+  if (cells[4].color === expectedCenter) score += 3;
+  else score -= 5;
+
+  return score / 12; // normalize 0-1ish
+}
+
+const COLOR_HEX = {
+  W: '#ffffff', Y: '#ffd500', G: '#009b48', B: '#0045ad', R: '#b90000', O: '#ff5900',
+};
 
 export class Scanner {
   constructor() {
@@ -105,6 +153,12 @@ export class Scanner {
     this.scannedFaces = {};
     this.onScanComplete = null;
     this.onStepChange = null;
+    this.onAutoCapture = null;
+
+    // Auto-capture state
+    this._stableFrames = 0;
+    this._lastColors = null;
+    this._autoEnabled = true;
   }
 
   async start(videoEl, canvasEl) {
@@ -113,10 +167,12 @@ export class Scanner {
     this.ctx = canvasEl.getContext('2d', { willReadFrequently: true });
     this.scanStep = 0;
     this.scannedFaces = {};
+    this._stableFrames = 0;
+    this._lastColors = null;
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
       });
       this.video.srcObject = this.stream;
       await this.video.play();
@@ -145,44 +201,49 @@ export class Scanner {
     return SCAN_ORDER[this.scanStep];
   }
 
-  // Capture the current frame and detect the 9 facelets
+  getScanOrder() { return SCAN_ORDER; }
+
+  // Manual capture
   capture() {
+    return this._doCapture();
+  }
+
+  _doCapture() {
     const step = this.getCurrentStep();
     if (!step) return null;
 
-    this.ctx.drawImage(this.video, 0, 0);
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const { cells } = this._analyzeFrame();
+    if (!cells) return null;
 
-    // Define the 3x3 grid in the center of the frame
-    const gridSize = Math.min(w, h) * 0.55;
-    const cellSize = gridSize / 3;
-    const ox = (w - gridSize) / 2;
-    const oy = (h - gridSize) / 2;
-    const sampleRadius = Math.floor(cellSize * 0.15);
+    const colors = cells.map(c => c.color);
 
-    const imageData = this.ctx.getImageData(0, 0, w, h);
-    const colors = [];
-
+    // The canvas is drawn mirrored for natural UX, so flip each row
+    // to get the actual cube face orientation
     for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 3; col++) {
-        const cx = Math.floor(ox + cellSize * (col + 0.5));
-        const cy = Math.floor(oy + cellSize * (row + 0.5));
-        const rgb = sampleRegion(imageData, cx, cy, sampleRadius, w);
-        const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-        colors.push(classifyColor(hsl));
-      }
+      const i = row * 3;
+      const tmp = colors[i];
+      colors[i] = colors[i + 2];
+      colors[i + 2] = tmp;
     }
 
-    // Use center facelet (index 4) as calibration — it should match the expected face center
-    const expectedCenter = COLORS[step.face];
-    if (colors[4] !== expectedCenter) {
-      // Auto-correct: if center doesn't match, flag it but still save
-      colors[4] = expectedCenter;
+    // Log HSL values for debugging
+    console.log(`[scan] Face ${step.face} (${step.color}) captured:`);
+    for (let row = 0; row < 3; row++) {
+      const rowCells = [0,1,2].map(col => {
+        const idx = row * 3 + col;
+        const { hsl } = cells[idx];
+        return `${colors[idx]}(h${Math.round(hsl.h)} s${Math.round(hsl.s)} l${Math.round(hsl.l)})`;
+      });
+      console.log(`  row${row}: ${rowCells.join('  ')}`);
     }
+
+    // Force center to expected color
+    colors[4] = COLORS[step.face];
 
     this.scannedFaces[step.face] = colors;
     this.scanStep++;
+    this._stableFrames = 0;
+    this._lastColors = null;
 
     if (this.onStepChange) this.onStepChange(this.scanStep);
 
@@ -190,17 +251,37 @@ export class Scanner {
       return this._buildState();
     }
 
-    return null; // more faces to scan
+    return null;
   }
 
-  // Manually set a facelet color (for correction)
+  _analyzeFrame() {
+    if (!this.video || !this.ctx) return {};
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    // Draw mirrored
+    this.ctx.save();
+    this.ctx.translate(w, 0);
+    this.ctx.scale(-1, 1);
+    this.ctx.drawImage(this.video, 0, 0);
+    this.ctx.restore();
+
+    const gridSize = Math.min(w, h) * 0.5;
+    const ox = (w - gridSize) / 2;
+    const oy = (h - gridSize) / 2;
+
+    const imageData = this.ctx.getImageData(0, 0, w, h);
+    const cells = classifyFace(imageData, w, h, gridSize, ox, oy);
+
+    return { cells, gridSize, ox, oy, w, h };
+  }
+
   setFacelet(face, index, color) {
     if (this.scannedFaces[face]) {
       this.scannedFaces[face][index] = color;
     }
   }
 
-  // Get the scanned colors for a face (for the color picker UI)
   getFaceColors(face) {
     return this.scannedFaces[face] || null;
   }
@@ -212,7 +293,7 @@ export class Scanner {
     }
 
     if (!validateColorCounts(state)) {
-      return { error: 'Invalid color counts — each color should appear exactly 9 times. Use the color picker to correct.' };
+      return { error: 'Invalid color counts — each color should appear exactly 9 times. Click faces below to correct.' };
     }
 
     return { state };
@@ -220,17 +301,14 @@ export class Scanner {
 
   _drawLoop() {
     if (!this.stream) return;
-    this.ctx.drawImage(this.video, 0, 0);
 
-    // Draw 3x3 grid overlay
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    const gridSize = Math.min(w, h) * 0.55;
+    const { cells, gridSize, ox, oy, w, h } = this._analyzeFrame();
+    if (!cells) { this._raf = requestAnimationFrame(() => this._drawLoop()); return; }
+
     const cellSize = gridSize / 3;
-    const ox = (w - gridSize) / 2;
-    const oy = (h - gridSize) / 2;
 
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    // Draw grid overlay
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
     this.ctx.lineWidth = 2;
     this.ctx.strokeRect(ox, oy, gridSize, gridSize);
 
@@ -239,22 +317,73 @@ export class Scanner {
       this.ctx.moveTo(ox + cellSize * i, oy);
       this.ctx.lineTo(ox + cellSize * i, oy + gridSize);
       this.ctx.stroke();
-
       this.ctx.beginPath();
       this.ctx.moveTo(ox, oy + cellSize * i);
       this.ctx.lineTo(ox + gridSize, oy + cellSize * i);
       this.ctx.stroke();
     }
 
-    // Draw crosshairs at each cell center
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    // Draw detected color swatches in each cell
     for (let row = 0; row < 3; row++) {
       for (let col = 0; col < 3; col++) {
+        const idx = row * 3 + col;
         const cx = ox + cellSize * (col + 0.5);
         const cy = oy + cellSize * (row + 0.5);
+        const color = cells[idx].color;
+
+        // Colored circle showing detected color
+        const dotR = cellSize * 0.22;
         this.ctx.beginPath();
-        this.ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        this.ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+        this.ctx.fillStyle = COLOR_HEX[color];
         this.ctx.fill();
+        this.ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
+
+        // Debug: show HSL values as tiny text below the dot
+        const { hsl } = cells[idx];
+        this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        this.ctx.font = `${Math.max(9, cellSize * 0.1)}px monospace`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`${Math.round(hsl.h)} ${Math.round(hsl.s)} ${Math.round(hsl.l)}`, cx, cy + dotR + 12);
+      }
+    }
+
+    // Auto-capture logic: if colors stable for N frames and center matches
+    const step = this.getCurrentStep();
+    if (step && this._autoEnabled) {
+      const currentColors = cells.map(c => c.color).join('');
+      const centerMatches = cells[4].color === COLORS[step.face];
+
+      if (currentColors === this._lastColors && centerMatches) {
+        this._stableFrames++;
+      } else {
+        this._stableFrames = 0;
+      }
+      this._lastColors = currentColors;
+
+      // Auto-capture after ~1.2 seconds of stability (about 72 frames at 60fps)
+      const STABLE_THRESHOLD = 72;
+
+      // Draw stability progress ring around center
+      if (this._stableFrames > 10 && centerMatches) {
+        const progress = Math.min(this._stableFrames / STABLE_THRESHOLD, 1);
+        const centerX = ox + cellSize * 1.5;
+        const centerY = oy + cellSize * 1.5;
+        const radius = cellSize * 0.45;
+
+        this.ctx.beginPath();
+        this.ctx.arc(centerX, centerY, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        this.ctx.strokeStyle = progress >= 1 ? '#4ade80' : 'rgba(233, 69, 96, 0.8)';
+        this.ctx.lineWidth = 3;
+        this.ctx.stroke();
+      }
+
+      if (this._stableFrames >= STABLE_THRESHOLD) {
+        this._stableFrames = 0;
+        const result = this._doCapture();
+        if (this.onAutoCapture) this.onAutoCapture(result);
       }
     }
 

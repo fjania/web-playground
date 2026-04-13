@@ -84,18 +84,24 @@
 
     <!-- Augmented mode: webcam + scan UI (hidden by default) -->
     <div id="augmented-view" class="augmented-view" style="display:none">
-      <video id="scan-video" muted playsinline></video>
-      <canvas id="scan-canvas"></canvas>
-      <div class="scan-info">
-        <div class="scan-step" id="scan-step-label">Scan face 1 of 6</div>
-        <div class="scan-hint" id="scan-hint">Hold the cube with the GREEN center facing the camera</div>
-        <div class="scan-actions">
-          <button class="btn primary" id="btn-capture">Capture (Space)</button>
-          <button class="btn" id="btn-scan-cancel">Cancel</button>
+      <div class="scan-layout">
+        <div class="scan-camera">
+          <video id="scan-video" muted playsinline></video>
+          <canvas id="scan-canvas"></canvas>
+        </div>
+        <div class="scan-guide">
+          <!-- 3D cube orientation diagram rendered via CSS -->
+          <div class="cube-diagram" id="cube-diagram"></div>
+          <div class="scan-step" id="scan-step-label">Scan face 1 of 6</div>
+          <div class="scan-hint" id="scan-hint"></div>
+          <div class="scan-actions">
+            <button class="btn primary" id="btn-capture">Capture (Space)</button>
+            <button class="btn" id="btn-scan-cancel">Cancel</button>
+          </div>
+          <div id="scan-preview" class="scan-preview"></div>
         </div>
       </div>
       <div id="color-picker" class="color-picker-panel" style="display:none"></div>
-      <div id="scan-preview" class="scan-preview"></div>
     </div>
 
     <div class="viewport-overlay">

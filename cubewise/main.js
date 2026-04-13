@@ -183,16 +183,45 @@ function setMode(newMode) {
 }
 
 // ---- Augmented mode: scanning ----
+const FACE_TO_CSS = { F:'cd-front', R:'cd-right', B:'cd-back', L:'cd-left', U:'cd-top', D:'cd-bottom' };
+const FACE_LABEL = { F:'Front', R:'Right', B:'Back', L:'Left', U:'Top', D:'Bottom' };
+
 async function startScanning() {
   const ok = await scanner.start(
     document.getElementById('scan-video'),
     document.getElementById('scan-canvas')
   );
   if (!ok) {
-    document.getElementById('scan-hint').textContent = 'Camera access denied. Please allow camera access and try again.';
+    document.getElementById('scan-hint').innerHTML = '<strong>Camera access denied.</strong><br>Please allow camera access and try again.';
     return;
   }
   updateScanUI();
+}
+
+function renderCubeDiagram(activeFace, arrow) {
+  const el = document.getElementById('cube-diagram');
+  const faces = ['F','R','B','L','U','D'];
+  const cssMap = { F:'cd-front', R:'cd-right', B:'cd-back', L:'cd-left', U:'cd-top', D:'cd-bottom' };
+
+  let html = '<div class="cd-cube">';
+  for (const f of faces) {
+    const active = f === activeFace ? ' cd-active' : '';
+    const label = f === activeFace ? FACE_LABEL[f] : '';
+    html += `<div class="cd-face ${cssMap[f]}${active}">${label}</div>`;
+  }
+  html += '</div>';
+
+  // Arrow showing rotation direction
+  if (arrow) {
+    const arrowPositions = {
+      '→': 'right: -5px; top: 50%; transform: translateY(-50%);',
+      '↑': 'top: -5px; left: 50%; transform: translateX(-50%);',
+      '↓': 'bottom: -5px; left: 50%; transform: translateX(-50%);',
+    };
+    html += `<div class="cd-arrow" style="${arrowPositions[arrow] || ''}">${arrow}</div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 function updateScanUI() {
@@ -202,12 +231,26 @@ function updateScanUI() {
 
   if (!step) {
     stepLabel.textContent = 'All faces scanned!';
-    hintLabel.textContent = 'Review the colors below. Click a face to correct, then press Done.';
+    hintLabel.innerHTML = 'Review below. <strong>Click a face</strong> to correct colors, then press <strong>Done</strong>.';
     document.getElementById('btn-capture').textContent = 'Done';
+    renderCubeDiagram(null, null);
   } else {
-    stepLabel.textContent = `Scan face ${scanner.scanStep + 1} of 6`;
-    hintLabel.textContent = step.hint;
+    const n = scanner.scanStep + 1;
+    stepLabel.textContent = `Scan face ${n} of 6`;
+
+    const colorWord = scanner.getScanOrder()[scanner.scanStep].color;
+    const emoji = scanner.getScanOrder()[scanner.scanStep].emoji;
+
+    if (scanner.scanStep === 0) {
+      hintLabel.innerHTML = `Hold cube with the <strong>${emoji} ${colorWord}</strong> center facing the camera.<br><span style="font-size:0.75rem;color:var(--text-muted)">Keep white on top. Hold steady to auto-capture.</span>`;
+    } else {
+      const arrow = scanner.getScanOrder()[scanner.scanStep].arrow;
+      const dir = arrow === '→' ? 'Rotate the cube right' : arrow === '↑' ? 'Tilt the cube back' : 'Tilt the cube forward';
+      hintLabel.innerHTML = `${dir} to show the <strong>${emoji} ${colorWord}</strong> center.<br><span style="font-size:0.75rem;color:var(--text-muted)">Hold steady to auto-capture, or press Space.</span>`;
+    }
+
     document.getElementById('btn-capture').textContent = 'Capture (Space)';
+    renderCubeDiagram(step.face, scanner.getScanOrder()[scanner.scanStep].arrow);
   }
 
   updateScanPreview();
@@ -230,7 +273,6 @@ function updateScanPreview() {
   }
   preview.innerHTML = html;
 
-  // Wire face clicks for correction
   for (const el of preview.querySelectorAll('.scan-face-mini.scanned')) {
     el.addEventListener('click', () => {
       colorPicker.show(el.dataset.face);
@@ -241,7 +283,6 @@ function updateScanPreview() {
 function captureOrFinish() {
   const step = scanner.getCurrentStep();
   if (!step) {
-    // All faces scanned — finalize
     finalizeScan();
     return;
   }
@@ -251,7 +292,7 @@ function captureOrFinish() {
   if (result && result.state) {
     finalizeScan();
   } else if (result && result.error) {
-    document.getElementById('scan-hint').textContent = result.error;
+    document.getElementById('scan-hint').innerHTML = `<span style="color:var(--accent)">${result.error}</span>`;
   }
 }
 
@@ -446,6 +487,14 @@ document.getElementById('btn-scan-cancel').addEventListener('click', () => {
 });
 
 scanner.onStepChange = () => updateScanUI();
+scanner.onAutoCapture = (result) => {
+  updateScanUI();
+  if (result && result.state) {
+    finalizeScan();
+  } else if (result && result.error) {
+    document.getElementById('scan-hint').innerHTML = `<span style="color:var(--accent)">${result.error}</span>`;
+  }
+};
 colorPicker.onUpdate = () => updateScanPreview();
 
 // Notation guide
