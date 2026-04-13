@@ -74,12 +74,30 @@
     <div class="panel">
       <div class="panel-title">Timer</div>
       <div class="timer-display" id="timer">0:00.00</div>
+      <div class="timer-stats" id="timer-stats"></div>
     </div>
   </aside>
 
   <!-- 3D Viewport -->
   <main class="viewport">
     <div id="cube-canvas"></div>
+
+    <!-- Augmented mode: webcam + scan UI (hidden by default) -->
+    <div id="augmented-view" class="augmented-view" style="display:none">
+      <video id="scan-video" muted playsinline></video>
+      <canvas id="scan-canvas"></canvas>
+      <div class="scan-info">
+        <div class="scan-step" id="scan-step-label">Scan face 1 of 6</div>
+        <div class="scan-hint" id="scan-hint">Hold the cube with the GREEN center facing the camera</div>
+        <div class="scan-actions">
+          <button class="btn primary" id="btn-capture">Capture (Space)</button>
+          <button class="btn" id="btn-scan-cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="color-picker" class="color-picker-panel" style="display:none"></div>
+      <div id="scan-preview" class="scan-preview"></div>
+    </div>
+
     <div class="viewport-overlay">
       <div class="status-badge" id="status-badge">Ready</div>
     </div>

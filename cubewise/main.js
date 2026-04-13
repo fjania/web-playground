@@ -1,4 +1,4 @@
-import { createSolvedState, cloneState, applyMove, isSolved, inverseMove, moveToString } from './cube-state.js';
+import { createSolvedState, cloneState, applyMove, isSolved, inverseMove, moveToString, FACE_NAMES, COLORS, validateColorCounts } from './cube-state.js';
 import { CubeRenderer } from './cube-renderer.js';
 import { CubeAnimator } from './cube-animator.js';
 import { CubeInteraction } from './cube-interaction.js';
@@ -6,11 +6,15 @@ import { parseMove, parseMoveSequence, FACES } from './cube-moves.js';
 import { generateScramble, scrambleToString } from './scramble.js';
 import { TeachingEngine } from './teaching-engine.js';
 import { initSolver, solve, isSolverReady } from './solver.js';
+import { Timer } from './timer.js';
+import { Scanner } from './scanner.js';
+import { ColorPicker } from './color-picker.js';
 
 // ---- State ----
 let state = createSolvedState();
 let moveHistory = [];
 let redoStack = [];
+let mode = 'virtual'; // 'virtual' | 'augmented'
 
 // ---- Renderer + Animator ----
 const container = document.getElementById('cube-canvas');
@@ -21,6 +25,17 @@ renderer.updateFromState(state);
 
 // ---- Teaching Engine ----
 const teacher = new TeachingEngine();
+
+// ---- Timer ----
+const timer = new Timer(document.getElementById('timer'));
+let timerStarted = false;
+
+// ---- Scanner + Color Picker ----
+const scanner = new Scanner();
+const colorPicker = new ColorPicker(
+  document.getElementById('color-picker'),
+  scanner
+);
 
 // ---- Click/drag interaction ----
 const interaction = new CubeInteraction(renderer, (move) => {
@@ -36,6 +51,12 @@ initSolver().then(() => {
 function execMove(move, { record = true, animate = true } = {}) {
   if (animate && animator.isAnimating) return;
 
+  // Auto-start timer on first move after scramble
+  if (record && !timerStarted && !isSolved(state)) {
+    timer.start();
+    timerStarted = true;
+  }
+
   if (record) {
     moveHistory.push(move);
     redoStack = [];
@@ -47,10 +68,21 @@ function execMove(move, { record = true, animate = true } = {}) {
     animator.enqueue(move, () => {
       renderer.updateFromState(state);
       updateUI();
+      checkSolved();
     });
   } else {
     renderer.updateFromState(state);
     updateUI();
+    checkSolved();
+  }
+}
+
+function checkSolved() {
+  if (isSolved(state) && timerStarted) {
+    const time = timer.stop();
+    timer.recordSolve();
+    timerStarted = false;
+    updateTimerStats();
   }
 }
 
@@ -82,6 +114,8 @@ function scramble(difficulty = 'hard') {
   state = createSolvedState();
   moveHistory = [];
   redoStack = [];
+  timer.reset();
+  timerStarted = false;
 
   const moves = generateScramble(difficulty);
 
@@ -98,6 +132,8 @@ function resetCube() {
   state = createSolvedState();
   moveHistory = [];
   redoStack = [];
+  timer.reset();
+  timerStarted = false;
   renderer.updateFromState(state);
   teacher.setStep(0);
   updateUI();
@@ -117,11 +153,141 @@ function solveAnimated() {
         applyMove(state, move);
         renderer.updateFromState(state);
         updateUI();
+        checkSolved();
       });
     }
   } catch (e) {
     console.error('Solve failed:', e);
   }
+}
+
+// ---- Mode switching ----
+function setMode(newMode) {
+  mode = newMode;
+  document.querySelectorAll('.mode-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.mode === mode);
+  });
+
+  const augView = document.getElementById('augmented-view');
+  const cubeCanvas = document.getElementById('cube-canvas');
+
+  if (mode === 'augmented') {
+    augView.style.display = 'flex';
+    cubeCanvas.style.display = 'none';
+    startScanning();
+  } else {
+    augView.style.display = 'none';
+    cubeCanvas.style.display = 'block';
+    scanner.stop();
+  }
+}
+
+// ---- Augmented mode: scanning ----
+async function startScanning() {
+  const ok = await scanner.start(
+    document.getElementById('scan-video'),
+    document.getElementById('scan-canvas')
+  );
+  if (!ok) {
+    document.getElementById('scan-hint').textContent = 'Camera access denied. Please allow camera access and try again.';
+    return;
+  }
+  updateScanUI();
+}
+
+function updateScanUI() {
+  const step = scanner.getCurrentStep();
+  const stepLabel = document.getElementById('scan-step-label');
+  const hintLabel = document.getElementById('scan-hint');
+
+  if (!step) {
+    stepLabel.textContent = 'All faces scanned!';
+    hintLabel.textContent = 'Review the colors below. Click a face to correct, then press Done.';
+    document.getElementById('btn-capture').textContent = 'Done';
+  } else {
+    stepLabel.textContent = `Scan face ${scanner.scanStep + 1} of 6`;
+    hintLabel.textContent = step.hint;
+    document.getElementById('btn-capture').textContent = 'Capture (Space)';
+  }
+
+  updateScanPreview();
+}
+
+function updateScanPreview() {
+  const preview = document.getElementById('scan-preview');
+  const COLOR_HEX = { W:'#fff', Y:'#ffd500', G:'#009b48', B:'#0045ad', R:'#b90000', O:'#ff5900' };
+
+  let html = '';
+  for (const face of FACE_NAMES) {
+    const colors = scanner.getFaceColors(face);
+    const scanned = colors ? ' scanned' : '';
+    html += `<div class="scan-face-mini${scanned}" data-face="${face}" title="${face} face">`;
+    for (let i = 0; i < 9; i++) {
+      const c = colors ? colors[i] : COLORS[face];
+      html += `<div class="sf-cell" style="background:${COLOR_HEX[c]}"></div>`;
+    }
+    html += '</div>';
+  }
+  preview.innerHTML = html;
+
+  // Wire face clicks for correction
+  for (const el of preview.querySelectorAll('.scan-face-mini.scanned')) {
+    el.addEventListener('click', () => {
+      colorPicker.show(el.dataset.face);
+    });
+  }
+}
+
+function captureOrFinish() {
+  const step = scanner.getCurrentStep();
+  if (!step) {
+    // All faces scanned — finalize
+    finalizeScan();
+    return;
+  }
+  const result = scanner.capture();
+  updateScanUI();
+
+  if (result && result.state) {
+    finalizeScan();
+  } else if (result && result.error) {
+    document.getElementById('scan-hint').textContent = result.error;
+  }
+}
+
+function finalizeScan() {
+  // Build state from scanned faces
+  const scannedState = {};
+  let valid = true;
+  for (const face of FACE_NAMES) {
+    const colors = scanner.getFaceColors(face);
+    if (!colors) { valid = false; break; }
+    scannedState[face] = [...colors];
+  }
+
+  if (!valid) {
+    document.getElementById('scan-hint').textContent = 'Not all faces scanned yet.';
+    return;
+  }
+
+  if (!validateColorCounts(scannedState)) {
+    document.getElementById('scan-hint').textContent = 'Invalid colors — each color must appear exactly 9 times. Click faces below to correct.';
+    return;
+  }
+
+  // Apply scanned state
+  state = scannedState;
+  moveHistory = [];
+  redoStack = [];
+  timer.reset();
+  timerStarted = false;
+  renderer.updateFromState(state);
+  teacher.autoAdvance(state);
+
+  // Switch back to virtual mode to show the scanned cube
+  scanner.stop();
+  setMode('virtual');
+  updateUI();
 }
 
 // ---- UI Updates ----
@@ -148,7 +314,6 @@ function updateUI() {
 
   // Instructions
   const hint = teacher.getHint(state);
-  const step = teacher.getCurrentStep();
   const algos = teacher.getAlgorithms();
 
   let html = `<p>${hint}</p>`;
@@ -176,6 +341,18 @@ function updateUI() {
   }
 }
 
+function updateTimerStats() {
+  const statsEl = document.getElementById('timer-stats');
+  const stats = timer.getStats();
+  if (!stats) { statsEl.textContent = ''; return; }
+
+  let html = `<span class="pb">PB ${Timer.format(stats.pb)}</span>`;
+  if (stats.ao5) html += `<span>ao5 ${Timer.format(stats.ao5)}</span>`;
+  if (stats.ao12) html += `<span>ao12 ${Timer.format(stats.ao12)}</span>`;
+  html += `<span>${stats.count} solves</span>`;
+  statsEl.innerHTML = html;
+}
+
 // ---- Keyboard shortcuts ----
 const KEY_MAP = {
   j: 'R', f: 'L', i: 'U', k: 'D', h: 'F', g: 'B',
@@ -184,6 +361,13 @@ const KEY_MAP = {
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
+  // Spacebar in augmented mode = capture
+  if (e.key === ' ' && mode === 'augmented') {
+    e.preventDefault();
+    captureOrFinish();
+    return;
+  }
+
   if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
     toggleNotation();
     return;
@@ -191,6 +375,7 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape') {
     document.getElementById('notation-overlay').classList.remove('visible');
+    colorPicker.hide();
     return;
   }
 
@@ -247,6 +432,21 @@ for (const btn of document.querySelectorAll('.hint-tier-btn')) {
     updateUI();
   });
 }
+
+// Mode tabs
+for (const tab of document.querySelectorAll('.mode-tab')) {
+  tab.addEventListener('click', () => setMode(tab.dataset.mode));
+}
+
+// Scanner controls
+document.getElementById('btn-capture').addEventListener('click', captureOrFinish);
+document.getElementById('btn-scan-cancel').addEventListener('click', () => {
+  scanner.stop();
+  setMode('virtual');
+});
+
+scanner.onStepChange = () => updateScanUI();
+colorPicker.onUpdate = () => updateScanPreview();
 
 // Notation guide
 function toggleNotation() {
