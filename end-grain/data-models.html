@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>End Grain — Data Model Reference</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #faf8f5; --panel: #fff; --border: #e7e5e4; --text: #1c1917;
+          --muted: #a8a29e; --dim: #78716c; --accent: #b45309;
+          --code-bg: #f5f5f0; --type-color: #6d28d9; --field-color: #0369a1;
+          --maple: #e4cc8f; --walnut: #3d2416; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Geist Mono', monospace; background: var(--bg); color: var(--text);
+         padding: 32px 40px; font-size: 12px; line-height: 1.6; max-width: 1100px; margin: 0 auto; }
+  h1 { font-family: 'Newsreader', serif; font-size: 22px; font-weight: 400; margin-bottom: 8px; }
+  h1 em { font-style: italic; }
+  .subtitle { font-size: 11px; color: var(--dim); margin-bottom: 32px; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+       color: var(--accent); margin: 36px 0 12px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 12px; font-weight: 600; margin: 20px 0 8px; }
+
+  .section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+             padding: 16px 20px; margin-bottom: 16px; }
+
+  .type-block { margin: 12px 0; }
+  .type-name { font-weight: 600; color: var(--type-color); }
+  .field { color: var(--field-color); }
+  .dim { color: var(--dim); }
+  .comment { color: var(--muted); font-style: italic; }
+
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+        padding: 12px 16px; overflow-x: auto; font-size: 11px; line-height: 1.5; margin: 8px 0; }
+  code { font-family: 'Geist Mono', monospace; }
+  .inline-code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+  .diagram { margin: 12px 0; }
+  .diagram svg { display: block; }
+
+  .flow-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+  .flow-box { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+              padding: 6px 10px; font-size: 10px; text-align: center; min-width: 80px; }
+  .flow-box.active { border-color: var(--accent); background: #fffbeb; }
+  .flow-arrow { color: var(--dim); font-size: 14px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .issue { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; padding: 10px 14px; margin: 8px 0; }
+  .issue-title { font-weight: 600; color: #b91c1c; font-size: 11px; }
+
+  .note { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 10px 14px; margin: 8px 0; font-size: 11px; }
+
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 11px; }
+  th { text-align: left; font-weight: 600; padding: 6px 10px; border-bottom: 2px solid var(--border); font-size: 10px;
+       text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); }
+  td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td:first-child { font-weight: 500; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<h1>End <em>Grain</em> — Data Model Reference</h1>
+<p class="subtitle">Internal representation of every data structure in the pipeline</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>1. Pipeline Overview</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>The entire system is a pipeline: user-defined inputs flow through a sequence of operations, each producing a snapshot.</p>
+
+  <div class="flow-row">
+    <div class="flow-box active">StripPattern</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">expandStrips()</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">Strip[]</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box active">evaluate()</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">Snapshot[]</div>
+  </div>
+
+  <pre>evaluate(stripPattern, operations, stockThickness) → Snapshot[]
+
+// Each snapshot = { op, workState }
+// op        = the operation that produced this state (cloned)
+// workState = the state of the wood after this operation</pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>2. Input Types</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <h3>StripPattern</h3>
+  <p>The user edits a repeating unit of strips. The pipeline tiles it.</p>
+  <pre>{
+  <span class="field">unit</span>: Strip[],        <span class="comment">// the repeating sequence</span>
+  <span class="field">repeat</span>: number,       <span class="comment">// how many times to tile</span>
+  <span class="field">tail</span>?: Strip[],       <span class="comment">// optional strips appended after all repeats</span>
+}</pre>
+
+  <h3>Strip</h3>
+  <pre>{
+  <span class="field">species</span>: string,      <span class="comment">// key into SPECIES lookup (e.g. 'maple', 'walnut')</span>
+  <span class="field">width</span>: number,        <span class="comment">// mm — the strip width as ripped on the table saw</span>
+}</pre>
+
+  <div class="diagram">
+    <svg viewBox="0 0 500 80" width="500" height="80">
+      <defs>
+        <pattern id="grain" width="4" height="4" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="0" y2="4" stroke="rgba(0,0,0,0.05)" stroke-width="0.5"/>
+        </pattern>
+      </defs>
+      <text x="10" y="12" font-family="Geist Mono" font-size="9" fill="#78716c">unit: [maple 25mm, walnut 25mm]  ×  repeat: 4  =  8 strips</text>
+      <!-- unit bracket -->
+      <rect x="10" y="22" width="60" height="30" rx="3" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+      <rect x="70" y="22" width="60" height="30" rx="3" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+      <text x="40" y="41" font-family="Geist Mono" font-size="8" fill="#1c1917" text-anchor="middle">25</text>
+      <text x="100" y="41" font-family="Geist Mono" font-size="8" fill="#fff" text-anchor="middle">25</text>
+      <!-- brace under unit -->
+      <path d="M10,56 L10,60 L65,64 L120,60 L120,56" fill="none" stroke="#b45309" stroke-width="0.8"/>
+      <text x="65" y="74" font-family="Geist Mono" font-size="8" fill="#b45309" text-anchor="middle">unit</text>
+      <!-- repeat copies -->
+      <rect x="135" y="22" width="60" height="30" rx="3" fill="#e4cc8f" stroke="rgba(0,0,0,0.06)" opacity="0.5"/>
+      <rect x="195" y="22" width="60" height="30" rx="3" fill="#3d2416" stroke="rgba(0,0,0,0.06)" opacity="0.5"/>
+      <rect x="260" y="22" width="60" height="30" rx="3" fill="#e4cc8f" stroke="rgba(0,0,0,0.06)" opacity="0.5"/>
+      <rect x="320" y="22" width="60" height="30" rx="3" fill="#3d2416" stroke="rgba(0,0,0,0.06)" opacity="0.5"/>
+      <rect x="385" y="22" width="60" height="30" rx="3" fill="#e4cc8f" stroke="rgba(0,0,0,0.06)" opacity="0.5"/>
+      <rect x="445" y="22" width="45" height="30" rx="3" fill="#3d2416" stroke="rgba(0,0,0,0.06)" opacity="0.5"/>
+      <text x="300" y="74" font-family="Geist Mono" font-size="8" fill="#a8a29e" text-anchor="middle">× 4 repeats → 8 strips total</text>
+    </svg>
+  </div>
+
+  <h3>Brick example with tail</h3>
+  <pre>{
+  unit: [{ species: 'maple', width: 50 }, { species: 'walnut', width: 6 }],
+  repeat: 4,
+  tail: [{ species: 'maple', width: 50 }]   <span class="comment">// → 9 strips: ■□■□■□■□■</span>
+}</pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>3. Core State: WorkState</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>After each operation, the wood is in one of two states:</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Panel <span class="dim">(single piece)</span></h3>
+      <pre>{
+  <span class="field">kind</span>: 'panel',
+  <span class="field">workpiece</span>: Workpiece
+}</pre>
+      <div class="diagram">
+        <svg viewBox="0 0 220 100" width="220" height="100">
+          <rect x="10" y="10" width="200" height="70" rx="3" fill="#e4cc8f" stroke="#1c1917" stroke-width="1"/>
+          <rect x="60" y="10" width="50" height="70" fill="#3d2416"/>
+          <rect x="160" y="10" width="50" height="70" fill="#3d2416"/>
+          <text x="110" y="95" font-family="Geist Mono" font-size="8" fill="#78716c" text-anchor="middle">one glued-up panel</text>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <h3>Slices <span class="dim">(multiple pieces)</span></h3>
+      <pre>{
+  <span class="field">kind</span>: 'slices',
+  <span class="field">slices</span>: Workpiece[],
+  <span class="field">direction</span>?: 'vertical'
+}</pre>
+      <div class="diagram">
+        <svg viewBox="0 0 220 100" width="220" height="100">
+          <rect x="10" y="8"  width="200" height="14" rx="2" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="60" y="8"  width="50" height="14" fill="#3d2416"/>
+          <rect x="160" y="8" width="50" height="14" fill="#3d2416"/>
+          <rect x="10" y="26" width="200" height="14" rx="2" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="60" y="26" width="50" height="14" fill="#3d2416"/>
+          <rect x="160" y="26" width="50" height="14" fill="#3d2416"/>
+          <rect x="10" y="44" width="200" height="14" rx="2" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="60" y="44" width="50" height="14" fill="#3d2416"/>
+          <rect x="160" y="44" width="50" height="14" fill="#3d2416"/>
+          <rect x="10" y="62" width="200" height="14" rx="2" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="60" y="62" width="50" height="14" fill="#3d2416"/>
+          <rect x="160" y="62" width="50" height="14" fill="#3d2416"/>
+          <text x="110" y="95" font-family="Geist Mono" font-size="8" fill="#78716c" text-anchor="middle">array of separate pieces</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Key rule:</strong> every operation takes a WorkState and returns a WorkState.
+    Some operations require <span class="inline-code">kind: 'panel'</span> (crosscut, flatten, trim),
+    others require <span class="inline-code">kind: 'slices'</span> (stack, rotate90, flip, shift, insert).
+    Glueup works on both (initial from null, re-glue from slices).
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>4. Workpiece (3D-aware)</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>Every piece of wood — whether a panel or a single slice — is a Workpiece with 3D dimensions and a 2D face.</p>
+
+  <pre>{
+  <span class="field">width</span>: number,        <span class="comment">// mm — horizontal extent of the visible face</span>
+  <span class="field">height</span>: number,       <span class="comment">// mm — vertical extent of the visible face</span>
+  <span class="field">thickness</span>: number,    <span class="comment">// mm — depth into the board (the dimension you can't see)</span>
+  <span class="field">grainDir</span>: string,     <span class="comment">// 'long-grain' | 'end-grain'</span>
+  <span class="field">face</span>: Face,           <span class="comment">// the 2D renderable surface</span>
+  <span class="field">_cutAngle</span>?: number,   <span class="comment">// metadata: angle of the crosscut that created this slice</span>
+  <span class="field">_strips</span>?: Strip[],    <span class="comment">// metadata: original strip sequence for rotate90 to use</span>
+}</pre>
+
+  <div class="diagram">
+    <svg viewBox="0 0 500 180" width="500" height="180">
+      <!-- 3D box -->
+      <polygon points="40,50 240,50 260,30 60,30" fill="#e4cc8f" stroke="#1c1917" stroke-width="1"/>
+      <polygon points="240,50 240,130 260,110 260,30" fill="#c4aa6f" stroke="#1c1917" stroke-width="1"/>
+      <rect x="40" y="50" width="200" height="80" fill="#e4cc8f" stroke="#1c1917" stroke-width="1"/>
+      <!-- face label -->
+      <text x="140" y="95" font-family="Geist Mono" font-size="10" fill="#1c1917" text-anchor="middle" font-weight="600">face</text>
+      <text x="140" y="107" font-family="Geist Mono" font-size="8" fill="#78716c" text-anchor="middle">(2D renderable)</text>
+
+      <!-- dimension labels -->
+      <line x1="40" y1="140" x2="240" y2="140" stroke="#0369a1" stroke-width="0.8"/>
+      <line x1="40" y1="137" x2="40" y2="143" stroke="#0369a1" stroke-width="0.8"/>
+      <line x1="240" y1="137" x2="240" y2="143" stroke="#0369a1" stroke-width="0.8"/>
+      <text x="140" y="152" font-family="Geist Mono" font-size="9" fill="#0369a1" text-anchor="middle">width</text>
+
+      <line x1="250" y1="50" x2="250" y2="130" stroke="#0369a1" stroke-width="0.8"/>
+      <line x1="247" y1="50" x2="253" y2="50" stroke="#0369a1" stroke-width="0.8"/>
+      <line x1="247" y1="130" x2="253" y2="130" stroke="#0369a1" stroke-width="0.8"/>
+      <text x="258" y="95" font-family="Geist Mono" font-size="9" fill="#0369a1">height</text>
+
+      <line x1="250" y1="30" x2="250" y2="48" stroke="#b45309" stroke-width="0.8"/>
+      <text x="258" y="42" font-family="Geist Mono" font-size="9" fill="#b45309">thickness</text>
+
+      <!-- grain direction -->
+      <text x="320" y="50" font-family="Geist Mono" font-size="10" fill="#1c1917" font-weight="600">grainDir:</text>
+      <text x="320" y="70" font-family="Geist Mono" font-size="9" fill="#78716c">'long-grain' → strips run</text>
+      <text x="320" y="82" font-family="Geist Mono" font-size="9" fill="#78716c">  vertically through face</text>
+      <text x="320" y="102" font-family="Geist Mono" font-size="9" fill="#78716c">'end-grain' → grain goes</text>
+      <text x="320" y="114" font-family="Geist Mono" font-size="9" fill="#78716c">  INTO the face (the goal!)</text>
+
+      <!-- Thickness note -->
+      <text x="320" y="140" font-family="Geist Mono" font-size="10" fill="#1c1917" font-weight="600">thickness tracks:</text>
+      <text x="320" y="156" font-family="Geist Mono" font-size="9" fill="#78716c">the invisible dimension.</text>
+      <text x="320" y="168" font-family="Geist Mono" font-size="9" fill="#78716c">rotate90 swaps it with height.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>5. Face (2D geometry)</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>The renderable surface of any piece. Contains TWO kinds of geometry — rects and polys — which coexist on the same face.</p>
+
+  <pre>{
+  <span class="field">width</span>: number,        <span class="comment">// mm — bounding width</span>
+  <span class="field">height</span>: number,       <span class="comment">// mm — bounding height</span>
+  <span class="field">rects</span>: Rect[],        <span class="comment">// axis-aligned rectangles (0° cuts, simple patterns)</span>
+  <span class="field">polys</span>: Poly[],        <span class="comment">// arbitrary polygons (angled cuts, diagonal bands)</span>
+}</pre>
+
+  <div class="grid-2">
+    <div>
+      <h3>Rect</h3>
+      <pre>{
+  <span class="field">x</span>: number,    <span class="comment">// left edge</span>
+  <span class="field">y</span>: number,    <span class="comment">// top edge</span>
+  <span class="field">w</span>: number,    <span class="comment">// width</span>
+  <span class="field">h</span>: number,    <span class="comment">// height</span>
+  <span class="field">species</span>: string
+}</pre>
+      <div class="diagram">
+        <svg viewBox="0 0 220 80" width="220" height="80">
+          <rect x="10" y="10" width="50" height="60" fill="#e4cc8f" stroke="rgba(0,0,0,0.15)"/>
+          <rect x="60" y="10" width="50" height="60" fill="#3d2416" stroke="rgba(0,0,0,0.15)"/>
+          <rect x="110" y="10" width="50" height="60" fill="#e4cc8f" stroke="rgba(0,0,0,0.15)"/>
+          <rect x="160" y="10" width="50" height="60" fill="#3d2416" stroke="rgba(0,0,0,0.15)"/>
+          <text x="35" y="44" font-family="Geist Mono" font-size="7" fill="#1c1917" text-anchor="middle">(0,0)</text>
+          <text x="35" y="54" font-family="Geist Mono" font-size="7" fill="#1c1917" text-anchor="middle">50×60</text>
+          <text x="85" y="44" font-family="Geist Mono" font-size="7" fill="#fff" text-anchor="middle">(50,0)</text>
+          <text x="85" y="54" font-family="Geist Mono" font-size="7" fill="#fff" text-anchor="middle">50×60</text>
+        </svg>
+      </div>
+      <p class="dim" style="font-size:10px">Used for: 0° crosscut slices, initial glueup, checkerboard cells, brick cells</p>
+    </div>
+    <div>
+      <h3>Poly</h3>
+      <pre>{
+  <span class="field">points</span>: [x, y][],  <span class="comment">// vertices</span>
+  <span class="field">species</span>: string
+}</pre>
+      <div class="diagram">
+        <svg viewBox="0 0 220 80" width="220" height="80">
+          <polygon points="10,60 50,10 100,10 60,60" fill="#e4cc8f" stroke="rgba(0,0,0,0.15)"/>
+          <polygon points="60,60 100,10 150,10 110,60" fill="#3d2416" stroke="rgba(0,0,0,0.15)"/>
+          <polygon points="110,60 150,10 200,10 160,60" fill="#e4cc8f" stroke="rgba(0,0,0,0.15)"/>
+          <polygon points="160,60 200,10 210,10 210,60" fill="#3d2416" stroke="rgba(0,0,0,0.15)"/>
+          <polygon points="10,60 10,30 30,10 50,10" fill="#3d2416" stroke="rgba(0,0,0,0.15)" opacity="0.7"/>
+          <circle cx="10" cy="60" r="2" fill="#c0392b"/>
+          <circle cx="50" cy="10" r="2" fill="#c0392b"/>
+          <circle cx="100" cy="10" r="2" fill="#c0392b"/>
+          <circle cx="60" cy="60" r="2" fill="#c0392b"/>
+          <text x="65" y="75" font-family="Geist Mono" font-size="7" fill="#c0392b">vertices (CCW)</text>
+        </svg>
+      </div>
+      <p class="dim" style="font-size:10px">Used for: angled crosscut bands, chevron stripes, diagonal patterns</p>
+    </div>
+  </div>
+
+  <div class="issue">
+    <div class="issue-title">Known duality problem</div>
+    <p style="margin-top:4px;font-size:11px">Rects and polys are two separate lists on the same face. The renderer draws both.
+    Some operations only transform rects (shiftAlternate), some only produce polys (angled crosscut).
+    When you glue slices that mix rects and polys, both get offset and merged — but operations like
+    <span class="inline-code">shiftAlternate</span> only process rects and leave polys untouched.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>6. Snapshot</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <pre>{
+  <span class="field">op</span>: Operation,        <span class="comment">// deep clone of the operation that ran</span>
+  <span class="field">workState</span>: WorkState   <span class="comment">// deep clone of state AFTER this operation</span>
+}</pre>
+  <p>The snapshots array is the full history. The pipeline cards show each snapshot. The result card shows
+  <span class="inline-code">snapshots[last].workState</span> rendered directly (not via stage renderer).</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>7. Operations & What They Do to State</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <table>
+    <tr><th>Operation</th><th>Input</th><th>Output</th><th>What changes</th></tr>
+    <tr>
+      <td><strong>glueup</strong></td>
+      <td>null or slices</td>
+      <td>panel</td>
+      <td>Initial: strips → face rects. Re-glue: stacks slice faces along direction, merging all rects + polys with offsets.</td>
+    </tr>
+    <tr>
+      <td><strong>crosscut</strong></td>
+      <td>panel</td>
+      <td>slices</td>
+      <td>Clips panel face into N pieces. At 0°: clips rects + polys to horizontal bands. At angle: creates parallelogram poly bands from <span class="inline-code">_strips</span> metadata.</td>
+    </tr>
+    <tr>
+      <td><strong>stack</strong></td>
+      <td>slices</td>
+      <td>slices</td>
+      <td>Auto-rotates each slice 90° CW if height > width (longest edge horizontal). Sets <span class="inline-code">direction: 'vertical'</span>.</td>
+    </tr>
+    <tr>
+      <td><strong>rotate90</strong></td>
+      <td>slices</td>
+      <td>slices</td>
+      <td>Swaps face to end-grain view. <span class="inline-code">face.height = stockThickness</span>. <span class="inline-code">thickness = old face.height</span>. <span class="inline-code">grainDir = 'end-grain'</span>. Rebuilds face from <span class="inline-code">_strips</span>.</td>
+    </tr>
+    <tr>
+      <td><strong>flipAlternate</strong></td>
+      <td>slices</td>
+      <td>slices</td>
+      <td>Mirrors odd slices: <span class="inline-code">x → face.width - x</span> for all rects and polys.</td>
+    </tr>
+    <tr>
+      <td><strong>shiftAlternate</strong></td>
+      <td>slices</td>
+      <td>slices</td>
+      <td>Shifts odd slices by <span class="inline-code">shift</span> mm with wrap-around. Only processes rects.</td>
+    </tr>
+    <tr>
+      <td><strong>insertStrips</strong></td>
+      <td>slices</td>
+      <td>slices</td>
+      <td>Interleaves new slices between existing ones. New slice face = full-width rect of specified species.</td>
+    </tr>
+    <tr>
+      <td><strong>flatten</strong></td>
+      <td>panel</td>
+      <td>panel</td>
+      <td>Sets <span class="inline-code">thickness = targetThickness</span>. Face geometry unchanged.</td>
+    </tr>
+    <tr>
+      <td><strong>trim</strong></td>
+      <td>panel</td>
+      <td>panel</td>
+      <td>Finds largest rectangle fully covered by content via scanline sampling. Clips + shifts all geometry.</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>8. Dimension Flow Through Operations</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section" id="dim-flow"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>9. The Crosscut Problem (0° vs Angled)</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <div class="grid-2">
+    <div>
+      <h3>0° Crosscut — clips actual face content</h3>
+      <p style="font-size:11px">Slices the panel with horizontal lines. Each rect and poly on the face gets clipped to the band <span class="inline-code">[yStart, yEnd]</span> using geometric intersection (Sutherland-Hodgman for polys). The slice shows exactly what was on the panel in that band.</p>
+      <div class="diagram">
+        <svg viewBox="0 0 220 140" width="220" height="140">
+          <!-- panel -->
+          <rect x="10" y="10" width="40" height="120" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="50" y="10" width="40" height="120" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="90" y="10" width="40" height="120" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="130" y="10" width="40" height="120" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <!-- cut lines -->
+          <line x1="5" y1="40" x2="175" y2="40" stroke="#c0392b" stroke-dasharray="4,3" stroke-width="1"/>
+          <line x1="5" y1="70" x2="175" y2="70" stroke="#c0392b" stroke-dasharray="4,3" stroke-width="1"/>
+          <line x1="5" y1="100" x2="175" y2="100" stroke="#c0392b" stroke-dasharray="4,3" stroke-width="1"/>
+          <!-- label -->
+          <text x="180" y="55" font-family="Geist Mono" font-size="8" fill="#c0392b">clips rects</text>
+          <text x="180" y="65" font-family="Geist Mono" font-size="8" fill="#c0392b">AND polys</text>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <h3>Angled Crosscut — creates NEW geometry from _strips</h3>
+      <p style="font-size:11px">Does NOT clip the actual face. Instead, reads <span class="inline-code">_strips</span> metadata and generates fresh parallelogram band polys. The face content is thrown away and rebuilt.</p>
+      <div class="diagram">
+        <svg viewBox="0 0 220 140" width="220" height="140">
+          <!-- panel -->
+          <rect x="10" y="10" width="40" height="120" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="50" y="10" width="40" height="120" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="90" y="10" width="40" height="120" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="130" y="10" width="40" height="120" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <!-- angled cut lines -->
+          <line x1="5" y1="50" x2="175" y2="10" stroke="#c0392b" stroke-dasharray="4,3" stroke-width="1"/>
+          <line x1="5" y1="80" x2="175" y2="40" stroke="#c0392b" stroke-dasharray="4,3" stroke-width="1"/>
+          <line x1="5" y1="110" x2="175" y2="70" stroke="#c0392b" stroke-dasharray="4,3" stroke-width="1"/>
+          <!-- label -->
+          <text x="180" y="50" font-family="Geist Mono" font-size="8" fill="#c0392b">ignores face</text>
+          <text x="180" y="60" font-family="Geist Mono" font-size="8" fill="#c0392b">rebuilds from</text>
+          <text x="180" y="70" font-family="Geist Mono" font-size="8" fill="#c0392b">_strips meta</text>
+        </svg>
+      </div>
+      <div class="issue">
+        <div class="issue-title">This is the fundamental problem</div>
+        <p style="margin-top:4px;font-size:11px">A second angled crosscut on an already-assembled panel would need to clip the existing pattern (which could contain rects, polys, or both). Instead it reads _strips and creates fresh bands, losing the actual pattern. Two fix attempts broke stacking and were reverted.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>10. The Rotate90 Face Swap</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>This is the conceptually trickiest operation. When you rotate a slice 90°, you're changing which face you see:</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 500 160" width="500" height="160">
+      <!-- BEFORE -->
+      <text x="10" y="15" font-family="Geist Mono" font-size="10" fill="#1c1917" font-weight="600">Before rotate90 (long-grain face up)</text>
+      <!-- 3D slice -->
+      <polygon points="20,40 170,40 185,28 35,28" fill="#e4cc8f" stroke="#1c1917" stroke-width="0.8"/>
+      <polygon points="170,40 170,65 185,53 185,28" fill="#c4aa6f" stroke="#1c1917" stroke-width="0.8"/>
+      <rect x="20" y="40" width="150" height="25" fill="#e4cc8f" stroke="#1c1917" stroke-width="0.8"/>
+      <rect x="70" y="40" width="50" height="25" fill="#3d2416" stroke="rgba(0,0,0,0.2)"/>
+      <!-- labels -->
+      <text x="95" y="55" font-family="Geist Mono" font-size="7" fill="#1c1917" text-anchor="middle">long-grain face (visible)</text>
+      <text x="20" y="80" font-family="Geist Mono" font-size="8" fill="#0369a1">width = panelWidth</text>
+      <text x="20" y="92" font-family="Geist Mono" font-size="8" fill="#0369a1">height = sliceThickness</text>
+      <text x="20" y="104" font-family="Geist Mono" font-size="8" fill="#b45309">thickness = stockThickness</text>
+
+      <!-- Arrow -->
+      <text x="220" y="50" font-family="Geist Mono" font-size="20" fill="#b45309">→</text>
+
+      <!-- AFTER -->
+      <text x="270" y="15" font-family="Geist Mono" font-size="10" fill="#1c1917" font-weight="600">After rotate90 (end-grain face up)</text>
+      <!-- 3D slice rotated -->
+      <polygon points="280,40 430,40 445,28 295,28" fill="#d4b487" stroke="#1c1917" stroke-width="0.8"/>
+      <polygon points="430,40 430,60 445,48 445,28" fill="#b09070" stroke="#1c1917" stroke-width="0.8"/>
+      <rect x="280" y="40" width="150" height="20" fill="#e4cc8f" stroke="#1c1917" stroke-width="0.8"/>
+      <rect x="330" y="40" width="50" height="20" fill="#3d2416" stroke="rgba(0,0,0,0.2)"/>
+      <!-- end grain dots -->
+      <circle cx="300" cy="50" r="0.8" fill="rgba(0,0,0,0.2)"/>
+      <circle cx="310" cy="47" r="0.8" fill="rgba(0,0,0,0.2)"/>
+      <circle cx="305" cy="53" r="0.8" fill="rgba(0,0,0,0.2)"/>
+      <circle cx="390" cy="50" r="0.8" fill="rgba(0,0,0,0.2)"/>
+      <circle cx="400" cy="47" r="0.8" fill="rgba(0,0,0,0.2)"/>
+      <!-- labels -->
+      <text x="355" y="53" font-family="Geist Mono" font-size="7" fill="#1c1917" text-anchor="middle">end-grain face (visible)</text>
+      <text x="280" y="80" font-family="Geist Mono" font-size="8" fill="#0369a1">width = panelWidth (unchanged)</text>
+      <text x="280" y="92" font-family="Geist Mono" font-size="8" fill="#0369a1">height = stockThickness ← was thickness</text>
+      <text x="280" y="104" font-family="Geist Mono" font-size="8" fill="#b45309">thickness = sliceThickness ← was height</text>
+      <text x="280" y="120" font-family="Geist Mono" font-size="8" fill="#6d28d9">grainDir = 'end-grain'</text>
+
+      <!-- key insight -->
+      <text x="280" y="145" font-family="Geist Mono" font-size="9" fill="#1c1917" font-weight="600">Face rebuilt from _strips — NOT rotated from old face.</text>
+      <text x="280" y="157" font-family="Geist Mono" font-size="9" fill="#78716c">Old face (long-grain) shows strip lengths. New face shows strip cross-sections.</text>
+    </svg>
+  </div>
+
+  <div class="note">
+    <strong>Why not just rotate the geometry?</strong> Because the long-grain face and end-grain face show completely different things.
+    The long-grain face shows the flat side of strips (each strip is a tall rectangle spanning the panel length).
+    The end-grain face shows the cross-section — each strip is a short band whose width = strip.width and height = stockThickness.
+    These are different physical surfaces, so the geometry must be rebuilt.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>11. Angled Cut Geometry Detail</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>For angle > 0, both crosscut and rotate90 produce parallelogram strip bands. The key parameter is <strong>skew</strong>.</p>
+
+  <pre><span class="comment">// In crosscut (long-grain face):</span>
+skew = sliceThickness × tan(θ)
+faceW = panelWidth / cos(θ) + skew
+
+<span class="comment">// In rotate90 (end-grain face):</span>
+skew = stockThickness × tan(θ)
+faceW = panelWidth + skew</pre>
+
+  <div class="diagram">
+    <svg viewBox="0 0 500 120" width="500" height="120">
+      <!-- Parallelogram bands -->
+      <text x="10" y="15" font-family="Geist Mono" font-size="10" fill="#1c1917" font-weight="600">Parallelogram band shape (one strip)</text>
+      <polygon points="30,90 80,90 120,30 70,30" fill="#e4cc8f" stroke="#1c1917" stroke-width="1"/>
+      <!-- labels -->
+      <text x="95" y="65" font-family="Geist Mono" font-size="8" fill="#0369a1">(cumX + uW, 0)</text>
+      <circle cx="120" cy="30" r="2" fill="#0369a1"/>
+      <text x="30" y="105" font-family="Geist Mono" font-size="8" fill="#0369a1">(cumX + skew, h)</text>
+      <circle cx="30" cy="90" r="2" fill="#0369a1"/>
+      <!-- arrows for skew -->
+      <line x1="70" y1="30" x2="70" y2="90" stroke="#b45309" stroke-dasharray="2,2" stroke-width="0.8"/>
+      <line x1="70" y1="90" x2="30" y2="90" stroke="#b45309" stroke-width="1.2"/>
+      <text x="45" y="110" font-family="Geist Mono" font-size="8" fill="#b45309" text-anchor="middle">skew</text>
+
+      <!-- points -->
+      <text x="200" y="35" font-family="Geist Mono" font-size="9" fill="#1c1917" font-weight="500">Each band's 4 vertices:</text>
+      <text x="200" y="52" font-family="Geist Mono" font-size="9" fill="#78716c">[cumX, 0]              top-left</text>
+      <text x="200" y="64" font-family="Geist Mono" font-size="9" fill="#78716c">[cumX + uW, 0]         top-right</text>
+      <text x="200" y="76" font-family="Geist Mono" font-size="9" fill="#78716c">[cumX + uW + skew, h]  bottom-right</text>
+      <text x="200" y="88" font-family="Geist Mono" font-size="9" fill="#78716c">[cumX + skew, h]       bottom-left</text>
+      <text x="200" y="108" font-family="Geist Mono" font-size="9" fill="#78716c">uW = strip.width / cos(θ)  <span style="font-style:italic">(crosscut)</span></text>
+      <text x="200" y="118" font-family="Geist Mono" font-size="9" fill="#78716c">uW = strip.width           <span style="font-style:italic">(rotate90)</span></text>
+    </svg>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>12. _strips Metadata — What It Is and Why It Exists</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p><span class="inline-code">_strips</span> is an array of <span class="inline-code">{ species, width }</span> attached to each slice by crosscut.
+  It records the original strip sequence of the panel that was cut.</p>
+
+  <h3>Who writes it</h3>
+  <p><strong>crosscut</strong> — extracts strips from the panel face rects (sorted by x), attaches to each slice.</p>
+
+  <h3>Who reads it</h3>
+  <table>
+    <tr><th>Consumer</th><th>How it uses _strips</th></tr>
+    <tr>
+      <td>rotate90</td>
+      <td>Rebuilds the end-grain face from strip positions + skew. The actual face geometry from crosscut is discarded.</td>
+    </tr>
+    <tr>
+      <td>crosscut (angled)</td>
+      <td>Uses _strips to generate parallelogram bands instead of clipping the face. Falls back to ctx.strips if _strips is empty.</td>
+    </tr>
+  </table>
+
+  <div class="issue">
+    <div class="issue-title">_strips is a lossy shortcut</div>
+    <p style="margin-top:4px;font-size:11px">It assumes the panel was made from simple parallel strips. After a panel has been through
+    flipAlternate + glueup (creating a checkerboard), _strips can't describe the face anymore.
+    This is why angled crosscut on assembled panels doesn't work — the face has a complex pattern that
+    can't be reconstructed from the original strip widths.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>13. Stack Auto-Orientation</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>Stack has no parameters. It just ensures each slice's longest edge is horizontal by rotating 90° CW if needed.</p>
+  <pre><span class="comment">// 90° CW rotation transform:</span>
+(x, y) → (oldHeight − y, x)
+
+<span class="comment">// Applied to rects:</span>
+{ x: oldH - r.y - r.h, y: r.x, w: r.h, h: r.w }
+
+<span class="comment">// Applied to poly points:</span>
+[x, y] → [oldH - y, x]</pre>
+
+  <div class="diagram">
+    <svg viewBox="0 0 440 100" width="440" height="100">
+      <!-- Before: tall -->
+      <rect x="10" y="5" width="30" height="80" fill="#e4cc8f" stroke="#1c1917" stroke-width="0.8"/>
+      <rect x="10" y="25" width="30" height="30" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+      <text x="25" y="98" font-family="Geist Mono" font-size="7" fill="#78716c" text-anchor="middle">30×80 (h > w)</text>
+
+      <text x="60" y="48" font-family="Geist Mono" font-size="14" fill="#b45309">→</text>
+
+      <!-- After: wide -->
+      <rect x="80" y="20" width="80" height="30" fill="#e4cc8f" stroke="#1c1917" stroke-width="0.8"/>
+      <rect x="110" y="20" width="30" height="30" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+      <text x="120" y="65" font-family="Geist Mono" font-size="7" fill="#78716c" text-anchor="middle">80×30 (now w > h)</text>
+
+      <!-- Note -->
+      <text x="200" y="25" font-family="Geist Mono" font-size="9" fill="#1c1917" font-weight="500">Important:</text>
+      <text x="200" y="40" font-family="Geist Mono" font-size="9" fill="#78716c">Stack does NOT transpose (swap x↔y).</text>
+      <text x="200" y="52" font-family="Geist Mono" font-size="9" fill="#78716c">It rotates 90° CW. The difference</text>
+      <text x="200" y="64" font-family="Geist Mono" font-size="9" fill="#78716c">matters for parallelogram bands —</text>
+      <text x="200" y="76" font-family="Geist Mono" font-size="9" fill="#78716c">transpose would mirror them.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>14. Flip & Shift Transforms</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <div class="grid-2">
+    <div>
+      <h3>flipAlternate (horizontal mirror)</h3>
+      <pre><span class="comment">// Mirrors odd slices:</span>
+rect.x → face.width − x − w
+poly point [x,y] → [face.width − x, y]</pre>
+      <div class="diagram">
+        <svg viewBox="0 0 200 90" width="200" height="90">
+          <rect x="10" y="5" width="20" height="30" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="30" y="5" width="20" height="30" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="50" y="5" width="20" height="30" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="70" y="5" width="20" height="30" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <text x="50" y="50" font-family="Geist Mono" font-size="7" fill="#78716c" text-anchor="middle">even (unchanged)</text>
+          <!-- flipped -->
+          <rect x="110" y="5" width="20" height="30" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="130" y="5" width="20" height="30" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="150" y="5" width="20" height="30" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="170" y="5" width="20" height="30" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <text x="150" y="50" font-family="Geist Mono" font-size="7" fill="#b45309" text-anchor="middle">odd (mirrored)</text>
+          <!-- arrows -->
+          <line x1="120" y1="56" x2="170" y2="56" stroke="#b45309" stroke-width="0.8"/>
+          <polygon points="117,56 121,54 121,58" fill="#b45309"/>
+          <polygon points="173,56 169,54 169,58" fill="#b45309"/>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <h3>shiftAlternate (wrap-around offset)</h3>
+      <pre><span class="comment">// Shifts odd slices left by `shift` mm:</span>
+rect.x → rect.x − shift
+<span class="comment">// Rects that cross x=0 or x=width</span>
+<span class="comment">// get SPLIT into two pieces.</span></pre>
+      <div class="diagram">
+        <svg viewBox="0 0 200 90" width="200" height="90">
+          <rect x="10" y="5" width="40" height="20" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="50" y="5" width="10" height="20" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="60" y="5" width="40" height="20" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <text x="55" y="40" font-family="Geist Mono" font-size="7" fill="#78716c" text-anchor="middle">even (unchanged)</text>
+          <!-- shifted -->
+          <rect x="10" y="50" width="15" height="20" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="25" y="50" width="10" height="20" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="35" y="50" width="40" height="20" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="75" y="50" width="10" height="20" fill="#3d2416" stroke="rgba(0,0,0,0.1)"/>
+          <rect x="85" y="50" width="15" height="20" fill="#e4cc8f" stroke="rgba(0,0,0,0.1)"/>
+          <text x="55" y="85" font-family="Geist Mono" font-size="7" fill="#b45309" text-anchor="middle">odd (shifted + wrapped)</text>
+          <!-- shift arrow -->
+          <line x1="120" y1="15" x2="120" y2="60" stroke="#b45309" stroke-dasharray="2,2" stroke-width="0.8"/>
+          <text x="130" y="40" font-family="Geist Mono" font-size="7" fill="#b45309">shift</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>15. Trim — Scanline Approach</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <p>Trim finds the largest axis-aligned rectangle fully covered by content. Used after chevron glueup to remove the jagged edges from angled cuts.</p>
+
+  <pre><span class="comment">// Algorithm:</span>
+1. Convert all rects to polygon form (4 corners)
+2. Sample 50 horizontal scan lines across face height
+3. For each scan line, intersect with all polygon edges
+4. Track the leftmost and rightmost x with content
+5. xMin = max(all rowLefts), xMax = min(all rowRights)
+6. Clip all geometry to [xMin, xMax] × [0, height]</pre>
+
+  <div class="diagram">
+    <svg viewBox="0 0 340 120" width="340" height="120">
+      <!-- Angled panel with waste -->
+      <polygon points="40,10 160,10 200,100 80,100" fill="#e4cc8f" stroke="#1c1917" stroke-width="0.8" opacity="0.4"/>
+      <polygon points="40,10 100,10 140,100 80,100" fill="#3d2416" stroke="rgba(0,0,0,0.1)" opacity="0.4"/>
+      <!-- Trim rect -->
+      <rect x="80" y="10" width="80" height="90" fill="none" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <!-- Scan lines -->
+      <line x1="30" y1="30" x2="210" y2="30" stroke="rgba(0,100,200,0.2)" stroke-width="0.5"/>
+      <line x1="30" y1="55" x2="210" y2="55" stroke="rgba(0,100,200,0.2)" stroke-width="0.5"/>
+      <line x1="30" y1="80" x2="210" y2="80" stroke="rgba(0,100,200,0.2)" stroke-width="0.5"/>
+      <!-- Labels -->
+      <text x="120" y="60" font-family="Geist Mono" font-size="8" fill="#c0392b" text-anchor="middle">trim rect</text>
+      <text x="230" y="30" font-family="Geist Mono" font-size="8" fill="#78716c">scan lines sample</text>
+      <text x="230" y="42" font-family="Geist Mono" font-size="8" fill="#78716c">x coverage per row</text>
+      <text x="230" y="60" font-family="Geist Mono" font-size="8" fill="#78716c">trim rect = intersection</text>
+      <text x="230" y="72" font-family="Geist Mono" font-size="8" fill="#78716c">of all row coverages</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>16. Reactive State (Preact signals)</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <pre><span class="comment">// state.js — signals drive the UI</span>
+
+<span class="type-name">signal</span>   stripPattern    <span class="comment">// StripPattern — user edits this</span>
+<span class="type-name">signal</span>   operations      <span class="comment">// Operation[] — user adds/removes/edits</span>
+<span class="type-name">signal</span>   stockThickness  <span class="comment">// number — mm</span>
+<span class="type-name">signal</span>   activePreset    <span class="comment">// string | null</span>
+
+<span class="type-name">computed</span> snapshots       <span class="comment">// = evaluate(stripPattern, operations, stockThickness)</span>
+<span class="type-name">computed</span> face            <span class="comment">// = finalFace(snapshots)</span></pre>
+
+  <p style="margin-top:8px">Preset selection uses <span class="inline-code">batch()</span> to set all 3 input signals atomically — one re-evaluation, not three.</p>
+
+  <div class="flow-row" style="margin-top:12px">
+    <div class="flow-box">User drags slider</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">signal.value = x</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box active">computed: evaluate()</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">snapshots updates</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">components re-render</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>17. Rendering Layer</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <h3>drawLayout(svg, face, box)</h3>
+  <p>The ONE rendering function. Takes a Face and a bounding box, scales to fit, draws all rects and polys as SVG elements.</p>
+  <pre><span class="comment">// Scaling:</span>
+scale = min(box.w / face.width, box.h / face.height)
+
+<span class="comment">// Each rect:</span>
+&lt;rect x={ox + r.x*scale} y={oy + r.y*scale} width={r.w*scale} height={r.h*scale} fill={SPECIES[r.species].color}/&gt;
+
+<span class="comment">// Each poly:</span>
+&lt;polygon points={p.points.map(([x,y]) =&gt; `${ox+x*scale},${oy+y*scale}`)} fill={SPECIES[p.species].color}/&gt;</pre>
+
+  <h3>Stage renderers vs Result rendering</h3>
+  <table>
+    <tr><th>Context</th><th>What it shows</th><th>How</th></tr>
+    <tr><td>Pipeline card</td><td>The operation being performed</td><td><span class="inline-code">renderStage(svg, snap, prevSnap, box)</span> — shows annotations (cut lines, arrows, labels)</td></tr>
+    <tr><td>Result card</td><td>The output of the last operation</td><td><span class="inline-code">drawLayout(svg, face, box)</span> — just the face, no annotations</td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>18. File Map</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <table>
+    <tr><th>File</th><th>Role</th><th>Key exports</th></tr>
+    <tr><td>evaluate.js</td><td>Pure pipeline engine</td><td>evaluate, expandStrips, finalFace, PRESETS, buildDiagonalBands</td></tr>
+    <tr><td>pipeline.js</td><td>Species palette, cut-list math</td><td>SPECIES, stockLengthMm, cutListText</td></tr>
+    <tr><td>render.js</td><td>Face → SVG</td><td>drawLayout, layoutToSvgString, el</td></tr>
+    <tr><td>stage-renderers.js</td><td>Per-op visualization</td><td>renderStage</td></tr>
+    <tr><td>state.js</td><td>Preact signals</td><td>stripPattern, operations, snapshots, face, applyPreset</td></tr>
+    <tr><td>main.jsx</td><td>Preact app entry</td><td>App component</td></tr>
+    <tr><td>components/*.jsx</td><td>UI components</td><td>PresetPicker, StripEditor, OperationList, PipelineView, FinalFace, etc.</td></tr>
+    <tr><td>workbench.html/js</td><td>Interactive ops workbench</td><td>Sidebar + pipeline cards + result</td></tr>
+    <tr><td>ops-test.html/js</td><td>Per-operation test page</td><td>Input → Op → Output table</td></tr>
+    <tr><td>evaluate.test.js</td><td>Vitest unit tests</td><td>27 tests covering all operations + presets</td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>19. Known Issues & Limitations</h2>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section">
+  <div class="issue" style="margin-bottom:10px">
+    <div class="issue-title">1. Angled crosscut on assembled panels</div>
+    <p style="margin-top:4px;font-size:11px">Crosscut at angle > 0 ignores the actual face content and rebuilds from _strips metadata.
+    This means a second crosscut on a re-glued panel (like cutting a checkerboard at 45°) produces
+    plain strip bands instead of the actual checkerboard pattern cut diagonally. Two fix attempts
+    (shear-clip-unshear) produced faces with incorrect bounding boxes that broke stacking.</p>
+  </div>
+
+  <div class="issue" style="margin-bottom:10px">
+    <div class="issue-title">2. shiftAlternate ignores polys</div>
+    <p style="margin-top:4px;font-size:11px">Only shifts rects. If a slice has poly geometry (from angled cuts), the polys stay in place while rects shift.</p>
+  </div>
+
+  <div class="issue" style="margin-bottom:10px">
+    <div class="issue-title">3. _strips assumes simple parallel strips</div>
+    <p style="margin-top:4px;font-size:11px">After operations that modify the pattern (flip, shift, re-glue), _strips no longer describes the face.
+    rotate90 still reads _strips to build the end-grain face, which is correct for the first pass but would be
+    wrong for a second rotate on an already-modified panel.</p>
+  </div>
+
+  <div class="issue">
+    <div class="issue-title">4. Trim uses sampling, not exact geometry</div>
+    <p style="margin-top:4px;font-size:11px">50 scan lines means the trim rectangle is approximate. For nearly-horizontal polygon edges,
+    this could miss the tightest constraint. Generally good enough in practice.</p>
+  </div>
+</div>
+
+<script type="module">
+import { evaluate, PRESETS, expandStrips } from './evaluate.js';
+
+// Build the dimension flow diagram dynamically using actual data
+const container = document.getElementById('dim-flow');
+
+const presets = [
+  { key: 'checkerboard', label: 'Checkerboard' },
+  { key: 'brick', label: 'Brick' },
+  { key: 'chevron', label: 'Chevron' },
+];
+
+for (const { key, label } of presets) {
+  const p = PRESETS[key];
+  const snaps = evaluate(p.stripPattern, p.operations, p.stockThickness);
+
+  const div = document.createElement('div');
+  div.style.marginBottom = '16px';
+
+  const title = document.createElement('h3');
+  title.textContent = `${label} preset`;
+  div.appendChild(title);
+
+  const table = document.createElement('table');
+  table.innerHTML = `<tr><th>#</th><th>Operation</th><th>Kind</th><th>face.width</th><th>face.height</th><th>thickness</th><th>grainDir</th><th>rects</th><th>polys</th></tr>`;
+
+  snaps.forEach((snap, i) => {
+    const ws = snap.workState;
+    const tr = document.createElement('tr');
+    if (ws.kind === 'panel') {
+      const wp = ws.workpiece;
+      const f = wp.face;
+      tr.innerHTML = `<td>${i+1}</td><td>${snap.op.type}</td><td>panel</td>
+        <td>${r(f.width)}</td><td>${r(f.height)}</td><td>${wp.thickness}</td>
+        <td>${wp.grainDir}</td><td>${f.rects.length}</td><td>${f.polys.length}</td>`;
+    } else {
+      const s = ws.slices[0];
+      const f = s.face;
+      tr.innerHTML = `<td>${i+1}</td><td>${snap.op.type}</td><td>${ws.slices.length} slices</td>
+        <td>${r(f.width)}</td><td>${r(f.height)}</td><td>${s.thickness}</td>
+        <td>${s.grainDir}</td><td>${f.rects.length}</td><td>${f.polys.length}</td>`;
+    }
+    table.appendChild(tr);
+  });
+
+  div.appendChild(table);
+  container.appendChild(div);
+}
+
+function r(n) { return Math.round(n * 10) / 10; }
+</script>
+
+</body>
+</html>
