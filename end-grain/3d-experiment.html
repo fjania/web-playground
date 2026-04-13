@@ -70,7 +70,8 @@ scene.background = new THREE.Color(0x1c1917);
 
 // ─── Lighting ──────────────────────────────────────────────────────
 
-const key = new THREE.DirectionalLight(0xfff5e6, 2.0);
+// Key light from above-right
+const key = new THREE.DirectionalLight(0xfff5e6, 1.6);
 key.position.set(300, 400, 200);
 key.castShadow = true;
 key.shadow.mapSize.set(1024, 1024);
@@ -78,8 +79,22 @@ key.shadow.camera.near = 50;  key.shadow.camera.far = 1200;
 key.shadow.camera.left = -500; key.shadow.camera.right = 500;
 key.shadow.camera.top = 500;  key.shadow.camera.bottom = -500;
 scene.add(key);
-scene.add(new THREE.DirectionalLight(0xc8d8e8, 0.6).translateX(-200).translateY(100).translateZ(-100));
-scene.add(new THREE.AmbientLight(0x2a2420, 0.8));
+
+// Fill from opposite side
+scene.add(new THREE.DirectionalLight(0xc8d8e8, 0.8).translateX(-200).translateY(100).translateZ(-100));
+
+// Fill from BELOW so downward-facing surfaces are visible
+const underFill = new THREE.DirectionalLight(0xd4c8b8, 0.7);
+underFill.position.set(0, -300, 0);
+scene.add(underFill);
+
+// Back fill so nothing goes fully dark when orbited behind
+const backFill = new THREE.DirectionalLight(0xb8c0c8, 0.4);
+backFill.position.set(-100, 200, -300);
+scene.add(backFill);
+
+// Stronger ambient so no face is ever black
+scene.add(new THREE.AmbientLight(0x4a4440, 1.2));
 
 // ─── Ground ────────────────────────────────────────────────────────
 
