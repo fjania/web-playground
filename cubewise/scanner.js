@@ -203,6 +203,17 @@ export class Scanner {
 
   getScanOrder() { return SCAN_ORDER; }
 
+  // Jump back to rescan a specific face
+  rescanFace(face) {
+    const idx = SCAN_ORDER.findIndex(s => s.face === face);
+    if (idx === -1) return;
+    delete this.scannedFaces[face];
+    this.scanStep = idx;
+    this._stableFrames = 0;
+    this._lastColors = null;
+    if (this.onStepChange) this.onStepChange(this.scanStep);
+  }
+
   // Manual capture
   capture() {
     return this._doCapture();

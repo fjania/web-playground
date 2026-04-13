@@ -183,8 +183,11 @@ function setMode(newMode) {
 }
 
 // ---- Augmented mode: scanning ----
-const FACE_TO_CSS = { F:'cd-front', R:'cd-right', B:'cd-back', L:'cd-left', U:'cd-top', D:'cd-bottom' };
+const FACE_CSS = { F:'cd-front', R:'cd-right', B:'cd-back', L:'cd-left', U:'cd-top', D:'cd-bottom' };
 const FACE_LABEL = { F:'Front', R:'Right', B:'Back', L:'Left', U:'Top', D:'Bottom' };
+const COLOR_HEX_FULL = { W:'#ffffff', Y:'#ffd500', G:'#009b48', B:'#0045ad', R:'#b90000', O:'#ff5900' };
+// Dimmed versions for uncaptured faces
+const FACE_DIM_COLOR = { F:'rgba(0,155,72,0.18)', R:'rgba(185,0,0,0.18)', B:'rgba(0,69,173,0.18)', L:'rgba(255,89,0,0.18)', U:'rgba(255,255,255,0.18)', D:'rgba(255,213,0,0.18)' };
 
 async function startScanning() {
   const ok = await scanner.start(
@@ -198,30 +201,75 @@ async function startScanning() {
   updateScanUI();
 }
 
-function renderCubeDiagram(activeFace, arrow) {
+function renderCubeDiagram(activeFace, stepIndex) {
   const el = document.getElementById('cube-diagram');
   const faces = ['F','R','B','L','U','D'];
-  const cssMap = { F:'cd-front', R:'cd-right', B:'cd-back', L:'cd-left', U:'cd-top', D:'cd-bottom' };
+  const step = stepIndex != null ? String(stepIndex) : 'done';
 
-  let html = '<div class="cd-cube">';
+  let html = `<div class="cd-cube" data-step="${step}">`;
   for (const f of faces) {
     const active = f === activeFace ? ' cd-active' : '';
-    const label = f === activeFace ? FACE_LABEL[f] : '';
-    html += `<div class="cd-face ${cssMap[f]}${active}">${label}</div>`;
+    const captured = scanner.getFaceColors(f);
+
+    html += `<div class="cd-face ${FACE_CSS[f]}${active}">`;
+
+    // 9 cells: captured = real colors, uncaptured = grey with colored center only
+    for (let i = 0; i < 9; i++) {
+      let bg;
+      if (captured) {
+        bg = COLOR_HEX_FULL[captured[i]];
+      } else if (i === 4) {
+        // Center tile: always the known face color
+        bg = COLOR_HEX_FULL[COLORS[f]];
+      } else {
+        bg = 'rgba(180,180,180,0.35)';
+      }
+      html += `<div class="cd-cell" style="background:${bg}"></div>`;
+    }
+
+    // Label on active face
+    if (f === activeFace && !captured) {
+      html += `<div class="cd-label" style="color:white;font-size:0.7rem;">SCAN</div>`;
+    }
+
+    html += '</div>';
   }
   html += '</div>';
 
-  // Arrow showing rotation direction
-  if (arrow) {
-    const arrowPositions = {
-      '→': 'right: -5px; top: 50%; transform: translateY(-50%);',
-      '↑': 'top: -5px; left: 50%; transform: translateX(-50%);',
-      '↓': 'bottom: -5px; left: 50%; transform: translateX(-50%);',
-    };
-    html += `<div class="cd-arrow" style="${arrowPositions[arrow] || ''}">${arrow}</div>`;
-  }
+  // Animated SVG arrow showing rotation direction
+  const arrows = _buildArrowSVG(stepIndex);
+  if (arrows) html += arrows;
 
   el.innerHTML = html;
+}
+
+function _buildArrowSVG(stepIndex) {
+  if (stepIndex == null) return '';
+
+  // Arrow configs: position, path, and arrowhead for each transition
+  // These are positioned relative to the 160x160 diagram container
+  const configs = {
+    // F→R: curved arrow sweeping right
+    1: { x: 120, y: 70, path: 'M0,0 Q15,-25 10,-45', head: '5,-48 15,-48 10,-55' },
+    // R→B: same direction
+    2: { x: 120, y: 70, path: 'M0,0 Q15,-25 10,-45', head: '5,-48 15,-48 10,-55' },
+    // B→L: same direction
+    3: { x: 120, y: 70, path: 'M0,0 Q15,-25 10,-45', head: '5,-48 15,-48 10,-55' },
+    // L→U: tilt back (upward arrow)
+    4: { x: 80, y: 15, path: 'M0,0 Q-20,-10 -35,5', head: '-38,0 -38,10 -45,5' },
+    // U→D: tilt forward (downward arrow)
+    5: { x: 80, y: 145, path: 'M0,0 Q-20,10 -35,-5', head: '-38,0 -38,-10 -45,-5' },
+  };
+
+  const cfg = configs[stepIndex];
+  if (!cfg) return '';
+
+  return `<div class="cd-arrow-wrap" style="left:${cfg.x}px;top:${cfg.y}px;">
+    <svg width="60" height="60" viewBox="-50 -60 60 70">
+      <path class="arrow-path" d="${cfg.path}" />
+      <polygon class="arrow-head" points="${cfg.head}" />
+    </svg>
+  </div>`;
 }
 
 function updateScanUI() {
@@ -250,7 +298,7 @@ function updateScanUI() {
     }
 
     document.getElementById('btn-capture').textContent = 'Capture (Space)';
-    renderCubeDiagram(step.face, scanner.getScanOrder()[scanner.scanStep].arrow);
+    renderCubeDiagram(step.face, scanner.scanStep);
   }
 
   updateScanPreview();
@@ -264,18 +312,33 @@ function updateScanPreview() {
   for (const face of FACE_NAMES) {
     const colors = scanner.getFaceColors(face);
     const scanned = colors ? ' scanned' : '';
-    html += `<div class="scan-face-mini${scanned}" data-face="${face}" title="${face} face">`;
+    html += `<div class="scan-face-wrap" data-face="${face}">`;
+    html += `<div class="scan-face-mini${scanned}" data-face="${face}" title="${FACE_LABEL[face]} face (${face})">`;
     for (let i = 0; i < 9; i++) {
       const c = colors ? colors[i] : COLORS[face];
       html += `<div class="sf-cell" style="background:${COLOR_HEX[c]}"></div>`;
     }
     html += '</div>';
+    if (colors) {
+      html += `<button class="btn-rescan" data-face="${face}" title="Rescan ${FACE_LABEL[face]}">redo</button>`;
+    }
+    html += '</div>';
   }
   preview.innerHTML = html;
 
+  // Click scanned face → color picker for manual correction
   for (const el of preview.querySelectorAll('.scan-face-mini.scanned')) {
     el.addEventListener('click', () => {
       colorPicker.show(el.dataset.face);
+    });
+  }
+
+  // Rescan button → jump back to that face
+  for (const btn of preview.querySelectorAll('.btn-rescan')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      scanner.rescanFace(btn.dataset.face);
+      updateScanUI();
     });
   }
 }
