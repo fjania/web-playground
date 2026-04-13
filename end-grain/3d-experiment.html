@@ -110,17 +110,30 @@ const cubeSize = 50, cubeCount = 8;
 const halfLen = (cubeCount * cubeSize) / 2; // 200
 const halfZ = cubeSize / 2;                 // 25
 
-// ─── Two fixed cutting planes ──────────────────────────────────────
+// ─── Two cutting planes ────────────────────────────────────────────
 //
-// Plane A: diagonal from left-front edge to right-back edge.
+// Plane A: diagonal from left-front edge to right-back edge (fixed).
 //   Passes through (-200, y, -25) and (200, y, 25) for all y.
 //   Normal = normalize(1, 0, -8). Constant = 0.
 //
-// Plane B: horizontal at y = 25 (halfway up the 50mm strip).
-//   Normal = (0, 1, 0). Constant = -25.
+// Plane B: passes through the strip center with random roll.
+//   Starts as horizontal (0,1,0) at y=25, then rolls around the
+//   strip's longitudinal axis (the X axis through the center of both
+//   end faces). Random angle θ ∈ [-60°, 60°] on each load.
+//
+//   Roll axis: X, through (0, 25, 0).
+//   Rolled normal: (0, cos(θ), sin(θ)).
+//   Plane passes through (0, 25, 0), so constant = -dot(n, center).
 
 const cutA = { normal: new THREE.Vector3(1, 0, -8).normalize(), constant: 0 };
-const cutB = { normal: new THREE.Vector3(0, 1, 0),              constant: -25 };
+
+const rollDeg = (Math.random() - 0.5) * 120; // −60° to +60°
+const rollRad = rollDeg * Math.PI / 180;
+const bNormal = new THREE.Vector3(0, Math.cos(rollRad), Math.sin(rollRad)).normalize();
+const bCenter = new THREE.Vector3(0, cubeSize / 2, 0); // strip center
+const cutB = { normal: bNormal, constant: -bNormal.dot(bCenter) };
+
+console.log(`Plane B roll: ${rollDeg.toFixed(1)}°`);
 
 // ─── CSG helper: build a half-space brush ──────────────────────────
 
