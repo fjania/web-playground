@@ -28,8 +28,8 @@
 </head>
 <body>
 <div id="info">
-  <strong>End Grain — 2-plane CSG</strong><br>
-  <span class="accent">2 random cuts · all pieces</span><br>
+  <strong>End Grain — 2 fixed cuts</strong><br>
+  <span class="accent">diagonal + horizontal</span><br>
   orbit any view to orbit all
 </div>
 
@@ -55,14 +55,15 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1c1917);
 
 // Lighting
-const key = new THREE.DirectionalLight(0xfff5e6, 1.6);
-key.position.set(300, 400, 200);
-key.castShadow = true;
-key.shadow.mapSize.set(1024, 1024);
-key.shadow.camera.near = 50; key.shadow.camera.far = 1200;
-key.shadow.camera.left = -500; key.shadow.camera.right = 500;
-key.shadow.camera.top = 500; key.shadow.camera.bottom = -500;
-scene.add(key);
+scene.add((() => {
+  const k = new THREE.DirectionalLight(0xfff5e6, 1.6);
+  k.position.set(300, 400, 200); k.castShadow = true;
+  k.shadow.mapSize.set(1024, 1024);
+  k.shadow.camera.near = 50; k.shadow.camera.far = 1200;
+  k.shadow.camera.left = -500; k.shadow.camera.right = 500;
+  k.shadow.camera.top = 500; k.shadow.camera.bottom = -500;
+  return k;
+})());
 scene.add(new THREE.DirectionalLight(0xc8d8e8, 0.8).translateX(-200).translateY(100).translateZ(-100));
 scene.add(new THREE.DirectionalLight(0xd4c8b8, 0.7).translateY(-300));
 scene.add(new THREE.DirectionalLight(0xb8c0c8, 0.4).translateX(-100).translateY(200).translateZ(-300));
@@ -73,112 +74,119 @@ const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(1200, 1200),
   new THREE.MeshStandardMaterial({ color: 0x262220, roughness: 0.9 })
 );
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.5;
-ground.receiveShadow = true;
-scene.add(ground);
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.5;
+ground.receiveShadow = true; scene.add(ground);
 
 // ─── Wood materials ────────────────────────────────────────────────
 
-function makeEndGrainTexture(base, ring) {
+function makeEndGrainTex(base, ring) {
   const s = 256, c = document.createElement('canvas'); c.width = s; c.height = s;
   const x = c.getContext('2d'); x.fillStyle = base; x.fillRect(0, 0, s, s);
-  const cx = s * 0.48, cy = s * 0.52;
   for (let i = 12; i >= 1; i--) {
-    x.beginPath(); x.arc(cx, cy, (i/12)*s*0.45, 0, Math.PI*2);
-    x.strokeStyle = ring; x.lineWidth = 1.2; x.globalAlpha = 0.25+(i/12)*0.15; x.stroke();
+    x.beginPath(); x.arc(s*.48, s*.52, (i/12)*s*.45, 0, Math.PI*2);
+    x.strokeStyle = ring; x.lineWidth = 1.2; x.globalAlpha = .25+(i/12)*.15; x.stroke();
   }
-  x.globalAlpha = 1; x.beginPath(); x.arc(cx, cy, 3, 0, Math.PI*2);
-  x.fillStyle = ring; x.globalAlpha = 0.6; x.fill();
+  x.globalAlpha = 1;
   return new THREE.CanvasTexture(c);
 }
 function makeSideMat(base, grain) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 256;
   const x = c.getContext('2d'); x.fillStyle = base; x.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 30; i++) {
     const px = Math.random()*256; x.beginPath(); x.moveTo(px, 0);
-    for (let y = 0; y < 256; y += 10) x.lineTo(px+(Math.random()-0.5)*4, y);
-    x.strokeStyle = grain; x.lineWidth = 0.8+Math.random()*1.2;
-    x.globalAlpha = 0.12+Math.random()*0.15; x.stroke();
+    for (let y = 0; y < 256; y += 10) x.lineTo(px+(Math.random()-.5)*4, y);
+    x.strokeStyle = grain; x.lineWidth = .8+Math.random(); x.globalAlpha = .1+Math.random()*.15; x.stroke();
   }
   return new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.65 });
 }
 function makeWoodMats(base, ring, grain) {
-  const e = new THREE.MeshStandardMaterial({ map: makeEndGrainTexture(base, ring), roughness: 0.7 });
+  const e = new THREE.MeshStandardMaterial({ map: makeEndGrainTex(base, ring), roughness: 0.7 });
   const s = makeSideMat(base, grain);
   return [s, s, e, e, s, s];
 }
+
 const mapleMats = makeWoodMats('#e4cc8f', '#b5a06a', '#c4aa70');
 const walnutMats = makeWoodMats('#3d2416', '#2a1a0e', '#4a2e1a');
 const mapleCut = new THREE.MeshStandardMaterial({ color: 0xe4cc8f, roughness: 0.75 });
 const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0.75 });
 
-// ─── Strip ─────────────────────────────────────────────────────────
+// ─── Strip dimensions ──────────────────────────────────────────────
 
 const cubeSize = 50, cubeCount = 8;
-const halfLen = (cubeCount * cubeSize) / 2;
-const halfZ = cubeSize / 2;
+const halfLen = (cubeCount * cubeSize) / 2; // 200
+const halfZ = cubeSize / 2;                 // 25
 
-// ─── Two random full-length cutting planes ─────────────────────────
+// ─── Two fixed cutting planes ──────────────────────────────────────
+//
+// Plane A: diagonal from left-front edge to right-back edge.
+//   Passes through (-200, y, -25) and (200, y, 25) for all y.
+//   Normal = normalize(1, 0, -8). Constant = 0.
+//
+// Plane B: horizontal at y = 25 (halfway up the 50mm strip).
+//   Normal = (0, 1, 0). Constant = -25.
 
-function randomFullLengthPlane() {
-  const margin = 8;
-  const yr = cubeSize - 2 * margin, zr = cubeSize - 2 * margin;
-  const y1 = margin + Math.random() * yr, z1 = -halfZ + margin + Math.random() * zr;
-  const y2 = margin + Math.random() * yr, z2 = -halfZ + margin + Math.random() * zr;
-  const P1 = new THREE.Vector3(-halfLen, y1, z1);
-  const P2 = new THREE.Vector3(halfLen, y2, z2);
-  const d = new THREE.Vector3().subVectors(P2, P1);
-  const theta = Math.random() * Math.PI * 2;
-  const v = new THREE.Vector3(0, Math.cos(theta), Math.sin(theta));
-  const normal = new THREE.Vector3().crossVectors(d, v).normalize();
-  const constant = -normal.dot(P1);
-  return { normal, constant };
-}
+const cutA = { normal: new THREE.Vector3(1, 0, -8).normalize(), constant: 0 };
+const cutB = { normal: new THREE.Vector3(0, 1, 0),              constant: -25 };
 
-const cutA = randomFullLengthPlane();
-const cutB = randomFullLengthPlane();
+// ─── CSG helper: build a half-space brush ──────────────────────────
 
-// ─── Build half-space brush for a cut ──────────────────────────────
-
-const halfSpaceSize = 800;
-function makeHalfSpace(cut, material) {
-  const b = new Brush(
-    new THREE.BoxGeometry(halfSpaceSize, halfSpaceSize, halfSpaceSize),
-    material
-  );
+const HS = 800;
+function makeHalfSpace(cut, mat) {
+  const b = new Brush(new THREE.BoxGeometry(HS, HS, HS), mat);
   b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), cut.normal);
   const pp = cut.normal.clone().multiplyScalar(-cut.constant);
-  b.position.copy(pp.add(cut.normal.clone().multiplyScalar(-halfSpaceSize / 2)));
+  b.position.copy(pp.add(cut.normal.clone().multiplyScalar(-HS / 2)));
   b.updateMatrixWorld();
   return b;
 }
 
-// ─── CSG: two cuts → up to 4 pieces per cube ──────────────────────
+// ─── CSG: apply each plane independently, then combine ─────────────
 //
-// For each cube, apply both planes:
-//   piece 0: above A, above B  → SUB(A) then SUB(B)
-//   piece 1: above A, below B  → SUB(A) then INTER(B)
-//   piece 2: below A, above B  → INTER(A) then SUB(B)
-//   piece 3: below A, below B  → INTER(A) then INTER(B)
+// Instead of chaining CSG (which produces garbage), apply each plane
+// SEPARATELY to the original cube, producing 2 meshes per plane.
+// Then intersect the pairs to get the 4 quadrant pieces:
 //
-// Some pieces may be empty if the plane doesn't intersect that cube.
+//   piece 0 (above A ∩ above B): cubeA_top ∩ complement_of_halfB
+//   piece 1 (above A ∩ below B): cubeA_top ∩ halfB
+//   piece 2 (below A ∩ above B): cubeA_bot ∩ complement_of_halfB
+//   piece 3 (below A ∩ below B): cubeA_bot ∩ halfB
+//
+// But this STILL chains. The real fix: for each piece, build a SINGLE
+// cutting volume that represents the intersection of two half-spaces,
+// then do one CSG operation against the cube.
+//
+// A ∩ B half-space = intersection of two boxes = ...also complex.
+//
+// Simplest reliable approach: do the cuts SEQUENTIALLY on the full
+// strip (not per-cube). Build one merged strip brush, cut by A into
+// two halves, then cut each half by B.
 
 const evaluator = new Evaluator();
 
-// 4 groups (one per piece region). Not all will have content.
+// Step 1: Merge all cubes into one strip brush by unioning them.
+// Since they're axis-aligned boxes that share faces, we can just
+// create one long box. But we need per-cube materials... So instead,
+// do the 2-step approach PER CUBE but more carefully.
+//
+// ACTUALLY: the simplest fix for chaining is to ensure the
+// intermediate result is a proper Brush. The issue before was likely
+// that the result Mesh doesn't have _needsUpdate set. Let's try
+// using evaluator.evaluate which returns a result that can be passed
+// directly as operandA to another evaluate (it IS a Brush already in
+// three-bvh-csg v3+).
+
 const pieceGroups = [
-  new THREE.Group(), // A+B+
-  new THREE.Group(), // A+B-
-  new THREE.Group(), // A-B+
-  new THREE.Group(), // A-B-
+  new THREE.Group(), // above A, above B
+  new THREE.Group(), // above A, below B
+  new THREE.Group(), // below A, above B
+  new THREE.Group(), // below A, below B
 ];
 
-const ops = [
-  [SUBTRACTION, SUBTRACTION],   // above A, above B
-  [SUBTRACTION, INTERSECTION],  // above A, below B
-  [INTERSECTION, SUBTRACTION],  // below A, above B
-  [INTERSECTION, INTERSECTION], // below A, below B
+const combos = [
+  [SUBTRACTION, SUBTRACTION],
+  [SUBTRACTION, INTERSECTION],
+  [INTERSECTION, SUBTRACTION],
+  [INTERSECTION, INTERSECTION],
 ];
 
 for (let i = 0; i < cubeCount; i++) {
@@ -186,49 +194,49 @@ for (let i = 0; i < cubeCount; i++) {
   const y = cubeSize / 2;
   const isMaple = i % 2 === 0;
   const cutMat = isMaple ? mapleCut : walnutCut;
+  const mats = isMaple ? mapleMats : walnutMats;
 
-  const cubeBrush = new Brush(
-    new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize),
-    isMaple ? mapleMats : walnutMats
-  );
-  cubeBrush.position.set(x, y, 0);
-  cubeBrush.updateMatrixWorld();
+  // Pre-build both half-space brushes for this cube (with correct cap material)
+  const hsA = makeHalfSpace(cutA, cutMat);
+  const hsB = makeHalfSpace(cutB, cutMat);
 
-  const halfA = makeHalfSpace(cutA, cutMat);
-  const halfB = makeHalfSpace(cutB, cutMat);
-
+  // Do the 4 combinations. For each, we start from a FRESH cube brush
+  // (CSG may mutate internal state).
   for (let p = 0; p < 4; p++) {
     try {
-      // First cut
-      const after1 = evaluator.evaluate(cubeBrush, halfA, ops[p][0]);
-      // Wrap result as a Brush for the second cut
-      const brush1 = new Brush(after1.geometry, after1.material);
-      brush1.updateMatrixWorld();
-      // Second cut
-      const after2 = evaluator.evaluate(brush1, halfB, ops[p][1]);
-      // Only add if geometry has triangles
-      if (after2.geometry.index && after2.geometry.index.count > 0) {
-        after2.castShadow = true;
-        after2.receiveShadow = true;
-        pieceGroups[p].add(after2);
+      // Fresh cube for each piece
+      const cube = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+      cube.position.set(x, y, 0);
+      cube.updateMatrixWorld();
+
+      // First cut (plane A)
+      const result1 = evaluator.evaluate(cube, hsA, combos[p][0]);
+
+      // Second cut (plane B) — use result1 directly since evaluate
+      // returns a Brush in three-bvh-csg.
+      result1.updateMatrixWorld();
+      const result2 = evaluator.evaluate(result1, hsB, combos[p][1]);
+
+      if (result2.geometry.index && result2.geometry.index.count > 0) {
+        result2.castShadow = true;
+        result2.receiveShadow = true;
+        pieceGroups[p].add(result2);
       }
-    } catch {
-      // CSG can fail on degenerate cases — skip this piece
+    } catch (e) {
+      // Skip degenerate pieces
     }
   }
 }
 
-// Separate pieces visually: offset each group along a combination of
-// the two cut normals so they spread apart.
-const sep = 25;
+// Separate pieces visually
+const sep = 30;
 const offsets = [
-  cutA.normal.clone().multiplyScalar(sep).add(cutB.normal.clone().multiplyScalar(sep)),
-  cutA.normal.clone().multiplyScalar(sep).add(cutB.normal.clone().multiplyScalar(-sep)),
-  cutA.normal.clone().multiplyScalar(-sep).add(cutB.normal.clone().multiplyScalar(sep)),
-  cutA.normal.clone().multiplyScalar(-sep).add(cutB.normal.clone().multiplyScalar(-sep)),
+  new THREE.Vector3(0, sep, -sep),   // above A (back), above B (top)
+  new THREE.Vector3(0, -sep, -sep),  // above A (back), below B (bottom)
+  new THREE.Vector3(0, sep, sep),    // below A (front), above B (top)
+  new THREE.Vector3(0, -sep, sep),   // below A (front), below B (bottom)
 ];
 
-// Filter out empty groups and collect non-empty ones
 const activePieces = [];
 for (let p = 0; p < 4; p++) {
   if (pieceGroups[p].children.length > 0) {
@@ -252,127 +260,92 @@ function makePlaneViz(cut, color) {
   m.position.copy(cut.normal.clone().multiplyScalar(-cut.constant));
   return m;
 }
-
-const planeVizA = makePlaneViz(cutA, 0xc0392b);
-const planeVizB = makePlaneViz(cutB, 0x2980b9);
-scene.add(planeVizA);
-scene.add(planeVizB);
+const pvA = makePlaneViz(cutA, 0xc0392b); scene.add(pvA);
+const pvB = makePlaneViz(cutB, 0x2980b9); scene.add(pvB);
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
 camera.position.set(350, 250, 400);
-
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.target.set(0, 25, 0);
 
-// ─── Dynamic layout: dividers + labels ─────────────────────────────
+// ─── Layout + labels ───────────────────────────────────────────────
 
 const nPieces = activePieces.length;
-const labelsEl = [];
+const cols = nPieces <= 2 ? 1 : 2;
+const rows = Math.ceil(nPieces / cols);
 
 function buildLayout() {
-  // Remove old dividers/labels
-  document.querySelectorAll('.divider, .panel-label').forEach(e => e.remove());
-
   // Vertical divider
-  const dv = document.createElement('div');
-  dv.className = 'divider';
+  const dv = document.createElement('div'); dv.className = 'divider';
   dv.style.cssText = 'top:0; left:50%; width:1px; height:100%';
   document.body.appendChild(dv);
 
-  // Right-side piece grid: arrange in rows based on piece count
-  const cols = nPieces <= 2 ? 1 : 2;
-  const rows = Math.ceil(nPieces / cols);
-
-  for (let r = 0; r < rows; r++) {
-    if (r > 0) {
-      const dh = document.createElement('div');
-      dh.className = 'divider';
-      dh.style.cssText = `top:${(r / rows) * 100}%; left:50%; width:50%; height:1px`;
-      document.body.appendChild(dh);
-    }
-  }
+  // Right-side grid dividers
   if (cols > 1) {
-    const dh2 = document.createElement('div');
-    dh2.className = 'divider';
-    dh2.style.cssText = 'top:0; left:75%; width:1px; height:100%';
-    document.body.appendChild(dh2);
+    const d = document.createElement('div'); d.className = 'divider';
+    d.style.cssText = 'top:0; left:75%; width:1px; height:100%';
+    document.body.appendChild(d);
+  }
+  for (let r = 1; r < rows; r++) {
+    const d = document.createElement('div'); d.className = 'divider';
+    d.style.cssText = `top:${(r/rows)*100}%; left:50%; width:50%; height:1px`;
+    document.body.appendChild(d);
   }
 
   // Labels
-  const addLabel = (text, css) => {
+  const mkLabel = (txt, css) => {
     const el = document.createElement('div');
-    el.className = 'panel-label';
-    el.textContent = text;
-    el.style.cssText = css;
+    el.className = 'panel-label'; el.textContent = txt; el.style.cssText = css;
     document.body.appendChild(el);
   };
-  addLabel('combined', 'top:10px; left:calc(25% - 30px)');
+  mkLabel('combined', 'top:8px; left:calc(25% - 30px)');
   for (let i = 0; i < nPieces; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const lx = 50 + (col / cols) * 50 + 25 / cols;
-    const ly = (row / rows) * 100;
-    addLabel(`piece ${i + 1}`, `top:${ly + 1}%; left:calc(${lx}% - 20px)`);
+    const c = i % cols, r = Math.floor(i / cols);
+    const lx = 50 + (c / cols) * 50 + 25 / cols;
+    mkLabel(`piece ${i+1}`, `top:${(r/rows)*100 + 1}%; left:calc(${lx}% - 20px)`);
   }
 }
 buildLayout();
 
-// ─── Multi-viewport rendering ──────────────────────────────────────
+// ─── Render loop ───────────────────────────────────────────────────
 
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
   const W = window.innerWidth, H = window.innerHeight;
-  const cols = nPieces <= 2 ? 1 : 2;
-  const rows = Math.ceil(nPieces / cols);
-
   renderer.setScissorTest(true);
 
-  // ── Left half: combined ──
-  {
-    activePieces.forEach(g => g.visible = true);
-    planeVizA.visible = true;
-    planeVizB.visible = true;
+  // Left: combined
+  activePieces.forEach(g => g.visible = true);
+  pvA.visible = true; pvB.visible = true;
+  renderer.setViewport(0, 0, W/2|0, H);
+  renderer.setScissor(0, 0, W/2|0, H);
+  camera.aspect = (W/2) / H;
+  camera.updateProjectionMatrix();
+  renderer.setClearColor(0x1c1917, 1); renderer.clear();
+  renderer.render(scene, camera);
 
-    const vw = Math.floor(W / 2), vh = H;
-    renderer.setViewport(0, 0, vw, vh);
-    renderer.setScissor(0, 0, vw, vh);
-    camera.aspect = vw / vh;
-    camera.updateProjectionMatrix();
-    renderer.setClearColor(0x1c1917, 1);
-    renderer.clear();
-    renderer.render(scene, camera);
-  }
-
-  // ── Right grid: one pass per piece ──
-  const rightW = Math.ceil(W / 2);
-  const cellW = Math.floor(rightW / cols);
-  const cellH = Math.floor(H / rows);
+  // Right: piece grid
+  const rW = Math.ceil(W / 2);
+  const cW = Math.floor(rW / cols), cH = Math.floor(H / rows);
 
   for (let i = 0; i < nPieces; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-
-    // Toggle visibility: only this piece
+    const c = i % cols, r = Math.floor(i / cols);
     activePieces.forEach(g => g.visible = false);
     activePieces[i].visible = true;
-    planeVizA.visible = false;
-    planeVizB.visible = false;
+    pvA.visible = false; pvB.visible = false;
 
-    // Viewport: bottom-left origin in WebGL, so flip row
-    const vx = Math.floor(W / 2) + col * cellW;
-    const vy = H - (row + 1) * cellH; // flip Y
-    renderer.setViewport(vx, vy, cellW, cellH);
-    renderer.setScissor(vx, vy, cellW, cellH);
-    camera.aspect = cellW / cellH;
+    const vx = (W/2|0) + c * cW;
+    const vy = H - (r + 1) * cH;
+    renderer.setViewport(vx, vy, cW, cH);
+    renderer.setScissor(vx, vy, cW, cH);
+    camera.aspect = cW / cH;
     camera.updateProjectionMatrix();
-    renderer.setClearColor(0x1a1816, 1);
-    renderer.clear();
+    renderer.setClearColor(0x1a1816, 1); renderer.clear();
     renderer.render(scene, camera);
   }
 
@@ -380,9 +353,7 @@ function animate() {
 }
 animate();
 
-window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener('resize', () => renderer.setSize(window.innerWidth, window.innerHeight));
 </script>
 </body>
 </html>
