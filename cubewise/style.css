@@ -430,14 +430,18 @@ body {
   transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Rotate the cube so the active face is most visible */
-.cube-diagram .cd-cube[data-step="0"] { transform: rotateX(-20deg) rotateY(-30deg); }
-.cube-diagram .cd-cube[data-step="1"] { transform: rotateX(-20deg) rotateY(-70deg); }
-.cube-diagram .cd-cube[data-step="2"] { transform: rotateX(-20deg) rotateY(-150deg); }
-.cube-diagram .cd-cube[data-step="3"] { transform: rotateX(-20deg) rotateY(70deg); }
-.cube-diagram .cd-cube[data-step="4"] { transform: rotateX(40deg) rotateY(-30deg); }
-.cube-diagram .cd-cube[data-step="5"] { transform: rotateX(-70deg) rotateY(-30deg); }
-.cube-diagram .cd-cube[data-step="done"] { transform: rotateX(-25deg) rotateY(-35deg); }
+/* Rotate the cube so the active face is most visible.
+   Steps 0-3 rotate horizontally (same tilt, just spinning).
+   Steps 4-5 show a side-profile tilt matching how you'd hold it. */
+.cube-diagram .cd-cube[data-step="0"] { transform: rotateX(-15deg) rotateY(-25deg); }
+.cube-diagram .cd-cube[data-step="1"] { transform: rotateX(-15deg) rotateY(-65deg); }
+.cube-diagram .cd-cube[data-step="2"] { transform: rotateX(-15deg) rotateY(-155deg); }
+.cube-diagram .cd-cube[data-step="3"] { transform: rotateX(-15deg) rotateY(65deg); }
+/* U: cube tilted back so top faces you — like holding it and leaning it away */
+.cube-diagram .cd-cube[data-step="4"] { transform: rotateX(-65deg) rotateY(-25deg); }
+/* D: cube tilted forward so bottom faces you — like tipping it toward you */
+.cube-diagram .cd-cube[data-step="5"] { transform: rotateX(55deg) rotateY(-25deg); }
+.cube-diagram .cd-cube[data-step="done"] { transform: rotateX(-20deg) rotateY(-30deg); }
 
 .cube-diagram .cd-face {
   position: absolute;

@@ -284,17 +284,24 @@ function updateScanUI() {
     renderCubeDiagram(null, null);
   } else {
     const n = scanner.scanStep + 1;
-    stepLabel.textContent = `Scan face ${n} of 6`;
+    const info = scanner.getScanOrder()[scanner.scanStep];
 
-    const colorWord = scanner.getScanOrder()[scanner.scanStep].color;
-    const emoji = scanner.getScanOrder()[scanner.scanStep].emoji;
+    stepLabel.textContent = `Face ${n} of 6`;
 
+    // Simple, color-only instructions — no directional words
     if (scanner.scanStep === 0) {
-      hintLabel.innerHTML = `Hold cube with the <strong>${emoji} ${colorWord}</strong> center facing the camera.<br><span style="font-size:0.75rem;color:var(--text-muted)">Keep white on top. Hold steady to auto-capture.</span>`;
+      hintLabel.innerHTML = `Point the <strong>${info.emoji} ${info.color}</strong> center at the camera.`
+        + `<br><span style="font-size:0.75rem;color:var(--text-muted)">Keep white on top. The center dot in the preview will match when aligned.</span>`;
+    } else if (scanner.scanStep <= 3) {
+      // Horizontal rotation sequence: F→R→B→L
+      hintLabel.innerHTML = `Turn the cube to show the <strong>${info.emoji} ${info.color}</strong> center.`
+        + `<br><span style="font-size:0.75rem;color:var(--text-muted)">Keep turning the same way as the last scan. Watch the center dot.</span>`;
+    } else if (info.face === 'U') {
+      hintLabel.innerHTML = `Lean the <strong>top</strong> of the cube toward the camera so it can see the <strong>${info.emoji} ${info.color}</strong> face.`
+        + `<br><span style="font-size:0.75rem;color:var(--text-muted)">Tip the cube back — like showing someone the lid of a box.</span>`;
     } else {
-      const arrow = scanner.getScanOrder()[scanner.scanStep].arrow;
-      const dir = arrow === '→' ? 'Rotate the cube right' : arrow === '↑' ? 'Tilt the cube back' : 'Tilt the cube forward';
-      hintLabel.innerHTML = `${dir} to show the <strong>${emoji} ${colorWord}</strong> center.<br><span style="font-size:0.75rem;color:var(--text-muted)">Hold steady to auto-capture, or press Space.</span>`;
+      hintLabel.innerHTML = `Tip the <strong>bottom</strong> of the cube toward the camera so it can see the <strong>${info.emoji} ${info.color}</strong> face.`
+        + `<br><span style="font-size:0.75rem;color:var(--text-muted)">Tilt the cube forward — like pouring something out.</span>`;
     }
 
     document.getElementById('btn-capture').textContent = 'Capture (Space)';

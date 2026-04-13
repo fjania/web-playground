@@ -342,22 +342,27 @@ export class Scanner {
         const cy = oy + cellSize * (row + 0.5);
         const color = cells[idx].color;
 
-        // Colored circle showing detected color
-        const dotR = cellSize * 0.22;
+        const isCenter = idx === 4;
+        const step = this.getCurrentStep();
+        const centerMatches = isCenter && step && color === COLORS[step.face];
+
+        // Center dot is bigger and gets a match/mismatch ring
+        const dotR = isCenter ? cellSize * 0.32 : cellSize * 0.2;
         this.ctx.beginPath();
         this.ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
         this.ctx.fillStyle = COLOR_HEX[color];
         this.ctx.fill();
-        this.ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        this.ctx.lineWidth = 1.5;
-        this.ctx.stroke();
 
-        // Debug: show HSL values as tiny text below the dot
-        const { hsl } = cells[idx];
-        this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        this.ctx.font = `${Math.max(9, cellSize * 0.1)}px monospace`;
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText(`${Math.round(hsl.h)} ${Math.round(hsl.s)} ${Math.round(hsl.l)}`, cx, cy + dotR + 12);
+        if (isCenter) {
+          // Bold ring: green if center matches expected, red if not
+          this.ctx.strokeStyle = centerMatches ? '#4ade80' : '#ef4444';
+          this.ctx.lineWidth = 3;
+          this.ctx.stroke();
+        } else {
+          this.ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+          this.ctx.lineWidth = 1.5;
+          this.ctx.stroke();
+        }
       }
     }
 
