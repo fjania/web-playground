@@ -190,6 +190,15 @@ scene.add(pvA);
 const step2_panel = new THREE.Group(); // rejoined panel
 scene.add(step2_panel);
 
+// Wireframe bounding boxes (blue)
+const bbMat = new THREE.LineBasicMaterial({ color: 0x4488ff });
+const bbStripA = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
+const bbStripB = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
+const bbPanel2 = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
+scene.add(bbStripA);
+scene.add(bbStripB);
+scene.add(bbPanel2);
+
 // ─── Build pipeline from angle ────────────────────────────────────
 
 function rebuild(angleDeg) {
@@ -270,6 +279,11 @@ function rebuild(angleDeg) {
   const sz = new THREE.Vector3(); bb.getSize(sz);
   const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
   console.log(`Panel 2: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+
+  // Update wireframe bounding boxes
+  bbStripA.box.setFromObject(step1_top);
+  bbStripB.box.setFromObject(step1_bot);
+  bbPanel2.box.setFromObject(step2_panel);
 }
 
 // Initial build
@@ -408,10 +422,12 @@ function animate() {
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // ── Left: Step 1 (cut halves separated + plane viz) ──
+  // ── Left: Step 1 (cut strips separated + plane viz) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
+  bbStripA.visible = true; bbStripB.visible = true;
   step2_panel.visible = false;
+  bbPanel2.visible = false;
 
   renderer.setViewport(0, 0, halfW, H);
   renderer.setScissor(0, 0, halfW, H);
@@ -425,10 +441,12 @@ function animate() {
   renderer.clearDepth();
   renderer.render(axesScene, axesCamera);
 
-  // ── Right: Step 2 (union) ──
+  // ── Right: Step 2 (rejoined panel) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
+  bbStripA.visible = false; bbStripB.visible = false;
   step2_panel.visible = true;
+  bbPanel2.visible = true;
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
