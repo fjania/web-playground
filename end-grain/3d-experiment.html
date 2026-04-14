@@ -29,27 +29,31 @@
   #statusbar .label { color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
   #statusbar .val { color: #e4cc8f; }
   #statusbar .dim { color: #555; }
-  #controls {
-    position: fixed; top: 10px; right: 10px; z-index: 10;
-    background: rgba(28,25,23,0.92); border: 1px solid #3d3835;
-    border-radius: 6px; padding: 12px 16px;
+  .slider-bar {
+    position: fixed; bottom: 28px; z-index: 10;
+    height: 32px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    background: rgba(28,25,23,0.92); border-top: 1px solid #3d3835;
     color: #a8a29e; font-size: 10px;
   }
-  #controls label { display: block; margin-bottom: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
-  #controls input[type="range"] {
-    width: 160px; accent-color: #b45309;
+  .slider-bar label { letter-spacing: 0.5px; text-transform: uppercase; white-space: nowrap; }
+  .slider-bar input[type="range"] {
+    width: 120px; accent-color: #b45309;
   }
-  #controls .angle-val { color: #e4cc8f; font-weight: bold; }
+  .slider-bar .angle-val { color: #e4cc8f; font-weight: bold; }
 </style>
 </head>
 <body>
 <div id="info">
-  <strong>End Grain — Cut + Combine</strong><br>
-  left: diagonal cut &middot; right: joined
+  <strong>End Grain — Cut + Combine + Recut</strong>
 </div>
-<div id="controls">
-  <label>cut angle: <span id="angle-val" class="angle-val">7°</span></label>
-  <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
+<div class="slider-bar" style="left:0; width:33.33%">
+  <label>cut A: <span id="angle-a-val" class="angle-val">7°</span></label>
+  <input type="range" id="angle-a-slider" min="-45" max="45" step="1" value="7">
+</div>
+<div class="slider-bar" style="left:33.33%; width:33.33%">
+  <label>cut B: <span id="angle-b-val" class="angle-val">7°</span></label>
+  <input type="range" id="angle-b-slider" min="-45" max="45" step="1" value="7">
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -155,17 +159,30 @@ scene.add(pvA);
 const step2_union = new THREE.Group();
 scene.add(step2_union);
 
+const pvB = new THREE.Mesh(
+  new THREE.PlaneGeometry(520, 600),
+  new THREE.MeshBasicMaterial({ color: 0x2980b9, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
+);
+scene.add(pvB);
+
+const step3_top = new THREE.Group();
+const step3_bot = new THREE.Group();
+scene.add(step3_top);
+scene.add(step3_bot);
+
 // ─── Build pipeline from angle ────────────────────────────────────
 
-function rebuild(angleDeg) {
-  const rad = angleDeg * Math.PI / 180;
-  const planeN = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
+function rebuild(angleA, angleB) {
+  const radA = angleA * Math.PI / 180;
+  const planeN = new THREE.Vector3(Math.sin(radA), 0, -Math.cos(radA)).normalize();
   const planeD = 0;
 
   // Clear previous geometry
   step1_top.clear();
   step1_bot.clear();
   step2_union.clear();
+  step3_top.clear();
+  step3_bot.clear();
 
   // ── Step 1: Cut each cube with the plane ──
   for (let i = 0; i < cubeCount; i++) {
@@ -234,7 +251,7 @@ function rebuild(angleDeg) {
   });
 
   // Union all meshes
-  console.log(`Rebuilding: angle=${angleDeg}°, unioning ${allMeshes.length} meshes...`);
+  console.log(`Rebuilding: angleA=${angleA}°, unioning ${allMeshes.length} meshes...`);
   let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
   result.updateMatrixWorld();
 
@@ -253,21 +270,57 @@ function rebuild(angleDeg) {
   const sz = new THREE.Vector3(); bb.getSize(sz);
   const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
   console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+
+  // ── Step 3: Recut the union with plane B ──
+  const radB = angleB * Math.PI / 180;
+  const planeB_n = new THREE.Vector3(Math.sin(radB), 0, -Math.cos(radB)).normalize();
+  const planeB_d = 0;
+
+  pvB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeB_n);
+
+  const cutMat3 = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.7 });
+  const hsB = makeHalfSpace(planeB_n, planeB_d, cutMat3);
+
+  // The union result is a single Brush-compatible mesh. Cut it with plane B.
+  const unionBrush = new Brush(result.geometry.clone(), result.material);
+  unionBrush.updateMatrixWorld();
+
+  const recutTop = evaluator.evaluate(unionBrush, hsB, SUBTRACTION);
+  recutTop.castShadow = true;
+  step3_top.add(recutTop);
+
+  const unionBrush2 = new Brush(result.geometry.clone(), result.material);
+  unionBrush2.updateMatrixWorld();
+  const recutBot = evaluator.evaluate(unionBrush2, hsB, INTERSECTION);
+  recutBot.castShadow = true;
+  step3_bot.add(recutBot);
+
+  // Separate recut halves along plane B normal
+  step3_top.position.copy(planeB_n.clone().multiplyScalar(20));
+  step3_bot.position.copy(planeB_n.clone().multiplyScalar(-20));
+
+  console.log(`Recut: angle=${angleB}°`);
 }
 
 // Initial build
-rebuild(7);
+rebuild(7, 7);
 
-// ─── Slider ───────────────────────────────────────────────────────
+// ─── Sliders ──────────────────────────────────────────────────────
 
-const slider = document.getElementById('angle-slider');
-const angleVal = document.getElementById('angle-val');
+const sliderA = document.getElementById('angle-a-slider');
+const valA = document.getElementById('angle-a-val');
+const sliderB = document.getElementById('angle-b-slider');
+const valB = document.getElementById('angle-b-val');
 
-slider.addEventListener('input', () => {
-  const v = parseInt(slider.value, 10);
-  angleVal.textContent = `${v}°`;
-  rebuild(v);
-});
+function onSliderChange() {
+  const a = parseInt(sliderA.value, 10);
+  const b = parseInt(sliderB.value, 10);
+  valA.textContent = `${a}°`;
+  valB.textContent = `${b}°`;
+  rebuild(a, b);
+}
+sliderA.addEventListener('input', onSliderChange);
+sliderB.addEventListener('input', onSliderChange);
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
@@ -279,16 +332,20 @@ controls.target.set(0, 25, 0);
 
 // ─── Layout ────────────────────────────────────────────────────────
 
-const dv = document.createElement('div'); dv.className = 'divider';
-dv.style.cssText = 'top:0; left:50%; width:1px; height:100%';
-document.body.appendChild(dv);
+function mkDiv(css) {
+  const d = document.createElement('div'); d.className = 'divider';
+  d.style.cssText = css; document.body.appendChild(d);
+}
+mkDiv('top:0; left:33.33%; width:1px; height:100%');
+mkDiv('top:0; left:66.66%; width:1px; height:100%');
 
 function mkLabel(txt, css) {
   const el = document.createElement('div'); el.className = 'step-label';
   el.textContent = txt; el.style.cssText = css; document.body.appendChild(el);
 }
-mkLabel('step 1: diagonal cut', 'top:8px; left:calc(25% - 50px)');
-mkLabel('step 2: joined', 'top:8px; left:calc(75% - 30px)');
+mkLabel('step 1: cut', 'top:8px; left:calc(16.66% - 20px)');
+mkLabel('step 2: joined', 'top:8px; left:calc(50% - 25px)');
+mkLabel('step 3: recut', 'top:8px; left:calc(83.33% - 25px)');
 
 // ─── Hover / raycaster ─────────────────────────────────────────────
 
@@ -299,16 +356,18 @@ let hoveredMesh = null, hoveredOrig = null;
 
 renderer.domElement.addEventListener('mousemove', (e) => {
   const W = window.innerWidth, H = window.innerHeight;
-  const leftW = Math.floor(W / 2);
-  const inLeft = e.clientX < leftW;
-  let nx = inLeft
-    ? (e.clientX / leftW) * 2 - 1
-    : ((e.clientX - leftW) / (W - leftW)) * 2 - 1;
+  const thirdW = Math.floor(W / 3);
+  const vpIdx = e.clientX < thirdW ? 0 : e.clientX < thirdW * 2 ? 1 : 2;
+  const vpX = vpIdx * thirdW;
+  const vpW = vpIdx === 2 ? W - thirdW * 2 : thirdW;
+  const nx = ((e.clientX - vpX) / vpW) * 2 - 1;
   const ny = -(e.clientY / H) * 2 + 1;
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups = inLeft ? [step1_top, step1_bot] : [step2_union];
+  const groups = vpIdx === 0 ? [step1_top, step1_bot]
+    : vpIdx === 1 ? [step2_union]
+    : [step3_top, step3_bot];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -377,53 +436,49 @@ axesGroup.add(makeAxisLabel('Y', new THREE.Vector3(0, 1.2, 0), '#44ff44'));
 axesGroup.add(makeAxisLabel('Z', new THREE.Vector3(0, 0, 1.2), '#4488ff'));
 axesScene.add(axesGroup);
 
-// ─── Render loop: 2 viewports ──────────────────────────────────────
+// ─── Render loop: 3 viewports ──────────────────────────────────────
 
-const axesSize = 100;
+const axesSize = 80;
+
+function setAllVisible(vis) {
+  step1_top.visible = vis.s1 || false;
+  step1_bot.visible = vis.s1 || false;
+  pvA.visible = vis.s1 || false;
+  step2_union.visible = vis.s2 || false;
+  pvB.visible = vis.s2 || false;
+  step3_top.visible = vis.s3 || false;
+  step3_bot.visible = vis.s3 || false;
+}
+
+function renderViewport(x, y, w, h, vis, bg) {
+  setAllVisible(vis);
+  renderer.setViewport(x, y, w, h);
+  renderer.setScissor(x, y, w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setClearColor(bg, 1); renderer.clear();
+  renderer.render(scene, camera);
+
+  // Axes gizmo
+  renderer.setViewport(x + 8, 8, axesSize, axesSize);
+  renderer.setScissor(x + 8, 8, axesSize, axesSize);
+  renderer.clearDepth();
+  renderer.render(axesScene, axesCamera);
+}
 
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
   const W = window.innerWidth, H = window.innerHeight;
-  const halfW = Math.floor(W / 2);
+  const thirdW = Math.floor(W / 3);
   renderer.setScissorTest(true);
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // ── Left: Step 1 (cut halves separated + plane viz) ──
-  step1_top.visible = true; step1_bot.visible = true;
-  pvA.visible = true;
-  step2_union.visible = false;
-
-  renderer.setViewport(0, 0, halfW, H);
-  renderer.setScissor(0, 0, halfW, H);
-  camera.aspect = halfW / H;
-  camera.updateProjectionMatrix();
-  renderer.setClearColor(0x1c1917, 1); renderer.clear();
-  renderer.render(scene, camera);
-
-  renderer.setViewport(8, 8, axesSize, axesSize);
-  renderer.setScissor(8, 8, axesSize, axesSize);
-  renderer.clearDepth();
-  renderer.render(axesScene, axesCamera);
-
-  // ── Right: Step 2 (union) ──
-  step1_top.visible = false; step1_bot.visible = false;
-  pvA.visible = false;
-  step2_union.visible = true;
-
-  renderer.setViewport(halfW, 0, W - halfW, H);
-  renderer.setScissor(halfW, 0, W - halfW, H);
-  camera.aspect = (W - halfW) / H;
-  camera.updateProjectionMatrix();
-  renderer.setClearColor(0x1a1816, 1); renderer.clear();
-  renderer.render(scene, camera);
-
-  renderer.setViewport(halfW + 8, 8, axesSize, axesSize);
-  renderer.setScissor(halfW + 8, 8, axesSize, axesSize);
-  renderer.clearDepth();
-  renderer.render(axesScene, axesCamera);
+  renderViewport(0, 0, thirdW, H, { s1: true }, 0x1c1917);
+  renderViewport(thirdW, 0, thirdW, H, { s2: true }, 0x1a1816);
+  renderViewport(thirdW * 2, 0, W - thirdW * 2, H, { s3: true }, 0x1c1917);
 
   renderer.setScissorTest(false);
 }
