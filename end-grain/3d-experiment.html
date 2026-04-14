@@ -594,15 +594,14 @@ class Panel {
 
   // Apply a Three.js Matrix4 to every segment, baking it into new manifold
   // handles. Returns a new Panel; source is not modified.
+  //
+  // Convention: manifold.transform(m: Mat4) takes a 16-element column-
+  // major array (the "last row" — indices 3, 7, 11, 15 — is ignored).
+  // Three.js Matrix4.elements is already column-major, so pass it through.
   transform(matrix4) {
-    const m = matrix4.elements; // column-major
-    const mat3x4 = [
-      m[0], m[4], m[8],  m[12],
-      m[1], m[5], m[9],  m[13],
-      m[2], m[6], m[10], m[14],
-    ];
+    const m = matrix4.elements;
     return new Panel(this.segments.map(s => ({
-      manifold: s.manifold.transform(mat3x4),
+      manifold: s.manifold.transform(m),
       species: s.species,
     })));
   }
