@@ -1196,12 +1196,16 @@ function setView(name) {
   step1_top.visible = name === 'cut1';
   step1_bot.visible = name === 'cut1';
   pvA.visible = name === 'cut1';
+  highlightA.visible = name === 'cut1';
+  highlightB.visible = name === 'cut1';
 
   step2_panel.visible = name === 'join1';
 
   step3_top.visible = name === 'cut2';
   step3_bot.visible = name === 'cut2';
   pvB.visible = name === 'cut2';
+  highlightC.visible = name === 'cut2';
+  highlightD.visible = name === 'cut2';
 
   step4_panel.visible = name === 'join2';
 }
