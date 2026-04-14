@@ -907,6 +907,91 @@ function stageStatus(stage, progress) {
   return `${stage.label}: Δ=(${d.x.toFixed(1)}, ${d.y.toFixed(1)}, ${d.z.toFixed(1)}) mm`;
 }
 
+// ─── Arrangement patterns ─────────────────────────────────────────
+//
+// Given a list of slices produced by cutRepeated, arrange them into a
+// single joined panel by applying a per-slice transform rule, stacking
+// them along the cut normal, and centering the union at the origin.
+//
+// Each pattern is a function (i, n, opts) → Matrix4 that runs in the
+// slice's own local frame (slice centered at origin). After the rule
+// is applied, the slice is translated to its stack position.
+
+const PATTERN_RULES = {
+  // Stack slices back in their original positions — reassembles the panel.
+  identity: () => new THREE.Matrix4(),
+
+  // Odd slices: 180° rotation about the Y (stacking-perpendicular) axis.
+  // For a striped panel crosscut perpendicular to its length, this swaps
+  // each alternate slice end-for-end — classic checkerboard effect.
+  flipAlternate: (i) =>
+    (i % 2 === 1) ? new THREE.Matrix4().makeRotationY(Math.PI) : new THREE.Matrix4(),
+
+  // Odd slices: 180° about the Z axis. Tips each alternate slice upside-
+  // down — produces a brick-like running bond when combined with a
+  // half-shift layout (or works on its own for some patterns).
+  rotateAlternate: (i) =>
+    (i % 2 === 1) ? new THREE.Matrix4().makeRotationZ(Math.PI) : new THREE.Matrix4(),
+
+  // Odd slices: translate by opts.shift along X (perpendicular to cut
+  // normal). Classic running-bond offset.
+  shiftAlternate: (i, n, opts) => {
+    if (i % 2 !== 1) return new THREE.Matrix4();
+    const s = opts.shift ?? 25;
+    return new THREE.Matrix4().makeTranslation(s, 0, 0);
+  },
+
+  // Odd slices: 180° about the X axis — mirrors stripe direction across
+  // the stacking axis. At angled cuts produces a chevron effect.
+  mirrorAlternate: (i) =>
+    (i % 2 === 1) ? new THREE.Matrix4().makeRotationX(Math.PI) : new THREE.Matrix4(),
+};
+
+// Apply an arrangement pattern to a list of slices, stacking them along
+// `cutNormal` with spacing `pitch`. Returns a single joined Panel (the
+// caller takes ownership and must dispose the result).
+function applyArrangement(slices, pattern, cutNormal, pitch, options = {}) {
+  const n = slices.length;
+  if (n === 0) return null;
+  const rule = PATTERN_RULES[pattern] ?? PATTERN_RULES.identity;
+  const center = (n - 1) / 2;
+
+  let result = null;
+  for (let i = 0; i < n; i++) {
+    const slice = slices[i];
+    const bb = slice.boundingBox();
+    const sc = new THREE.Vector3(); bb.getCenter(sc);
+
+    // 1. Center slice at origin (local frame).
+    const toLocal = new THREE.Matrix4().makeTranslation(-sc.x, -sc.y, -sc.z);
+    // 2. Apply pattern rule at origin.
+    const ruleMat = rule(i, n, options);
+    // 3. Translate to stack position along cutNormal.
+    const target = cutNormal.clone().multiplyScalar((i - center) * pitch);
+    const toStack = new THREE.Matrix4().makeTranslation(target.x, target.y, target.z);
+
+    const full = new THREE.Matrix4().multiplyMatrices(toStack, ruleMat).multiply(toLocal);
+    const transformed = slice.transform(full);
+    if (result) {
+      const merged = result.concat(transformed);
+      // merged references segments from both — don't dispose either here.
+      result = merged;
+    } else {
+      result = transformed;
+    }
+  }
+
+  // Center union at origin.
+  const bb = result.boundingBox();
+  const c = new THREE.Vector3(); bb.getCenter(c);
+  if (c.length() > 1e-6) {
+    const centered = result.translate(-c.x, -c.y, -c.z);
+    result.dispose();
+    result = centered;
+  }
+  return result;
+}
+
 // ─── Build pipeline from rip + bevel ──────────────────────────────
 
 // Current cut A result: array of slice Panels and two offcut Panels.
