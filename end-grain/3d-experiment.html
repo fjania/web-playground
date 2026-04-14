@@ -122,8 +122,8 @@ const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-const cubeSize = 50, cubeCount = 8;
-const halfLen = (cubeCount * cubeSize) / 2;
+const segW = 50, segH = 50, segD = 150, cubeCount = 8;
+const halfLen = (cubeCount * segW) / 2;
 
 // ─── CSG helpers ───────────────────────────────────────────────────
 
@@ -169,19 +169,19 @@ function rebuild(angleDeg) {
 
   // ── Step 1: Cut each cube with the plane ──
   for (let i = 0; i < cubeCount; i++) {
-    const x = i * cubeSize - halfLen + cubeSize / 2;
-    const y = cubeSize / 2;
+    const x = i * segW - halfLen + segW / 2;
+    const y = segH / 2;
     const isMaple = i % 2 === 0;
     const mats = isMaple ? mapleMats : walnutMats;
     const cutMat = isMaple ? mapleCut : walnutCut;
     const hs = makeHalfSpace(planeN, planeD, cutMat);
 
-    const c1 = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+    const c1 = new Brush(new THREE.BoxGeometry(segW, segH, segD), mats);
     c1.position.set(x, y, 0); c1.updateMatrixWorld();
     const top = evaluator.evaluate(c1, hs, SUBTRACTION);
     top.castShadow = true; step1_top.add(top);
 
-    const c2 = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+    const c2 = new Brush(new THREE.BoxGeometry(segW, segH, segD), mats);
     c2.position.set(x, y, 0); c2.updateMatrixWorld();
     const bot = evaluator.evaluate(c2, hs, INTERSECTION);
     bot.castShadow = true; step1_bot.add(bot);
