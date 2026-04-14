@@ -39,6 +39,15 @@
   #controls2 { top: calc(50% + 10px); right: calc(50% + 10px); }
   button.join-btn:disabled { opacity: 0.4; cursor: default; }
   button.join-btn:not(:disabled):hover { background: #3d7a37; }
+  button.flip-btn {
+    flex: 1; padding: 4px; background: #2d3a4a; color: #a8a29e;
+    border: 1px solid #3d4a5a; border-radius: 3px;
+    font-family: inherit; font-size: 10px; cursor: pointer;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  button.flip-btn:disabled { opacity: 0.3; cursor: default; }
+  button.flip-btn.selected { background: #2d5a8a; color: #e4cc8f; border-color: #4d7aaa; }
+  button.flip-btn:not(:disabled):not(.selected):hover { background: #3d4a5a; }
   button.join-btn {
     margin-top:6px; width:100%; padding:6px; background:#2d5a27;
     color:#e4cc8f; border:1px solid #3d5a37; border-radius:4px;
@@ -62,6 +71,14 @@
   <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
   <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
   <button id="join-btn" class="join-btn" disabled>join selected faces</button>
+  <div id="flip-axis-row" style="display:none; margin-top:6px;">
+    <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
+    <div style="display:flex; gap:4px;">
+      <button class="flip-btn" data-pair="1" data-axis="x">X</button>
+      <button class="flip-btn" data-pair="1" data-axis="y">Y</button>
+      <button class="flip-btn" data-pair="1" data-axis="z">Z</button>
+    </div>
+  </div>
   <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
 <div id="controls2" class="ctrl-panel">
@@ -69,6 +86,14 @@
   <input type="range" id="angle-b-slider" min="-45" max="45" step="1" value="7">
   <div style="margin-top:8px; font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
   <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
+  <div id="flip-axis-row2" style="display:none; margin-top:6px;">
+    <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
+    <div style="display:flex; gap:4px;">
+      <button class="flip-btn" data-pair="2" data-axis="x">X</button>
+      <button class="flip-btn" data-pair="2" data-axis="y">Y</button>
+      <button class="flip-btn" data-pair="2" data-axis="z">Z</button>
+    </div>
+  </div>
   <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
@@ -433,29 +458,70 @@ function sameFace(selA, faceB) {
 // Hover tracker: which strip/panel is being hovered ('A', 'B', 'P', or null)
 let hoveredStrip = null;
 
-// Check if two selected faces can be joined. Returns { ok, error }.
-//
-// Rules:
-//   1. Both strips must have a face selected.
-//   2. Normals constraint: both face normals must share a common perpendicular
-//      axis (i.e., they lie in a common plane). This is always satisfied for
-//      non-parallel normals (the cross product gives the axis), and trivially
-//      for parallel ones — so this is essentially never violated for valid
-//      face selections.
-//
-// Dimensions are no longer required to match — the join will align face
-// centroids and any excess overhang will be handled in a later trim step.
-function checkJoinCompat(selA, selB) {
-  if (!selA || !selB) return { ok: false, error: '' };
-  return { ok: true, error: '' };
+// Per-pair flip axis selection: only used when normals are parallel
+// (case 3). Values: 'x', 'y', 'z', or null.
+let flipAxis1 = null, flipAxis2 = null;
+
+// Classify the relationship between two face normals.
+// Returns one of: 'antiparallel', 'angled', 'parallel'.
+function classifyNormals(nA, nB) {
+  const dot = nA.dot(nB);
+  if (dot < -0.999) return 'antiparallel';
+  if (dot > 0.999) return 'parallel';
+  return 'angled';
+}
+
+// Which world axes are perpendicular to a normal (within tolerance)?
+// Returns an array of axis names ('x', 'y', 'z') that are valid flip axes.
+function perpAxes(normal) {
+  const tol = 0.05; // ~3°
+  return ['x', 'y', 'z'].filter(ax => Math.abs(normal[ax]) < tol);
+}
+
+// Check if two selected faces can be joined. Returns { ok, error, needsFlipAxis, validFlipAxes }.
+function checkJoinCompat(selA, selB, flipAxis) {
+  if (!selA || !selB) return { ok: false, error: '', needsFlipAxis: false, validFlipAxes: [] };
+
+  const rel = classifyNormals(selA.normal, selB.normal);
+
+  if (rel === 'parallel') {
+    // Need a flip axis perpendicular to both normals (which are equal here)
+    const valid = perpAxes(selA.normal);
+    if (valid.length === 0) {
+      return {
+        ok: false,
+        error: 'parallel normals not aligned with any world axis — use the rotation flag on one face to make them antiparallel',
+        needsFlipAxis: false,
+        validFlipAxes: [],
+      };
+    }
+    if (!flipAxis || !valid.includes(flipAxis)) {
+      return { ok: false, error: '', needsFlipAxis: true, validFlipAxes: valid };
+    }
+    return { ok: true, error: '', needsFlipAxis: true, validFlipAxes: valid };
+  }
+
+  // Antiparallel or angled — no flip axis needed
+  return { ok: true, error: '', needsFlipAxis: false, validFlipAxes: [] };
+}
+
+function updateFlipAxisUI(pairIdx, validAxes, selectedAxis) {
+  const row = document.getElementById(pairIdx === 1 ? 'flip-axis-row' : 'flip-axis-row2');
+  row.style.display = validAxes.length > 0 ? 'block' : 'none';
+  document.querySelectorAll(`.flip-btn[data-pair="${pairIdx}"]`).forEach(btn => {
+    const ax = btn.dataset.axis;
+    btn.disabled = !validAxes.includes(ax);
+    btn.classList.toggle('selected', ax === selectedAxis);
+  });
 }
 
 function updateJoinButton() {
   const btn = document.getElementById('join-btn');
   const errEl = document.getElementById('join-error');
-  const { ok, error } = checkJoinCompat(selectionA, selectionB);
-  btn.disabled = !ok;
-  errEl.textContent = error;
+  const result = checkJoinCompat(selectionA, selectionB, flipAxis1);
+  btn.disabled = !result.ok;
+  errEl.textContent = result.error;
+  updateFlipAxisUI(1, result.validFlipAxes, flipAxis1);
 }
 
 // Material per species: index 0 = maple, index 1 = walnut
@@ -596,52 +662,58 @@ function rotatePanelAboutAxis(panel, axis, angle, point) {
 }
 
 // Join two strip assemblies at the selected faces using arbitrary-orientation geometry.
-// selA/selB are the new face objects: { normal, centroid, u, v, width, height, rotate, ... }
-function joinStrips(stripA, stripB, selA, selB) {
-  // Step 1: if selA.rotate, rotate stripA 180° about faceA.normal through faceA.centroid
-  let workA = stripA, faceA = selA;
+// selA/selB: face objects with { normal, centroid, u, v, width, height, rotate, ... }
+// flipAxis: 'x'/'y'/'z' or null. Required when normals are parallel.
+function joinStrips(stripA, stripB, selA, selB, flipAxis) {
+  // Step 1: in-plane rotation of stripA if selA.rotate
+  let workA;
   if (selA.rotate) {
-    const rotated = rotatePanelAboutAxis(stripA, faceA.normal, Math.PI, faceA.centroid);
-    // The face properties relative to rotated stripA are the same (it's a rotation
-    // about the face's own normal through the face centroid → face is invariant)
-    workA = rotated;
+    workA = rotatePanelAboutAxis(stripA, selA.normal, Math.PI, selA.centroid);
   } else {
     workA = translatePanel(stripA, 0, 0, 0); // clone
   }
+  const faceA = selA; // unchanged by rotation about its own normal through its centroid
 
-  // Step 2: if selB.rotate, rotate stripB 180° about faceB.normal through faceB.centroid
-  let workB = stripB, faceB = selB;
+  // Step 2: in-plane rotation of stripB if selB.rotate
+  let workB;
   if (selB.rotate) {
-    workB = rotatePanelAboutAxis(stripB, faceB.normal, Math.PI, faceB.centroid);
+    workB = rotatePanelAboutAxis(stripB, selB.normal, Math.PI, selB.centroid);
   } else {
     workB = translatePanel(stripB, 0, 0, 0);
   }
+  const faceB = selB;
 
   // Step 3: rotate workB so its face normal becomes antiparallel to workA's face normal.
-  // After rotation the face's centroid moves too; we need to track it.
   const targetNormal = faceA.normal.clone().negate();
   const currentNormal = faceB.normal.clone();
   const dot = currentNormal.dot(targetNormal);
 
-  let rotated2 = workB, newCentroidB = faceB.centroid.clone();
+  let rotated2 = workB;
   if (dot < 0.9999) {
     let axis, angle;
     if (dot < -0.9999) {
-      // Already antiparallel — no rotation needed (shouldn't happen in this branch actually)
-      axis = new THREE.Vector3(1, 0, 0); angle = 0;
+      // Parallel normals (since target = -faceA.normal and current = faceB.normal,
+      // dot < -0.9999 means faceA.normal ≈ faceB.normal — both point the same way).
+      // Need to flip 180° about the user-chosen axis (must be perpendicular to normal).
+      if (!flipAxis) {
+        throw new Error('parallel normals require a flip axis');
+      }
+      axis = new THREE.Vector3(
+        flipAxis === 'x' ? 1 : 0,
+        flipAxis === 'y' ? 1 : 0,
+        flipAxis === 'z' ? 1 : 0
+      );
+      angle = Math.PI;
     } else {
       axis = new THREE.Vector3().crossVectors(currentNormal, targetNormal).normalize();
       angle = Math.acos(Math.max(-1, Math.min(1, dot)));
     }
-    // Rotate about workB's face centroid so it stays in place
     rotated2 = rotatePanelAboutAxis(workB, axis, angle, faceB.centroid);
     workB.forEach(s => s.manifold.delete());
-    // After rotation about faceB.centroid, the centroid is unchanged
-    newCentroidB = faceB.centroid.clone();
   }
 
   // Step 4: translate rotated2 so its face centroid matches workA's face centroid
-  const delta = new THREE.Vector3().subVectors(faceA.centroid, newCentroidB);
+  const delta = new THREE.Vector3().subVectors(faceA.centroid, faceB.centroid);
   const finalB = translatePanel(rotated2, delta.x, delta.y, delta.z);
   rotated2.forEach(s => s.manifold.delete());
 
@@ -691,6 +763,7 @@ function rebuild(angleDeg) {
   // Reset face selections for strips A/B since geometry changed
   setStripSelection('A', null);
   setStripSelection('B', null);
+  flipAxis1 = null;
   updateJoinButton();
 
   console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs`);
@@ -717,11 +790,26 @@ sliderB.addEventListener('input', () => {
   if (panel2) rebuildCut2();
 });
 
+// Flip-axis button handlers
+document.querySelectorAll('.flip-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pair = btn.dataset.pair;
+    const ax = btn.dataset.axis;
+    if (pair === '1') {
+      flipAxis1 = (flipAxis1 === ax) ? null : ax;
+      updateJoinButton();
+    } else {
+      flipAxis2 = (flipAxis2 === ax) ? null : ax;
+      updateJoin2Button();
+    }
+  });
+});
+
 document.getElementById('join2-btn').addEventListener('click', () => {
   if (selectionC === null || selectionD === null) return;
   if (!currentStripC || !currentStripD) return;
 
-  let joined = joinStrips(currentStripC, currentStripD, selectionC, selectionD);
+  let joined = joinStrips(currentStripC, currentStripD, selectionC, selectionD, flipAxis2);
   const bb = panelBoundingBox(joined);
   const c = new THREE.Vector3(); bb.getCenter(c);
   const centered = translatePanel(joined, -c.x, -c.y, -c.z);
@@ -1009,6 +1097,7 @@ function rebuildCut2() {
   // Reset face selections for strips C/D since geometry changed
   setStripSelection('C', null);
   setStripSelection('D', null);
+  flipAxis2 = null;
   updateJoin2Button();
 
   console.log(`Cut 2 at ${currentAngleB}°: strip C = ${above.length} segs, strip D = ${below.length} segs`);
@@ -1018,9 +1107,10 @@ function updateJoin2Button() {
   const btn = document.getElementById('join2-btn');
   const errEl = document.getElementById('join2-error');
   if (!btn) return;
-  const { ok, error } = checkJoinCompat(selectionC, selectionD);
-  btn.disabled = !ok;
-  errEl.textContent = error;
+  const result = checkJoinCompat(selectionC, selectionD, flipAxis2);
+  btn.disabled = !result.ok;
+  errEl.textContent = result.error;
+  updateFlipAxisUI(2, result.validFlipAxes, flipAxis2);
 }
 
 document.getElementById('join-btn').addEventListener('click', () => {
@@ -1028,7 +1118,7 @@ document.getElementById('join-btn').addEventListener('click', () => {
   if (!currentStripAbove || !currentStripBelow) return;
 
   // Build panel2 as an assembly, then center it at the origin
-  let joined = joinStrips(currentStripAbove, currentStripBelow, selectionA, selectionB);
+  let joined = joinStrips(currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1);
 
   // Center at origin
   const bb = panelBoundingBox(joined);
