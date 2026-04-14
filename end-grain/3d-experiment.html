@@ -129,6 +129,7 @@ const halfLen = (cubeCount * cubeSize) / 2;
 
 const HS = 2000; // must exceed strip length in all dimensions
 const evaluator = new Evaluator();
+evaluator.useCDTClipping = true; // more robust triangulation for coplanar faces
 
 function makeHalfSpace(normal, constant, mat) {
   const b = new Brush(new THREE.BoxGeometry(HS, HS, HS), mat);
@@ -216,14 +217,23 @@ function rebuild(tiltMm) {
     allMeshes.push({ geo: cloneBaked(mesh), material: mesh.material });
   });
 
-  // Union all meshes
+  // Union all meshes.
+  // Tiny scale (1+ε) on each brush avoids exact coplanar faces,
+  // which trigger a known bug in three-bvh-csg's clip phase.
+  const EPS = 1e-4;
   console.log(`Rebuilding: tilt=${tiltMm}mm, unioning ${allMeshes.length} meshes...`);
-  let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
-  result.updateMatrixWorld();
+
+  function makeBrushFromGeo(geo, material) {
+    const b = new Brush(geo, material);
+    b.scale.setScalar(1 + EPS);
+    b.updateMatrixWorld();
+    return b;
+  }
+
+  let result = makeBrushFromGeo(allMeshes[0].geo, allMeshes[0].material);
 
   for (let i = 1; i < allMeshes.length; i++) {
-    const b = new Brush(allMeshes[i].geo, allMeshes[i].material);
-    b.updateMatrixWorld();
+    const b = makeBrushFromGeo(allMeshes[i].geo, allMeshes[i].material);
     result = evaluator.evaluate(result, b, ADDITION);
     result.updateMatrixWorld();
   }
