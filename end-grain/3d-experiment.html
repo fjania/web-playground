@@ -893,7 +893,23 @@ renderer.domElement.addEventListener('mousemove', (e) => {
 
 // ─── Click handler: select face on a strip ────────────────────────
 
-renderer.domElement.addEventListener('click', (e) => {
+// Track mousedown position and only treat mouseup as a "click" if the cursor
+// moved less than this threshold (otherwise it was an orbit drag).
+const CLICK_DRAG_THRESHOLD_PX = 4;
+let mouseDownX = 0, mouseDownY = 0;
+renderer.domElement.addEventListener('mousedown', (e) => {
+  mouseDownX = e.clientX;
+  mouseDownY = e.clientY;
+});
+
+renderer.domElement.addEventListener('mouseup', (e) => {
+  const dx = e.clientX - mouseDownX;
+  const dy = e.clientY - mouseDownY;
+  if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return; // was an orbit drag
+  handleSelectionClick(e);
+});
+
+function handleSelectionClick(e) {
   const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
   // Only cut viewports have face selection: TL (0) and BL (2)
   if (vpIdx !== 0 && vpIdx !== 2) return;
@@ -945,7 +961,7 @@ renderer.domElement.addEventListener('click', (e) => {
 
   const fmt = (sel) => sel ? `n=(${sel.normal.x.toFixed(2)},${sel.normal.y.toFixed(2)},${sel.normal.z.toFixed(2)}), d=${sel.planeD.toFixed(1)}${sel.rotate ? ' (rot)' : ''}` : 'none';
   console.log(`Face: A=${fmt(selectionA)} B=${fmt(selectionB)} C=${fmt(selectionC)} D=${fmt(selectionD)}`);
-});
+}
 
 // ─── Join button handler ──────────────────────────────────────────
 
