@@ -161,9 +161,16 @@ let panel;
     }
   }
   panel = acc;
+  // Center the panel geometry at the origin
+  panel.geometry.computeBoundingBox();
+  const center = new THREE.Vector3();
+  panel.geometry.boundingBox.getCenter(center);
+  panel.geometry.translate(-center.x, -center.y, -center.z);
+  panel.geometry.computeBoundingBox();
+
   const bb = new THREE.Box3().setFromObject(panel);
   const sz = new THREE.Vector3(); bb.getSize(sz);
-  console.log(`Initial panel: ${panel.geometry.index.count / 3} tris, bounds: ${sz.x.toFixed(0)} × ${sz.y.toFixed(0)} × ${sz.z.toFixed(0)}`);
+  console.log(`Initial panel: ${panel.geometry.index.count / 3} tris, bounds: ${sz.x.toFixed(0)} × ${sz.y.toFixed(0)} × ${sz.z.toFixed(0)}, centered at origin`);
 }
 
 // ─── Groups (persistent across rebuilds) ──────────────────────────
