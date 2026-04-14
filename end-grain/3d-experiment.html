@@ -47,11 +47,11 @@
 <div id="info">
   <strong>End Grain — Cut + Combine + Recut</strong>
 </div>
-<div class="slider-bar" style="left:0; width:33.33%">
+<div class="slider-bar" style="left:0; width:25%">
   <label>cut A: <span id="angle-a-val" class="angle-val">7°</span></label>
   <input type="range" id="angle-a-slider" min="-45" max="45" step="1" value="7">
 </div>
-<div class="slider-bar" style="left:33.33%; width:33.33%">
+<div class="slider-bar" style="left:25%; width:25%">
   <label>cut B: <span id="angle-b-val" class="angle-val">7°</span></label>
   <input type="range" id="angle-b-slider" min="-45" max="45" step="1" value="7">
 </div>
@@ -170,6 +170,9 @@ const step3_bot = new THREE.Group();
 scene.add(step3_top);
 scene.add(step3_bot);
 
+const step4_union = new THREE.Group();
+scene.add(step4_union);
+
 // ─── Build pipeline from angle ────────────────────────────────────
 
 function rebuild(angleA, angleB) {
@@ -183,6 +186,7 @@ function rebuild(angleA, angleB) {
   step2_union.clear();
   step3_top.clear();
   step3_bot.clear();
+  step4_union.clear();
 
   // ── Step 1: Cut each cube with the plane ──
   for (let i = 0; i < cubeCount; i++) {
@@ -308,6 +312,61 @@ function rebuild(angleA, angleB) {
   step3_bot.position.copy(planeB_n.clone().multiplyScalar(-20));
 
   console.log(`Recut: angle=${angleB}°`);
+
+  // ── Step 4: Recombine recut halves (same approach as step 2) ──
+  function cloneBaked(mesh) {
+    const geo = mesh.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+    geo.applyMatrix4(m4);
+    return geo;
+  }
+
+  const step4Meshes = [];
+
+  step3_top.updateMatrixWorld(true);
+  step3_bot.updateMatrixWorld(true);
+  const bb3Top = new THREE.Box3().setFromObject(step3_top);
+  const bb3Bot = new THREE.Box3().setFromObject(step3_bot);
+  const topMinZ3 = bb3Top.min.z - 20 * planeB_n.z;
+  const botMaxZ3 = bb3Bot.max.z + 20 * planeB_n.z;
+  const zOffset3 = botMaxZ3 - topMinZ3;
+
+  step3_top.children.forEach(mesh => {
+    const geo = cloneBaked(mesh);
+    const pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      pos.setZ(v, pos.getZ(v) + zOffset3);
+    }
+    pos.needsUpdate = true;
+    step4Meshes.push({ geo, material: mesh.material });
+  });
+  step3_bot.children.forEach(mesh => {
+    step4Meshes.push({ geo: cloneBaked(mesh), material: mesh.material });
+  });
+
+  console.log(`Step 4: unioning ${step4Meshes.length} recut meshes...`);
+  let result4 = new Brush(step4Meshes[0].geo, step4Meshes[0].material);
+  result4.updateMatrixWorld();
+  for (let i = 1; i < step4Meshes.length; i++) {
+    const b = new Brush(step4Meshes[i].geo, step4Meshes[i].material);
+    b.updateMatrixWorld();
+    result4 = evaluator.evaluate(result4, b, ADDITION);
+    result4.updateMatrixWorld();
+  }
+
+  // Center at origin
+  result4.geometry.computeBoundingBox();
+  const center4 = new THREE.Vector3();
+  result4.geometry.boundingBox.getCenter(center4);
+  result4.geometry.translate(-center4.x, -center4.y, -center4.z);
+
+  result4.castShadow = true;
+  step4_union.add(result4);
+
+  const bb4 = new THREE.Box3().setFromObject(result4);
+  const sz4 = new THREE.Vector3(); bb4.getSize(sz4);
+  console.log(`Step 4 union: bounds ${sz4.x.toFixed(1)} × ${sz4.y.toFixed(1)} × ${sz4.z.toFixed(1)}`);
 }
 
 // Initial build
@@ -344,16 +403,18 @@ function mkDiv(css) {
   const d = document.createElement('div'); d.className = 'divider';
   d.style.cssText = css; document.body.appendChild(d);
 }
-mkDiv('top:0; left:33.33%; width:1px; height:100%');
-mkDiv('top:0; left:66.66%; width:1px; height:100%');
+mkDiv('top:0; left:25%; width:1px; height:100%');
+mkDiv('top:0; left:50%; width:1px; height:100%');
+mkDiv('top:0; left:75%; width:1px; height:100%');
 
 function mkLabel(txt, css) {
   const el = document.createElement('div'); el.className = 'step-label';
   el.textContent = txt; el.style.cssText = css; document.body.appendChild(el);
 }
-mkLabel('step 1: cut', 'top:8px; left:calc(16.66% - 20px)');
-mkLabel('step 2: joined', 'top:8px; left:calc(50% - 25px)');
-mkLabel('step 3: recut', 'top:8px; left:calc(83.33% - 25px)');
+mkLabel('step 1: cut', 'top:8px; left:calc(12.5% - 20px)');
+mkLabel('step 2: joined', 'top:8px; left:calc(37.5% - 25px)');
+mkLabel('step 3: recut', 'top:8px; left:calc(62.5% - 25px)');
+mkLabel('step 4: rejoined', 'top:8px; left:calc(87.5% - 30px)');
 
 // ─── Hover / raycaster ─────────────────────────────────────────────
 
@@ -364,10 +425,10 @@ let hoveredMesh = null, hoveredOrig = null;
 
 renderer.domElement.addEventListener('mousemove', (e) => {
   const W = window.innerWidth, H = window.innerHeight;
-  const thirdW = Math.floor(W / 3);
-  const vpIdx = e.clientX < thirdW ? 0 : e.clientX < thirdW * 2 ? 1 : 2;
-  const vpX = vpIdx * thirdW;
-  const vpW = vpIdx === 2 ? W - thirdW * 2 : thirdW;
+  const qW = Math.floor(W / 4);
+  const vpIdx = Math.min(3, Math.floor(e.clientX / qW));
+  const vpX = vpIdx * qW;
+  const vpW = vpIdx === 3 ? W - qW * 3 : qW;
   const nx = ((e.clientX - vpX) / vpW) * 2 - 1;
   const ny = -(e.clientY / H) * 2 + 1;
   mouse.set(nx, ny);
@@ -375,7 +436,8 @@ renderer.domElement.addEventListener('mousemove', (e) => {
 
   const groups = vpIdx === 0 ? [step1_top, step1_bot]
     : vpIdx === 1 ? [step2_union]
-    : [step3_top, step3_bot];
+    : vpIdx === 2 ? [step3_top, step3_bot]
+    : [step4_union];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -456,6 +518,7 @@ function setAllVisible(vis) {
   pvB.visible = vis.s2 || false;
   step3_top.visible = vis.s3 || false;
   step3_bot.visible = vis.s3 || false;
+  step4_union.visible = vis.s4 || false;
 }
 
 function renderViewport(x, y, w, h, vis, bg) {
@@ -479,14 +542,15 @@ function animate() {
   controls.update();
 
   const W = window.innerWidth, H = window.innerHeight;
-  const thirdW = Math.floor(W / 3);
+  const qW = Math.floor(W / 4);
   renderer.setScissorTest(true);
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  renderViewport(0, 0, thirdW, H, { s1: true }, 0x1c1917);
-  renderViewport(thirdW, 0, thirdW, H, { s2: true }, 0x1a1816);
-  renderViewport(thirdW * 2, 0, W - thirdW * 2, H, { s3: true }, 0x1c1917);
+  renderViewport(0, 0, qW, H, { s1: true }, 0x1c1917);
+  renderViewport(qW, 0, qW, H, { s2: true }, 0x1a1816);
+  renderViewport(qW * 2, 0, qW, H, { s3: true }, 0x1c1917);
+  renderViewport(qW * 3, 0, W - qW * 3, H, { s4: true }, 0x1a1816);
 
   renderer.setScissorTest(false);
 }
