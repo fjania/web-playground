@@ -70,6 +70,25 @@
     width: 160px; accent-color: #b45309;
   }
   .ctrl-panel .angle-val { color: #e4cc8f; font-weight: bold; }
+  /* Quick camera-angle buttons positioned next to each viewport's
+     axes gizmo in the lower-left corner of the tile. */
+  .view-quick-btns {
+    position: fixed; z-index: 11;
+    display: flex; gap: 4px;
+    pointer-events: auto;
+  }
+  .view-quick-btns[data-tile="tl"] { bottom: calc(50% + 32px); left: 96px; }
+  .view-quick-btns[data-tile="tr"] { bottom: calc(50% + 32px); left: calc(50% + 96px); }
+  .view-quick-btns[data-tile="bl"] { bottom: 60px; left: 96px; }
+  .view-quick-btns[data-tile="br"] { bottom: 60px; left: calc(50% + 96px); }
+  .view-quick-btns button {
+    padding: 3px 8px; font-size: 9px;
+    font-family: inherit; letter-spacing: 0.5px;
+    background: rgba(28,25,23,0.85); color: #a8a29e;
+    border: 1px solid #3d3835; border-radius: 3px;
+    cursor: pointer; text-transform: uppercase;
+  }
+  .view-quick-btns button:hover { background: #3d3835; color: #e4cc8f; }
 </style>
 </head>
 <body>
@@ -78,8 +97,10 @@
   left: diagonal cut &middot; right: joined
 </div>
 <div id="controls" class="ctrl-panel">
-  <label>cut A angle: <span id="angle-val" class="angle-val">7°</span></label>
-  <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
+  <label>cut A &mdash; rip: <span id="rip-val" class="angle-val">0°</span></label>
+  <input type="range" id="rip-slider" min="-90" max="90" step="1" value="0">
+  <label style="margin-top:6px;">bevel: <span id="bevel-val" class="angle-val">90°</span></label>
+  <input type="range" id="bevel-slider" min="45" max="90" step="1" value="90">
   <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
   <button id="join-btn" class="join-btn" disabled>join selected faces</button>
   <div id="flip-axis-row" style="display:none; margin-top:6px;">
@@ -93,8 +114,10 @@
   <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
 <div id="controls2" class="ctrl-panel">
-  <label>cut B angle: <span id="angle-b-val" class="angle-val">7°</span></label>
-  <input type="range" id="angle-b-slider" min="-45" max="45" step="1" value="7">
+  <label>cut B &mdash; rip: <span id="rip-b-val" class="angle-val">0°</span></label>
+  <input type="range" id="rip-b-slider" min="-90" max="90" step="1" value="0">
+  <label style="margin-top:6px;">bevel: <span id="bevel-b-val" class="angle-val">90°</span></label>
+  <input type="range" id="bevel-b-slider" min="45" max="90" step="1" value="90">
   <div style="margin-top:8px; font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
   <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
   <div id="flip-axis-row2" style="display:none; margin-top:6px;">
@@ -107,8 +130,8 @@
   </div>
   <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
-<div id="join1-status" class="tile-status">idle</div>
-<div id="join2-status" class="tile-status">idle</div>
+<!-- Per-view join status footers are injected by JS only when
+     ANIMATE_JOINS is enabled (see tile-status CSS + ANIMATE_JOINS flag). -->
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
 <script type="module">
@@ -660,7 +683,7 @@ async function init() {
     i => i % 2 === 0 ? 'maple' : 'walnut');
   console.log(`Initial panel: ${cubeCount} segments, ${panelLen}×${segH}×${segD}mm`);
 
-  rebuild(7);
+  rebuild(currentRipA, currentBevelA);
 
   // Frame the camera to show all entities with buffer
   const frame = new THREE.Box3();
@@ -833,16 +856,41 @@ function stageStatus(stage, progress) {
   return `${stage.label}: Δ=(${d.x.toFixed(1)}, ${d.y.toFixed(1)}, ${d.z.toFixed(1)}) mm`;
 }
 
-// ─── Build pipeline from angle ────────────────────────────────────
+// ─── Build pipeline from rip + bevel ──────────────────────────────
 
 // Track current cut results for cleanup. Each is a Panel (or null).
 let currentStripAbove = null, currentStripBelow = null;
 
-function rebuild(angleDeg) {
+// Compute the cutting-plane normal given rip and bevel angles in degrees.
+//
+//   rip    — rotation of the blade around the world Y axis. At rip=0 the
+//            blade cuts across the panel perpendicular to Z; rip=±90°
+//            rotates the blade to cut along the panel's length.
+//   bevel  — tilt of the blade off vertical, rotating around world X.
+//            At bevel=90° the blade is perpendicular to the table (no
+//            tilt). Decreasing bevel toward 45° tilts the blade.
+//
+// Starting normal at rip=0, bevel=90°: (0, 0, -1). Rip rotates this
+// around Y; bevel rotation around X tilts the already-rotated normal
+// by (90° - bevel) about X.
+function planeNormal(rip, bevel) {
+  const rRad = rip * Math.PI / 180;
+  const tiltRad = (90 - bevel) * Math.PI / 180;
+  // After rip rotation around Y: (sin rip, 0, -cos rip).
+  const nx = Math.sin(rRad);
+  const ny0 = 0;
+  const nz0 = -Math.cos(rRad);
+  // Rotation around X by tiltRad: (x, y cosθ − z sinθ, y sinθ + z cosθ).
+  const cosT = Math.cos(tiltRad), sinT = Math.sin(tiltRad);
+  const ny = ny0 * cosT - nz0 * sinT;
+  const nz = ny0 * sinT + nz0 * cosT;
+  return new THREE.Vector3(nx, ny, nz);
+}
+
+function rebuild(rip, bevel) {
   if (!Manifold) return;
 
-  const rad = angleDeg * Math.PI / 180;
-  const nx = Math.sin(rad), nz = -Math.cos(rad);
+  const planeN = planeNormal(rip, bevel);
 
   // Dispose previous cut manifolds
   if (currentStripAbove) currentStripAbove.dispose();
@@ -853,7 +901,7 @@ function rebuild(angleDeg) {
   step2_panel.clear();
 
   // ── Step 1: Cut initial panel with the plane ──
-  const { above, below } = initialPanel.cut([nx, 0, nz], 0);
+  const { above, below } = initialPanel.cut([planeN.x, planeN.y, planeN.z], 0);
   currentStripAbove = above;
   currentStripBelow = below;
 
@@ -862,7 +910,6 @@ function rebuild(angleDeg) {
 
   // Display-only separation — pushes strips apart along the cut normal in
   // the cut view. Never baked into manifold state.
-  const planeN = new THREE.Vector3(nx, 0, nz);
   const sep = 150;
   step1_top.position.copy(planeN.clone().multiplyScalar(sep));
   step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
@@ -877,27 +924,44 @@ function rebuild(angleDeg) {
   flipAxis1 = null;
   updateJoinButton();
 
-  console.log(`Cut at ${angleDeg}°: strip A = ${above.size} segs, strip B = ${below.size} segs`);
+  console.log(`Cut A: rip=${rip}° bevel=${bevel}° — strip A = ${above.size} segs, strip B = ${below.size} segs`);
 }
 
-// ─── Slider ───────────────────────────────────────────────────────
+// ─── Sliders ───────────────────────────────────────────────────────
 
-const slider = document.getElementById('angle-slider');
-const angleVal = document.getElementById('angle-val');
+let currentRipA = 0, currentBevelA = 90;
 
-slider.addEventListener('input', () => {
-  const v = parseInt(slider.value, 10);
-  angleVal.textContent = `${v}°`;
-  rebuild(v);
+const ripSlider = document.getElementById('rip-slider');
+const ripVal = document.getElementById('rip-val');
+ripSlider.addEventListener('input', () => {
+  currentRipA = parseInt(ripSlider.value, 10);
+  ripVal.textContent = `${currentRipA}°`;
+  rebuild(currentRipA, currentBevelA);
 });
 
-const sliderB = document.getElementById('angle-b-slider');
-const angleBVal = document.getElementById('angle-b-val');
+const bevelSlider = document.getElementById('bevel-slider');
+const bevelVal = document.getElementById('bevel-val');
+bevelSlider.addEventListener('input', () => {
+  currentBevelA = parseInt(bevelSlider.value, 10);
+  bevelVal.textContent = `${currentBevelA}°`;
+  rebuild(currentRipA, currentBevelA);
+});
 
-sliderB.addEventListener('input', () => {
-  const v = parseInt(sliderB.value, 10);
-  angleBVal.textContent = `${v}°`;
-  currentAngleB = v;
+let currentRipB = 0, currentBevelB = 90;
+
+const ripBSlider = document.getElementById('rip-b-slider');
+const ripBVal = document.getElementById('rip-b-val');
+ripBSlider.addEventListener('input', () => {
+  currentRipB = parseInt(ripBSlider.value, 10);
+  ripBVal.textContent = `${currentRipB}°`;
+  if (panel2) rebuildCut2();
+});
+
+const bevelBSlider = document.getElementById('bevel-b-slider');
+const bevelBVal = document.getElementById('bevel-b-val');
+bevelBSlider.addEventListener('input', () => {
+  currentBevelB = parseInt(bevelBSlider.value, 10);
+  bevelBVal.textContent = `${currentBevelB}°`;
   if (panel2) rebuildCut2();
 });
 
@@ -980,6 +1044,38 @@ mkLabel('step 1: cut A', 'top:8px; left:calc(25% - 30px)');
 mkLabel('step 2: join 1', 'top:8px; left:calc(75% - 30px)');
 mkLabel('step 3: cut B', 'top:calc(50% + 8px); left:calc(25% - 30px)');
 mkLabel('step 4: join 2', 'top:calc(50% + 8px); left:calc(75% - 30px)');
+
+// ─── Quick camera-angle buttons next to each tile's axes gizmo ────
+
+function setCameraView(name) {
+  const target = controls.target.clone();
+  const dist = Math.max(camera.position.distanceTo(target), 100);
+  if (name === 'top') {
+    // Ortho to XZ plane — camera looks down -Y.
+    camera.position.copy(target).add(new THREE.Vector3(0, dist, 0));
+    camera.up.set(0, 0, -1);
+  } else if (name === 'front') {
+    // Ortho to ZY plane — camera looks along -X from +X.
+    camera.position.copy(target).add(new THREE.Vector3(dist, 0, 0));
+    camera.up.set(0, 1, 0);
+  }
+  camera.lookAt(target);
+  controls.update();
+}
+
+for (const tile of ['tl', 'tr', 'bl', 'br']) {
+  const container = document.createElement('div');
+  container.className = 'view-quick-btns';
+  container.dataset.tile = tile;
+  for (const view of ['top', 'front']) {
+    const btn = document.createElement('button');
+    btn.textContent = view;
+    btn.dataset.view = view;
+    btn.addEventListener('click', () => setCameraView(view));
+    container.appendChild(btn);
+  }
+  document.body.appendChild(container);
+}
 
 // ─── Hover / raycaster ─────────────────────────────────────────────
 
@@ -1160,7 +1256,6 @@ let panel4 = null; // result of second join
 
 // View 3 state
 let currentStripC = null, currentStripD = null;
-let currentAngleB = 7;
 
 function rebuildCut2() {
   if (!panel2) return;
@@ -1173,11 +1268,9 @@ function rebuildCut2() {
   step3_bot.clear();
   step4_panel.clear();
 
-  const rad = currentAngleB * Math.PI / 180;
-  const nx = Math.sin(rad), nz = -Math.cos(rad);
-  const planeN = new THREE.Vector3(nx, 0, nz);
+  const planeN = planeNormal(currentRipB, currentBevelB);
 
-  const { above, below } = panel2.cut([nx, 0, nz], 0);
+  const { above, below } = panel2.cut([planeN.x, planeN.y, planeN.z], 0);
   currentStripC = above;
   currentStripD = below;
 
@@ -1197,7 +1290,7 @@ function rebuildCut2() {
   flipAxis2 = null;
   updateJoin2Button();
 
-  console.log(`Cut 2 at ${currentAngleB}°: strip C = ${above.size} segs, strip D = ${below.size} segs`);
+  console.log(`Cut B: rip=${currentRipB}° bevel=${currentBevelB}° — strip C = ${above.size} segs, strip D = ${below.size} segs`);
 }
 
 function updateJoin2Button() {
@@ -1223,7 +1316,19 @@ function updateJoin2Button() {
 // Flip to `true` to animate joins stage-by-stage as a debugging tool.
 // Off by default — joins snap directly to final state. The animation code
 // below is intact and requires no reimplementation to turn back on.
+// When enabled, we also inject the per-view status footers that show
+// stage progress; they're otherwise absent from the UI.
 const ANIMATE_JOINS = false;
+
+if (ANIMATE_JOINS) {
+  for (const id of ['join1-status', 'join2-status']) {
+    const el = document.createElement('div');
+    el.id = id;
+    el.className = 'tile-status';
+    el.textContent = 'idle';
+    document.body.appendChild(el);
+  }
+}
 
 let joinAnim = null;
 const STAGE_DURATION_MS = 2000;
@@ -1248,14 +1353,16 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
   panelGroup.add(gA);
   panelGroup.add(gB);
 
+  // statusEl is only present when ANIMATE_JOINS injected the footer divs.
   const statusEl = document.getElementById(which === 1 ? 'join1-status' : 'join2-status');
+  const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt; };
 
   // Degenerate: no stages (identical faces). Clone and hand off.
   if (stages.length === 0) {
     const a = srcA.clone(), b = srcB.clone();
     renderPanel(a, gA);
     renderPanel(b, gB);
-    statusEl.textContent = `join complete (${a.size + b.size} segments)`;
+    setStatus(`join complete (${a.size + b.size} segments)`);
     onComplete(a.concat(b));
     return;
   }
@@ -1284,7 +1391,7 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
     renderPanel(finalA, gA);
     renderPanel(finalB, gB);
     const finalPanel = finalA.concat(finalB);
-    statusEl.textContent = `join complete (${finalPanel.size} segments)`;
+    setStatus(`join complete (${finalPanel.size} segments)`);
     onComplete(finalPanel);
     return;
   }
@@ -1303,6 +1410,7 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
 function joinAnimFrame(now) {
   if (!joinAnim) return;
   const { srcA, srcB, stages, preAccA, preAccB, gA, gB, statusEl } = joinAnim;
+  const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt; };
 
   // Finished all stages — currentA/B hold the final geometry. Hand it off.
   if (joinAnim.stageIdx >= stages.length) {
@@ -1310,7 +1418,7 @@ function joinAnimFrame(now) {
     // Ownership of segment manifolds transfers to finalPanel; don't dispose.
     joinAnim.currentA = null;
     joinAnim.currentB = null;
-    statusEl.textContent = `join complete (${finalPanel.size} segments)`;
+    setStatus(`join complete (${finalPanel.size} segments)`);
     const cb = joinAnim.onComplete;
     joinAnim = null;
     cb(finalPanel);
@@ -1340,7 +1448,7 @@ function joinAnimFrame(now) {
   joinAnim.currentA = newA;
   joinAnim.currentB = newB;
 
-  statusEl.textContent = stageStatus(stage, progress);
+  setStatus(stageStatus(stage, progress));
 
   if (progress >= 1) {
     joinAnim.stageIdx++;
