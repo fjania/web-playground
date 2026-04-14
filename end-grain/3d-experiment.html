@@ -153,7 +153,14 @@ const pvA = new THREE.Mesh(
 );
 scene.add(pvA);
 
-const step2_union = new THREE.Group();
+const step2_anim = new THREE.Group();  // pre-union: two sub-groups animating
+const step2_top = new THREE.Group();
+const step2_bot = new THREE.Group();
+step2_anim.add(step2_top);
+step2_anim.add(step2_bot);
+scene.add(step2_anim);
+
+const step2_union = new THREE.Group();  // post-union: single solid mesh
 scene.add(step2_union);
 
 // ─── Build pipeline from tilt ─────────────────────────────────────
@@ -198,8 +205,11 @@ function rebuild(tiltMm) {
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // ── Step 2: Combine — both halves at natural positions (cut faces flush) ──
-  const allMeshes = [];
+  // ── Step 2: Clone halves into animation groups, then animate + union ──
+  step2_top.clear();
+  step2_bot.clear();
+  step2_union.clear();
+  step2_top.position.set(0, 0, 0);
 
   // Clone geometry with only the mesh's local transform (no group offset)
   function cloneBaked(mesh) {
@@ -210,30 +220,67 @@ function rebuild(tiltMm) {
     return geo;
   }
 
+  // Clone halves into step2 groups for animation.
+  // Both start separated along the cut normal (like step 1),
+  // then animate to flush (original positions, cut faces touching).
   step1_top.children.forEach(mesh => {
-    allMeshes.push({ geo: cloneBaked(mesh), material: mesh.material });
+    const m = new THREE.Mesh(cloneBaked(mesh), mesh.material);
+    m.castShadow = true;
+    step2_top.add(m);
   });
   step1_bot.children.forEach(mesh => {
-    allMeshes.push({ geo: cloneBaked(mesh), material: mesh.material });
+    const m = new THREE.Mesh(cloneBaked(mesh), mesh.material);
+    m.castShadow = true;
+    step2_bot.add(m);
   });
 
-  // Union all meshes.
-  // Tiny scale (1+ε) on each brush avoids exact coplanar faces,
-  // which trigger a known bug in three-bvh-csg's clip phase.
-  const EPS = 1e-4;
-  console.log(`Rebuilding: tilt=${tiltMm}mm, unioning ${allMeshes.length} meshes...`);
+  // Animation: start separated along cut normal, animate to zero separation.
+  // Store the normal so the render loop can interpolate.
+  animPlaneN = planeN.clone();
+  animStart = performance.now() / 1000;
+  animDone = false;
+  step2_anim.visible = true;
+  step2_union.visible = false;
 
-  function makeBrushFromGeo(geo, material) {
+  // Start at separated positions (same as step 1)
+  step2_top.position.copy(planeN.clone().multiplyScalar(sep));
+  step2_bot.position.copy(planeN.clone().multiplyScalar(-sep));
+}
+
+// ─── Animation + union ─────────────────────────────────────────────
+
+let animStart = 0, animDone = true, animPlaneN = new THREE.Vector3();
+const animDuration = 2.0;
+
+function performUnion() {
+  console.log('--- Performing CSG union ---');
+  const allMeshes = [];
+
+  // Collect all meshes with final world positions baked in
+  [step2_top, step2_bot].forEach(group => {
+    group.updateMatrixWorld(true);
+    group.traverse(m => {
+      if (!m.isMesh) return;
+      const geo = m.geometry.clone();
+      geo.applyMatrix4(m.matrixWorld);
+      allMeshes.push({ geo, material: m.material });
+    });
+  });
+
+  // Union with tiny scale to avoid coplanar face artifacts
+  const EPS = 1e-4;
+  console.log(`Unioning ${allMeshes.length} meshes...`);
+
+  function makeBrush(geo, material) {
     const b = new Brush(geo, material);
     b.scale.setScalar(1 + EPS);
     b.updateMatrixWorld();
     return b;
   }
 
-  let result = makeBrushFromGeo(allMeshes[0].geo, allMeshes[0].material);
-
+  let result = makeBrush(allMeshes[0].geo, allMeshes[0].material);
   for (let i = 1; i < allMeshes.length; i++) {
-    const b = makeBrushFromGeo(allMeshes[i].geo, allMeshes[i].material);
+    const b = makeBrush(allMeshes[i].geo, allMeshes[i].material);
     result = evaluator.evaluate(result, b, ADDITION);
     result.updateMatrixWorld();
   }
@@ -241,11 +288,16 @@ function rebuild(tiltMm) {
   result.castShadow = true;
   step2_union.add(result);
 
-  // Log result
+  // Log
   const bb = new THREE.Box3().setFromObject(result);
   const sz = new THREE.Vector3(); bb.getSize(sz);
   const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
   console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+
+  // Swap: hide animation groups, show union
+  step2_anim.visible = false;
+  step2_union.visible = true;
+  console.log('--- Union complete ---');
 }
 
 // Initial build
@@ -301,7 +353,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups = inLeft ? [step1_top, step1_bot] : [step2_union];
+  const groups = inLeft ? [step1_top, step1_bot] : (animDone ? [step2_union] : [step2_top, step2_bot]);
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -378,6 +430,19 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
+  // Drive animation: halves slide from separated → flush along cut normal
+  if (!animDone) {
+    const t = Math.min((performance.now() / 1000 - animStart) / animDuration, 1);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const curSep = 20 * (1 - ease); // 20 → 0
+    step2_top.position.copy(animPlaneN.clone().multiplyScalar(curSep));
+    step2_bot.position.copy(animPlaneN.clone().multiplyScalar(-curSep));
+    if (t >= 1) {
+      animDone = true;
+      performUnion();
+    }
+  }
+
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
   renderer.setScissorTest(true);
@@ -387,6 +452,7 @@ function animate() {
   // ── Left: Step 1 (cut halves separated + plane viz) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
+  step2_anim.visible = false;
   step2_union.visible = false;
 
   renderer.setViewport(0, 0, halfW, H);
@@ -401,10 +467,11 @@ function animate() {
   renderer.clearDepth();
   renderer.render(axesScene, axesCamera);
 
-  // ── Right: Step 2 (union) ──
+  // ── Right: Step 2 (animation or union) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
-  step2_union.visible = true;
+  step2_anim.visible = !animDone;
+  step2_union.visible = animDone;
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
