@@ -606,7 +606,7 @@ function rebuild(angleDeg) {
 
   // Push strips apart by a fixed amount along the cut normal
   const planeN = new THREE.Vector3(nx, 0, nz);
-  const sep = 40;
+  const sep = 150;
   step1_top.position.copy(planeN.clone().multiplyScalar(sep));
   step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
 
@@ -905,7 +905,7 @@ function rebuildCut2() {
   // Render strips with offset for visual separation
   renderPanel(above, step3_top);
   renderPanel(below, step3_bot);
-  const sep = 40;
+  const sep = 150;
   step3_top.position.copy(planeN.clone().multiplyScalar(sep));
   step3_bot.position.copy(planeN.clone().multiplyScalar(-sep));
 
