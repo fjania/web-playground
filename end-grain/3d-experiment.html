@@ -122,7 +122,7 @@ const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-const segW = 50, segH = 50, segD = 150, cubeCount = 16;
+const segW = 50, segH = 50, segD = 150, cubeCount = 32;
 const halfLen = (cubeCount * segW) / 2;
 
 // ─── CSG helpers ───────────────────────────────────────────────────
@@ -272,7 +272,7 @@ slider.addEventListener('input', () => {
 // ─── Camera + controls ─────────────────────────────────────────────
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-camera.position.set(600, 400, 600);
+camera.position.set(1000, 600, 800);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.target.set(0, 25, 0);
