@@ -263,13 +263,21 @@ function rebuild(angleA, angleB) {
   }
 
   result.castShadow = true;
+
+  // Center the union geometry at the origin so plane B cuts through it
+  result.geometry.computeBoundingBox();
+  const center = new THREE.Vector3();
+  result.geometry.boundingBox.getCenter(center);
+  result.geometry.translate(-center.x, -center.y, -center.z);
+  result.geometry.computeBoundingBox();
+
   step2_union.add(result);
 
   // Log result
   const bb = new THREE.Box3().setFromObject(result);
   const sz = new THREE.Vector3(); bb.getSize(sz);
   const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
-  console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+  console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}, centered at origin`);
 
   // ── Step 3: Recut the union with plane B ──
   const radB = angleB * Math.PI / 180;
