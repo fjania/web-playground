@@ -180,20 +180,34 @@ scene.add(step4_anim);
 const step4_union = new THREE.Group();
 scene.add(step4_union);
 
-let anim4Start = 0, anim4Done = true, anim4PlaneN = new THREE.Vector3();
+let anim4Start = 0, anim4Done = true, anim4ZTarget = 0;
 const anim4Duration = 2.0;
 
 function performStep4Union() {
   console.log('--- Step 4 union ---');
   const meshes = [];
-  [step4_top, step4_bot].forEach(group => {
-    group.updateMatrixWorld(true);
-    group.traverse(m => {
-      if (!m.isMesh) return;
-      const geo = m.geometry.clone();
-      geo.applyMatrix4(m.matrixWorld);
-      meshes.push({ geo, material: m.material });
-    });
+
+  // Top half with Z offset baked in (same approach as step 2)
+  step4_top.children.forEach(m => {
+    const geo = m.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(m.position, m.quaternion, m.scale);
+    geo.applyMatrix4(m4);
+    const pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      pos.setZ(v, pos.getZ(v) + anim4ZTarget);
+    }
+    pos.needsUpdate = true;
+    meshes.push({ geo, material: m.material });
+  });
+
+  // Bot half at original positions
+  step4_bot.children.forEach(m => {
+    const geo = m.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(m.position, m.quaternion, m.scale);
+    geo.applyMatrix4(m4);
+    meshes.push({ geo, material: m.material });
   });
 
   let result4 = new Brush(meshes[0].geo, meshes[0].material);
@@ -385,10 +399,22 @@ function rebuild(angleA, angleB) {
     step4_bot.add(m);
   });
 
-  // Start animation: separated along plane B normal → flush
-  step4_top.position.copy(planeB_n.clone().multiplyScalar(20));
-  step4_bot.position.copy(planeB_n.clone().multiplyScalar(-20));
-  anim4PlaneN = planeB_n.clone();
+  // Compute the Z offset for the combine (same logic as step 2)
+  step4_top.position.set(0, 0, 0);
+  step4_bot.position.set(0, 0, 0);
+  let topMinZ4 = Infinity, botMaxZ4 = -Infinity;
+  step4_top.children.forEach(m => {
+    m.geometry.computeBoundingBox();
+    topMinZ4 = Math.min(topMinZ4, m.geometry.boundingBox.min.z);
+  });
+  step4_bot.children.forEach(m => {
+    m.geometry.computeBoundingBox();
+    botMaxZ4 = Math.max(botMaxZ4, m.geometry.boundingBox.max.z);
+  });
+  anim4ZTarget = botMaxZ4 - topMinZ4;
+  console.log(`Step 4 animation: Z offset = ${anim4ZTarget.toFixed(1)}`);
+
+  // Start animation: top half slides along Z to meet bot half's uncut face
   anim4Start = performance.now() / 1000;
   anim4Done = false;
   step4_anim.visible = true;
@@ -568,13 +594,11 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Drive step 4 animation: halves close along plane B normal
+  // Drive step 4 animation: top half slides along Z to meet bot half
   if (!anim4Done) {
     const t = Math.min((performance.now() / 1000 - anim4Start) / anim4Duration, 1);
     const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    const curSep = 20 * (1 - ease);
-    step4_top.position.copy(anim4PlaneN.clone().multiplyScalar(curSep));
-    step4_bot.position.copy(anim4PlaneN.clone().multiplyScalar(-curSep));
+    step4_top.position.z = ease * anim4ZTarget;
     if (t >= 1) {
       anim4Done = true;
       performStep4Union();
