@@ -245,6 +245,16 @@ scene.add(bbStripA);
 scene.add(bbStripB);
 scene.add(bbPanel2);
 
+// Red join-face indicators
+const joinFaceMat = new THREE.MeshBasicMaterial({
+  color: 0xff2222, transparent: true, opacity: 0.35,
+  side: THREE.DoubleSide, depthWrite: false
+});
+const joinFaceA = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), joinFaceMat);
+const joinFaceB = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), joinFaceMat);
+scene.add(joinFaceA);
+scene.add(joinFaceB);
+
 // Material per species: index 0 = maple, index 1 = walnut
 const speciesMaterials = { maple: mapleMats[0], walnut: walnutMats[0] };
 
@@ -371,11 +381,68 @@ function rebuild(angleDeg) {
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // Update bounding boxes
+  // Update bounding boxes (after separation is applied)
   bbStripA.box.setFromObject(step1_top);
   bbStripB.box.setFromObject(step1_bot);
 
-  console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs`);
+  // ── Highlight the join faces (closest parallel faces between the two BBs) ──
+  // The cut normal is mostly along Z, so the join faces are the Z-facing faces.
+  // More precisely: find which axis has the largest gap between the two boxes.
+  const finalA = bbStripA.box;
+  const finalB = bbStripB.box;
+  const gaps = [
+    { axis: 'x', gap: finalB.min.x - finalA.max.x, sign: 1 },
+    { axis: 'x', gap: finalA.min.x - finalB.max.x, sign: -1 },
+    { axis: 'y', gap: finalB.min.y - finalA.max.y, sign: 1 },
+    { axis: 'y', gap: finalA.min.y - finalB.max.y, sign: -1 },
+    { axis: 'z', gap: finalB.min.z - finalA.max.z, sign: 1 },
+    { axis: 'z', gap: finalA.min.z - finalB.max.z, sign: -1 },
+  ];
+  // The join axis is the one with the largest positive gap (most separated)
+  gaps.sort((a, b) => b.gap - a.gap);
+  const joinAxis = gaps[0].axis;
+  const joinSign = gaps[0].sign;
+
+  // Size and position the red face planes on the inner faces of each BB
+  const sizeA = new THREE.Vector3(); finalA.getSize(sizeA);
+  const sizeB = new THREE.Vector3(); finalB.getSize(sizeB);
+  const centerA = new THREE.Vector3(); finalA.getCenter(centerA);
+  const centerB = new THREE.Vector3(); finalB.getCenter(centerB);
+
+  if (joinAxis === 'z') {
+    // A's face: at A's max-Z (if sign>0) or min-Z
+    joinFaceA.scale.set(sizeA.x, sizeA.y, 1);
+    joinFaceA.position.copy(centerA);
+    joinFaceA.position.z = joinSign > 0 ? finalA.max.z : finalA.min.z;
+    joinFaceA.rotation.set(0, 0, 0);
+
+    joinFaceB.scale.set(sizeB.x, sizeB.y, 1);
+    joinFaceB.position.copy(centerB);
+    joinFaceB.position.z = joinSign > 0 ? finalB.min.z : finalB.max.z;
+    joinFaceB.rotation.set(0, 0, 0);
+  } else if (joinAxis === 'x') {
+    joinFaceA.scale.set(sizeA.z, sizeA.y, 1);
+    joinFaceA.position.copy(centerA);
+    joinFaceA.position.x = joinSign > 0 ? finalA.max.x : finalA.min.x;
+    joinFaceA.rotation.set(0, Math.PI / 2, 0);
+
+    joinFaceB.scale.set(sizeB.z, sizeB.y, 1);
+    joinFaceB.position.copy(centerB);
+    joinFaceB.position.x = joinSign > 0 ? finalB.min.x : finalB.max.x;
+    joinFaceB.rotation.set(0, Math.PI / 2, 0);
+  } else {
+    joinFaceA.scale.set(sizeA.x, sizeA.z, 1);
+    joinFaceA.position.copy(centerA);
+    joinFaceA.position.y = joinSign > 0 ? finalA.max.y : finalA.min.y;
+    joinFaceA.rotation.set(Math.PI / 2, 0, 0);
+
+    joinFaceB.scale.set(sizeB.x, sizeB.z, 1);
+    joinFaceB.position.copy(centerB);
+    joinFaceB.position.y = joinSign > 0 ? finalB.min.y : finalB.max.y;
+    joinFaceB.rotation.set(Math.PI / 2, 0, 0);
+  }
+
+  console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs, join axis = ${joinAxis}`);
 }
 
 // ─── Slider ───────────────────────────────────────────────────────
@@ -536,10 +603,11 @@ function animate() {
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // ── Left: Step 1 (cut strips separated + plane viz) ──
+  // ── Left: Step 1 (cut strips separated + plane viz + join faces) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
   bbStripA.visible = true; bbStripB.visible = true;
+  joinFaceA.visible = true; joinFaceB.visible = true;
   step2_panel.visible = false;
   bbPanel2.visible = false;
 
@@ -559,6 +627,7 @@ function animate() {
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
   bbStripA.visible = false; bbStripB.visible = false;
+  joinFaceA.visible = false; joinFaceB.visible = false;
   step2_panel.visible = true;
   bbPanel2.visible = true;
 
