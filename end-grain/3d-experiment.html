@@ -122,7 +122,7 @@ const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-const cubeSize = 50, cubeCount = 8;
+const cubeSize = 50, cubeCount = 24;
 const halfLen = (cubeCount * cubeSize) / 2;
 
 // ─── CSG helpers ───────────────────────────────────────────────────
@@ -147,7 +147,7 @@ scene.add(step1_top);
 scene.add(step1_bot);
 
 const pvA = new THREE.Mesh(
-  new THREE.PlaneGeometry(520, 150),
+  new THREE.PlaneGeometry(1400, 150),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvA);
@@ -195,42 +195,23 @@ function rebuild(angleDeg) {
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // ── Step 2: Combine — slide top half along Z, then union ──
-  // Collect all meshes with world transforms baked in, applying the Z offset
-  // so uncut faces touch.
+  // ── Step 2: Combine — both halves at natural positions (cut faces flush) ──
   const allMeshes = [];
 
-  // Top half: offset in +Z so its min-Z face meets bot's max-Z face
-  step1_top.updateMatrixWorld(true);
-  const bbTopTemp = new THREE.Box3().setFromObject(step1_top);
-  const bbBotTemp = new THREE.Box3().setFromObject(step1_bot);
-  // Remove separation offset for the combine calculation
-  const topMinZ = bbTopTemp.min.z - sep * planeN.z;
-  const botMaxZ = bbBotTemp.max.z + sep * planeN.z;
-  const zOffset = botMaxZ - topMinZ;
+  // Clone geometry with only the mesh's local transform (no group offset)
+  function cloneBaked(mesh) {
+    const geo = mesh.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+    geo.applyMatrix4(m4);
+    return geo;
+  }
 
-  // Collect top half meshes with Z offset
   step1_top.children.forEach(mesh => {
-    const geo = mesh.geometry.clone();
-    const m4 = new THREE.Matrix4();
-    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
-    geo.applyMatrix4(m4);
-    // Apply Z offset
-    const pos = geo.attributes.position;
-    for (let v = 0; v < pos.count; v++) {
-      pos.setZ(v, pos.getZ(v) + zOffset);
-    }
-    pos.needsUpdate = true;
-    allMeshes.push({ geo, material: mesh.material });
+    allMeshes.push({ geo: cloneBaked(mesh), material: mesh.material });
   });
-
-  // Collect bottom half meshes at original positions
   step1_bot.children.forEach(mesh => {
-    const geo = mesh.geometry.clone();
-    const m4 = new THREE.Matrix4();
-    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
-    geo.applyMatrix4(m4);
-    allMeshes.push({ geo, material: mesh.material });
+    allMeshes.push({ geo: cloneBaked(mesh), material: mesh.material });
   });
 
   // Union all meshes
@@ -272,7 +253,7 @@ slider.addEventListener('input', () => {
 // ─── Camera + controls ─────────────────────────────────────────────
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-camera.position.set(350, 250, 400);
+camera.position.set(900, 500, 800);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.target.set(0, 25, 0);
