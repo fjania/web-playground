@@ -29,12 +29,27 @@
   #statusbar .label { color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
   #statusbar .val { color: #e4cc8f; }
   #statusbar .dim { color: #555; }
+  #controls {
+    position: fixed; top: 10px; right: 10px; z-index: 10;
+    background: rgba(28,25,23,0.92); border: 1px solid #3d3835;
+    border-radius: 6px; padding: 12px 16px;
+    color: #a8a29e; font-size: 10px;
+  }
+  #controls label { display: block; margin-bottom: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
+  #controls input[type="range"] {
+    width: 160px; accent-color: #b45309;
+  }
+  #controls .angle-val { color: #e4cc8f; font-weight: bold; }
 </style>
 </head>
 <body>
 <div id="info">
   <strong>End Grain — Cut + Combine</strong><br>
-  left: diagonal cut &middot; right: flipped &amp; joined
+  left: diagonal cut &middot; right: joined
+</div>
+<div id="controls">
+  <label>cut angle: <span id="angle-val" class="angle-val">7°</span></label>
+  <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -124,106 +139,135 @@ function makeHalfSpace(normal, constant, mat) {
   return b;
 }
 
-// ─── Plane A: diagonal front-left → back-right ────────────────────
+// ─── Groups (persistent across rebuilds) ──────────────────────────
 
-const planeA_n = new THREE.Vector3(1, 0, -8).normalize();
-const planeA_d = 0;
-
-// ═══════════════════════════════════════════════════════════════════
-// STEP 1: Cut with plane A → two halves
-// ═══════════════════════════════════════════════════════════════════
-
-const step1_top = new THREE.Group(); // above plane A
-const step1_bot = new THREE.Group(); // below plane A
-
-for (let i = 0; i < cubeCount; i++) {
-  const x = i * cubeSize - halfLen + cubeSize / 2;
-  const y = cubeSize / 2;
-  const isMaple = i % 2 === 0;
-  const mats = isMaple ? mapleMats : walnutMats;
-  const cutMat = isMaple ? mapleCut : walnutCut;
-  const hs = makeHalfSpace(planeA_n, planeA_d, cutMat);
-
-  const c1 = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
-  c1.position.set(x, y, 0); c1.updateMatrixWorld();
-  const top = evaluator.evaluate(c1, hs, SUBTRACTION);
-  top.castShadow = true; step1_top.add(top);
-
-  const c2 = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
-  c2.position.set(x, y, 0); c2.updateMatrixWorld();
-  const bot = evaluator.evaluate(c2, hs, INTERSECTION);
-  bot.castShadow = true; step1_bot.add(bot);
-}
-
-// Show step 1 with pieces separated along the cut normal
-const sep = 20;
-step1_top.position.copy(planeA_n.clone().multiplyScalar(sep));
-step1_bot.position.copy(planeA_n.clone().multiplyScalar(-sep));
+const step1_top = new THREE.Group();
+const step1_bot = new THREE.Group();
 scene.add(step1_top);
 scene.add(step1_bot);
 
-// Plane viz
 const pvA = new THREE.Mesh(
   new THREE.PlaneGeometry(520, 150),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
-pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeA_n);
 scene.add(pvA);
 
-// ═══════════════════════════════════════════════════════════════════
-// STEP 2: Flip bottom half 180° around the strip's long axis (X),
-// then place it so its cut face meets the top half's cut face.
-// This is the standard woodworking operation: cut → flip → reglue.
-// ═══════════════════════════════════════════════════════════════════
+const step2_union = new THREE.Group();
+scene.add(step2_union);
 
-const step2 = new THREE.Group();
-const step2_top = new THREE.Group(); // "left" piece — will animate along Z
-const step2_bot = new THREE.Group(); // stays put
+// ─── Build pipeline from angle ────────────────────────────────────
 
-// Helper: clone mesh geometry with its local transform baked in
-function cloneGeoBaked(mesh) {
-  const geo = mesh.geometry.clone();
-  const m4 = new THREE.Matrix4();
-  m4.compose(mesh.position, mesh.quaternion, mesh.scale);
-  geo.applyMatrix4(m4);
-  return geo;
+function rebuild(angleDeg) {
+  const rad = angleDeg * Math.PI / 180;
+  const planeN = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
+  const planeD = 0;
+
+  // Clear previous geometry
+  step1_top.clear();
+  step1_bot.clear();
+  step2_union.clear();
+
+  // ── Step 1: Cut each cube with the plane ──
+  for (let i = 0; i < cubeCount; i++) {
+    const x = i * cubeSize - halfLen + cubeSize / 2;
+    const y = cubeSize / 2;
+    const isMaple = i % 2 === 0;
+    const mats = isMaple ? mapleMats : walnutMats;
+    const cutMat = isMaple ? mapleCut : walnutCut;
+    const hs = makeHalfSpace(planeN, planeD, cutMat);
+
+    const c1 = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+    c1.position.set(x, y, 0); c1.updateMatrixWorld();
+    const top = evaluator.evaluate(c1, hs, SUBTRACTION);
+    top.castShadow = true; step1_top.add(top);
+
+    const c2 = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+    c2.position.set(x, y, 0); c2.updateMatrixWorld();
+    const bot = evaluator.evaluate(c2, hs, INTERSECTION);
+    bot.castShadow = true; step1_bot.add(bot);
+  }
+
+  // Separate halves along the cut normal for left viewport
+  const sep = 20;
+  step1_top.position.copy(planeN.clone().multiplyScalar(sep));
+  step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
+
+  // Update plane viz
+  pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
+
+  // ── Step 2: Combine — slide top half along Z, then union ──
+  // Collect all meshes with world transforms baked in, applying the Z offset
+  // so uncut faces touch.
+  const allMeshes = [];
+
+  // Top half: offset in +Z so its min-Z face meets bot's max-Z face
+  step1_top.updateMatrixWorld(true);
+  const bbTopTemp = new THREE.Box3().setFromObject(step1_top);
+  const bbBotTemp = new THREE.Box3().setFromObject(step1_bot);
+  // Remove separation offset for the combine calculation
+  const topMinZ = bbTopTemp.min.z - sep * planeN.z;
+  const botMaxZ = bbBotTemp.max.z + sep * planeN.z;
+  const zOffset = botMaxZ - topMinZ;
+
+  // Collect top half meshes with Z offset
+  step1_top.children.forEach(mesh => {
+    const geo = mesh.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+    geo.applyMatrix4(m4);
+    // Apply Z offset
+    const pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      pos.setZ(v, pos.getZ(v) + zOffset);
+    }
+    pos.needsUpdate = true;
+    allMeshes.push({ geo, material: mesh.material });
+  });
+
+  // Collect bottom half meshes at original positions
+  step1_bot.children.forEach(mesh => {
+    const geo = mesh.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+    geo.applyMatrix4(m4);
+    allMeshes.push({ geo, material: mesh.material });
+  });
+
+  // Union all meshes
+  console.log(`Rebuilding: angle=${angleDeg}°, unioning ${allMeshes.length} meshes...`);
+  let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
+  result.updateMatrixWorld();
+
+  for (let i = 1; i < allMeshes.length; i++) {
+    const b = new Brush(allMeshes[i].geo, allMeshes[i].material);
+    b.updateMatrixWorld();
+    result = evaluator.evaluate(result, b, ADDITION);
+    result.updateMatrixWorld();
+  }
+
+  result.castShadow = true;
+  step2_union.add(result);
+
+  // Log result
+  const bb = new THREE.Box3().setFromObject(result);
+  const sz = new THREE.Vector3(); bb.getSize(sz);
+  const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
+  console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
 }
 
-// Top half (positive-normal side = front/left piece in viewport)
-step1_top.children.forEach(mesh => {
-  const m = new THREE.Mesh(cloneGeoBaked(mesh), mesh.material);
-  m.castShadow = true;
-  step2_top.add(m);
+// Initial build
+rebuild(7);
+
+// ─── Slider ───────────────────────────────────────────────────────
+
+const slider = document.getElementById('angle-slider');
+const angleVal = document.getElementById('angle-val');
+
+slider.addEventListener('input', () => {
+  const v = parseInt(slider.value, 10);
+  angleVal.textContent = `${v}°`;
+  rebuild(v);
 });
-
-// Bottom half (negative-normal side = back/right piece in viewport)
-step1_bot.children.forEach(mesh => {
-  const m = new THREE.Mesh(cloneGeoBaked(mesh), mesh.material);
-  m.castShadow = true;
-  step2_bot.add(m);
-});
-
-step2.add(step2_top);
-step2.add(step2_bot);
-scene.add(step2);
-
-// ─── Animation: slide top half along Z ─────────────────────────────
-// Compute bounding boxes to figure out the Z gap to close.
-const bbTop = new THREE.Box3().setFromObject(step2_top);
-const bbBot = new THREE.Box3().setFromObject(step2_bot);
-console.log('top half Z range:', bbTop.min.z.toFixed(1), '→', bbTop.max.z.toFixed(1));
-console.log('bot half Z range:', bbBot.min.z.toFixed(1), '→', bbBot.max.z.toFixed(1));
-
-// The top half (front piece) has its uncut face at its min-Z side.
-// The bot half (back piece) has its uncut face at its max-Z side.
-// We want to slide the top half in +Z until top.minZ = bot.maxZ
-// (uncut front face of top piece meets uncut back face of bot piece).
-const zTarget = bbBot.max.z - bbTop.min.z;
-console.log('Z translation needed:', zTarget.toFixed(1));
-
-const animDuration = 2.0; // seconds
-const animStart = performance.now() / 1000;
-let animDone = false;
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
@@ -235,18 +279,16 @@ controls.target.set(0, 25, 0);
 
 // ─── Layout ────────────────────────────────────────────────────────
 
-// Vertical divider
 const dv = document.createElement('div'); dv.className = 'divider';
 dv.style.cssText = 'top:0; left:50%; width:1px; height:100%';
 document.body.appendChild(dv);
 
-// Labels
 function mkLabel(txt, css) {
   const el = document.createElement('div'); el.className = 'step-label';
   el.textContent = txt; el.style.cssText = css; document.body.appendChild(el);
 }
 mkLabel('step 1: diagonal cut', 'top:8px; left:calc(25% - 50px)');
-mkLabel('step 2: flipped + joined', 'top:8px; left:calc(75% - 55px)');
+mkLabel('step 2: joined', 'top:8px; left:calc(75% - 30px)');
 
 // ─── Hover / raycaster ─────────────────────────────────────────────
 
@@ -266,8 +308,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  // Only raycast against meshes visible in the current viewport
-  const groups = inLeft ? [step1_top, step1_bot] : (animDone ? [step2_union] : [step2]);
+  const groups = inLeft ? [step1_top, step1_bot] : [step2_union];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -306,7 +347,6 @@ const axesCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
 axesCamera.position.set(0, 0, 3);
 axesCamera.lookAt(0, 0, 0);
 
-// Build colored axes: X=red, Y=green, Z=blue
 function makeAxis(dir, color) {
   const mat = new THREE.LineBasicMaterial({ color });
   const pts = [new THREE.Vector3(0,0,0), dir.clone()];
@@ -314,11 +354,10 @@ function makeAxis(dir, color) {
   return new THREE.Line(geo, mat);
 }
 const axesGroup = new THREE.Group();
-axesGroup.add(makeAxis(new THREE.Vector3(1,0,0), 0xff4444));  // X red
-axesGroup.add(makeAxis(new THREE.Vector3(0,1,0), 0x44ff44));  // Y green
-axesGroup.add(makeAxis(new THREE.Vector3(0,0,1), 0x4488ff));  // Z blue
+axesGroup.add(makeAxis(new THREE.Vector3(1,0,0), 0xff4444));
+axesGroup.add(makeAxis(new THREE.Vector3(0,1,0), 0x44ff44));
+axesGroup.add(makeAxis(new THREE.Vector3(0,0,1), 0x4488ff));
 
-// Axis labels
 function makeAxisLabel(text, position, color) {
   const canvas = document.createElement('canvas');
   canvas.width = 64; canvas.height = 64;
@@ -338,93 +377,23 @@ axesGroup.add(makeAxisLabel('Y', new THREE.Vector3(0, 1.2, 0), '#44ff44'));
 axesGroup.add(makeAxisLabel('Z', new THREE.Vector3(0, 0, 1.2), '#4488ff'));
 axesScene.add(axesGroup);
 
-// ─── CSG union after animation ─────────────────────────────────────
-
-const step2_union = new THREE.Group();
-step2_union.visible = false;
-scene.add(step2_union);
-
-function performUnion() {
-  console.log('--- Performing CSG union ---');
-
-  // Collect all meshes from both halves with their final world positions baked in.
-  const allMeshes = [];
-  [step2_top, step2_bot].forEach(group => {
-    group.updateMatrixWorld(true);
-    group.traverse(m => {
-      if (!m.isMesh) return;
-      const geo = m.geometry.clone();
-      geo.applyMatrix4(m.matrixWorld);
-      allMeshes.push({ geo, material: m.material });
-    });
-  });
-
-  console.log(`Unioning ${allMeshes.length} meshes...`);
-
-  // Union all meshes into one via sequential CSG ADDITION.
-  // Start with first mesh as a Brush, then union each subsequent mesh.
-  let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
-  result.updateMatrixWorld();
-
-  for (let i = 1; i < allMeshes.length; i++) {
-    const b = new Brush(allMeshes[i].geo, allMeshes[i].material);
-    b.updateMatrixWorld();
-    result = evaluator.evaluate(result, b, ADDITION);
-    result.updateMatrixWorld();
-  }
-
-  result.castShadow = true;
-  step2_union.add(result);
-
-  // Log the result
-  const bb = new THREE.Box3().setFromObject(result);
-  const sz = new THREE.Vector3(); bb.getSize(sz);
-  const geo = result.geometry;
-  const tris = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
-  console.log(`Union result: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
-  console.log('Union bounding box:', {
-    min: { x: bb.min.x.toFixed(1), y: bb.min.y.toFixed(1), z: bb.min.z.toFixed(1) },
-    max: { x: bb.max.x.toFixed(1), y: bb.max.y.toFixed(1), z: bb.max.z.toFixed(1) },
-  });
-
-  // Swap: hide the two separate halves, show the union
-  step2_top.visible = false;
-  step2_bot.visible = false;
-  step2_union.visible = true;
-
-  console.log('--- Union complete ---');
-}
-
 // ─── Render loop: 2 viewports ──────────────────────────────────────
 
-const axesSize = 100; // pixel size of axes gizmo
+const axesSize = 100;
 
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Animate the top half sliding along Z, then union when done
-  if (!animDone) {
-    const t = Math.min((performance.now() / 1000 - animStart) / animDuration, 1);
-    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
-    step2_top.position.z = ease * zTarget;
-    if (t >= 1) {
-      animDone = true;
-      performUnion();
-    }
-  }
-
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
   renderer.setScissorTest(true);
 
-  // Sync axes gizmo rotation with main camera
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
   // ── Left: Step 1 (cut halves separated + plane viz) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
-  step2.visible = false;
   step2_union.visible = false;
 
   renderer.setViewport(0, 0, halfW, H);
@@ -434,17 +403,15 @@ function animate() {
   renderer.setClearColor(0x1c1917, 1); renderer.clear();
   renderer.render(scene, camera);
 
-  // Axes gizmo — bottom-left of left viewport
   renderer.setViewport(8, 8, axesSize, axesSize);
   renderer.setScissor(8, 8, axesSize, axesSize);
   renderer.clearDepth();
   renderer.render(axesScene, axesCamera);
 
-  // ── Right: Step 2 (combined / union) ──
+  // ── Right: Step 2 (union) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
-  step2.visible = true;
-  step2_union.visible = animDone; // show union result after animation
+  step2_union.visible = true;
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
@@ -453,7 +420,6 @@ function animate() {
   renderer.setClearColor(0x1a1816, 1); renderer.clear();
   renderer.render(scene, camera);
 
-  // Axes gizmo — bottom-left of right viewport
   renderer.setViewport(halfW + 8, 8, axesSize, axesSize);
   renderer.setScissor(halfW + 8, 8, axesSize, axesSize);
   renderer.clearDepth();
