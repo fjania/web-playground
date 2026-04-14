@@ -227,10 +227,33 @@ function rebuild(angleDeg) {
   stripB.castShadow = true;
   step1_bot.add(stripB);
 
-  // Separate strips along the cut normal for left viewport
-  const sep = 20;
-  step1_top.position.copy(planeN.clone().multiplyScalar(sep));
-  step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
+  // Separate strips along the cut normal so bounding boxes don't overlap.
+  // Compute each strip's extent along the cut normal, then push apart.
+  stripA.geometry.computeBoundingBox();
+  stripB.geometry.computeBoundingBox();
+  const bbA = stripA.geometry.boundingBox;
+  const bbB = stripB.geometry.boundingBox;
+  // Project bounding box corners onto the cut normal to find extent
+  function extentAlongNormal(box, n) {
+    let minD = Infinity, maxD = -Infinity;
+    for (let ix = 0; ix < 2; ix++) for (let iy = 0; iy < 2; iy++) for (let iz = 0; iz < 2; iz++) {
+      const d = n.x * (ix ? box.max.x : box.min.x) +
+                n.y * (iy ? box.max.y : box.min.y) +
+                n.z * (iz ? box.max.z : box.min.z);
+      minD = Math.min(minD, d);
+      maxD = Math.max(maxD, d);
+    }
+    return { min: minD, max: maxD };
+  }
+  const extA = extentAlongNormal(bbA, planeN);
+  const extB = extentAlongNormal(bbB, planeN);
+  // Strip A is on positive normal side, strip B on negative.
+  // Push each outward by half the max extent + a gap.
+  const gap = 30;
+  const sepA = Math.abs(extA.min) + gap / 2; // push A in +normal direction
+  const sepB = Math.abs(extB.max) + gap / 2; // push B in -normal direction
+  step1_top.position.copy(planeN.clone().multiplyScalar(sepA));
+  step1_bot.position.copy(planeN.clone().multiplyScalar(-sepB));
 
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
