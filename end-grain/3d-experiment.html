@@ -56,7 +56,8 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Brush, Evaluator, SUBTRACTION, INTERSECTION, ADDITION } from 'three-bvh-csg';
+import Module from 'manifold-3d';
+import wasmUrl from 'manifold-3d/manifold.wasm?url';
 
 // ─── Renderer ──────────────────────────────────────────────────────
 
@@ -212,74 +213,26 @@ function fmtArea(mm2) {
 
 const segW = 50, segH = 50, segD = 500, cubeCount = 32;
 const halfLen = (cubeCount * segW) / 2;
+const panelLen = cubeCount * segW;
 
-// ─── CSG helpers ───────────────────────────────────────────────────
+// ─── Manifold init + panel building ───────────────────────────────
 
-const HS = 2000;
-const evaluator = new Evaluator();
-
-function makeHalfSpace(normal, constant, mat) {
-  const b = new Brush(new THREE.BoxGeometry(HS, HS, HS), mat);
-  b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-  const pp = normal.clone().multiplyScalar(-constant);
-  b.position.copy(pp.add(normal.clone().multiplyScalar(-HS / 2)));
-  b.updateMatrixWorld();
-  return b;
-}
-
-// ─── Build initial panel (one-time union of all segments) ─────────
-
-console.log('Building initial panel...');
-let panel;
-{
-  let acc = null;
-  for (let i = 0; i < cubeCount; i++) {
-    const x = i * segW - halfLen + segW / 2;
-    const y = segH / 2;
-    const isMaple = i % 2 === 0;
-    const mats = isMaple ? mapleMats : walnutMats;
-    const seg = new Brush(new THREE.BoxGeometry(segW, segH, segD), mats);
-    seg.position.set(x, y, 0);
-    seg.updateMatrixWorld();
-    if (!acc) {
-      acc = seg;
-    } else {
-      acc = evaluator.evaluate(acc, seg, ADDITION);
-      acc.updateMatrixWorld();
-    }
-  }
-  panel = acc;
-  // Center the panel geometry at the origin
-  panel.geometry.computeBoundingBox();
-  const center = new THREE.Vector3();
-  panel.geometry.boundingBox.getCenter(center);
-  panel.geometry.translate(-center.x, -center.y, -center.z);
-  panel.geometry.computeBoundingBox();
-
-  const bb = new THREE.Box3().setFromObject(panel);
-  const sz = new THREE.Vector3(); bb.getSize(sz);
-  console.log(`Initial panel: ${panel.geometry.index.count / 3} tris, bounds: ${sz.x.toFixed(0)} × ${sz.y.toFixed(0)} × ${sz.z.toFixed(0)}, centered at origin`);
-}
-
-// ─── Groups (persistent across rebuilds) ──────────────────────────
-
-const step1_top = new THREE.Group(); // strip A (above cut plane)
-const step1_bot = new THREE.Group(); // strip B (below cut plane)
+// Groups (persistent across rebuilds)
+const step1_top = new THREE.Group();
+const step1_bot = new THREE.Group();
 scene.add(step1_top);
 scene.add(step1_bot);
 
-const panelLen = cubeCount * segW;  // 1600mm
 const pvA = new THREE.Mesh(
   new THREE.PlaneGeometry(panelLen + 200, segD + 200),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvA);
 
-const step2_panel = new THREE.Group(); // rejoined panel
+const step2_panel = new THREE.Group();
 scene.add(step2_panel);
 
-// Wireframe bounding boxes (blue)
-const bbMat = new THREE.LineBasicMaterial({ color: 0x4488ff });
+// Wireframe bounding boxes
 const bbStripA = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
 const bbStripB = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
 const bbPanel2 = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
@@ -287,41 +240,118 @@ scene.add(bbStripA);
 scene.add(bbStripB);
 scene.add(bbPanel2);
 
+// Cut face material (for newly created faces from boolean ops)
+const cutMat = new THREE.MeshStandardMaterial({ color: 0xaa8855, roughness: 0.7 });
+matSpecies.set(cutMat, 'cut');
+
+// These get set during async init
+let Manifold, panelManifold, idToMatIndex, allMaterials;
+
+async function init() {
+  console.log('Loading manifold-3d WASM...');
+  const wasm = await Module({ locateFile: () => wasmUrl });
+  wasm.setup();
+  Manifold = wasm.Manifold;
+  console.log('Manifold ready.');
+
+  // Build initial panel: union of alternating maple/walnut segments.
+  // Each segment gets a unique originalID so we can track materials.
+  const idMap = new Map(); // originalID → material index
+  // Material array: [maple side, walnut side, maple end-grain, walnut end-grain, cut]
+  // Simplified: index 0 = maple, index 1 = walnut, index 2 = cut face
+  allMaterials = [mapleMats[0], walnutMats[0], cutMat];
+
+  let acc = null;
+  for (let i = 0; i < cubeCount; i++) {
+    const x = i * segW - halfLen + segW / 2;
+    const seg = Manifold.cube([segW, segH, segD], true)
+      .translate([x, 0, 0])
+      .asOriginal();
+    const isMaple = i % 2 === 0;
+    idMap.set(seg.originalID(), isMaple ? 0 : 1);
+
+    if (!acc) {
+      acc = seg;
+    } else {
+      acc = acc.add(seg);
+    }
+  }
+
+  panelManifold = acc;
+  idToMatIndex = idMap;
+
+  const bb = panelManifold.boundingBox();
+  console.log('Initial panel built. BBox:', JSON.stringify(bb));
+
+  // Initial build
+  rebuild(7);
+}
+
+// Convert a Manifold to a Three.js Mesh with material groups
+function manifoldToThree(mf, idToMat, materials) {
+  const mesh = mf.getMesh();
+  console.log('Manifold mesh keys:', Object.keys(mesh), 'numVert:', mesh.numVert, 'numTri:', mesh.numTri);
+  const numVerts = mesh.numVert;
+  const numProp = mesh.numProp;
+
+  // Extract positions
+  const positions = new Float32Array(numVerts * 3);
+  for (let i = 0; i < numVerts; i++) {
+    positions[i * 3]     = mesh.vertProperties[i * numProp];
+    positions[i * 3 + 1] = mesh.vertProperties[i * numProp + 1];
+    positions[i * 3 + 2] = mesh.vertProperties[i * numProp + 2];
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1));
+
+  // Build material groups from runs
+  const numRun = mesh.runIndex.length - 1;
+  for (let run = 0; run < numRun; run++) {
+    const origID = mesh.runOriginalID[run];
+    const startIdx = mesh.runIndex[run];
+    const endIdx = mesh.runIndex[run + 1];
+    const count = endIdx - startIdx;
+    // Map originalID to material index; unknown IDs → cut material (index 2)
+    const matIdx = idToMat.get(origID) ?? 2;
+    geo.addGroup(startIdx, count, matIdx);
+  }
+
+  geo.computeVertexNormals();
+  if (mesh.delete) mesh.delete();
+
+  const obj = new THREE.Mesh(geo, materials);
+  obj.castShadow = true;
+  return obj;
+}
+
 // ─── Build pipeline from angle ────────────────────────────────────
 
 function rebuild(angleDeg) {
-  const rad = angleDeg * Math.PI / 180;
-  const planeN = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
-  const planeD = 0;
+  if (!Manifold) return;
 
-  // Clear previous geometry
+  const rad = angleDeg * Math.PI / 180;
+  const nx = Math.sin(rad), nz = -Math.cos(rad);
+  // Manifold normal: [nx, 0, nz], offset = 0 (plane through origin)
+
   step1_top.clear();
   step1_bot.clear();
   step2_panel.clear();
 
-  // ── Step 1: Cut the panel into two strips ──
-  const cutMat = new THREE.MeshStandardMaterial({ color: 0xaa8855, roughness: 0.7 });
-  const hs = makeHalfSpace(planeN, planeD, cutMat);
+  // ── Step 1: Split panel into two strips ──
+  const [stripAbove, stripBelow] = panelManifold.splitByPlane([nx, 0, nz], 0);
 
-  const panelBrush1 = new Brush(panel.geometry.clone(), panel.material);
-  panelBrush1.updateMatrixWorld();
-  const stripA = evaluator.evaluate(panelBrush1, hs, SUBTRACTION);
-  stripA.castShadow = true;
-  step1_top.add(stripA);
+  const meshA = manifoldToThree(stripAbove, idToMatIndex, allMaterials);
+  step1_top.add(meshA);
 
-  const panelBrush2 = new Brush(panel.geometry.clone(), panel.material);
-  panelBrush2.updateMatrixWorld();
-  const stripB = evaluator.evaluate(panelBrush2, hs, INTERSECTION);
-  stripB.castShadow = true;
-  step1_bot.add(stripB);
+  const meshB = manifoldToThree(stripBelow, idToMatIndex, allMaterials);
+  step1_bot.add(meshB);
 
-  // Separate strips along the cut normal so bounding boxes don't overlap.
-  // Compute each strip's extent along the cut normal, then push apart.
-  stripA.geometry.computeBoundingBox();
-  stripB.geometry.computeBoundingBox();
-  const bbA = stripA.geometry.boundingBox;
-  const bbB = stripB.geometry.boundingBox;
-  // Project bounding box corners onto the cut normal to find extent
+  // Separate strips along the cut normal so bounding boxes don't overlap
+  const planeN = new THREE.Vector3(nx, 0, nz);
+  meshA.geometry.computeBoundingBox();
+  meshB.geometry.computeBoundingBox();
   function extentAlongNormal(box, n) {
     let minD = Infinity, maxD = -Infinity;
     for (let ix = 0; ix < 2; ix++) for (let iy = 0; iy < 2; iy++) for (let iz = 0; iz < 2; iz++) {
@@ -333,72 +363,28 @@ function rebuild(angleDeg) {
     }
     return { min: minD, max: maxD };
   }
-  const extA = extentAlongNormal(bbA, planeN);
-  const extB = extentAlongNormal(bbB, planeN);
-  // Strip A is on positive normal side, strip B on negative.
-  // Push each outward by half the max extent + a gap.
+  const extA = extentAlongNormal(meshA.geometry.boundingBox, planeN);
+  const extB = extentAlongNormal(meshB.geometry.boundingBox, planeN);
   const gap = 30;
-  const sepA = Math.abs(extA.min) + gap / 2; // push A in +normal direction
-  const sepB = Math.abs(extB.max) + gap / 2; // push B in -normal direction
-  step1_top.position.copy(planeN.clone().multiplyScalar(sepA));
-  step1_bot.position.copy(planeN.clone().multiplyScalar(-sepB));
+  step1_top.position.copy(planeN.clone().multiplyScalar(Math.abs(extA.min) + gap / 2));
+  step1_bot.position.copy(planeN.clone().multiplyScalar(-(Math.abs(extB.max) + gap / 2)));
 
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // ── Step 2: Rejoin strips into a new panel ──
-  // Use the same Z-offset approach: slide strip A so its uncut face
-  // meets strip B's uncut face.
-  function cloneBaked(mesh) {
-    const geo = mesh.geometry.clone();
-    const m4 = new THREE.Matrix4();
-    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
-    geo.applyMatrix4(m4);
-    return geo;
-  }
-
-  const geoA = cloneBaked(stripA);
-  const geoB = cloneBaked(stripB);
-  geoA.computeBoundingBox();
-  geoB.computeBoundingBox();
-
-  const topMinZ = geoA.boundingBox.min.z;
-  const botMaxZ = geoB.boundingBox.max.z;
-  const zOffset = botMaxZ - topMinZ;
-
-  // Apply Z offset to strip A
-  const pos = geoA.attributes.position;
-  for (let v = 0; v < pos.count; v++) {
-    pos.setZ(v, pos.getZ(v) + zOffset);
-  }
-  pos.needsUpdate = true;
-
-  // Union the two strips into a panel
-  console.log(`Rebuilding: angle=${angleDeg}°, unioning 2 strips...`);
-  const brushA = new Brush(geoA, stripA.material);
-  brushA.updateMatrixWorld();
-  const brushB = new Brush(geoB, stripB.material);
-  brushB.updateMatrixWorld();
-  const result = evaluator.evaluate(brushA, brushB, ADDITION);
-  result.updateMatrixWorld();
-
-  result.castShadow = true;
-  step2_panel.add(result);
-
-  // Log result
-  const bb = new THREE.Box3().setFromObject(result);
-  const sz = new THREE.Vector3(); bb.getSize(sz);
-  const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
-  console.log(`Panel 2: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
-
-  // Update wireframe bounding boxes
+  // Update bounding boxes
   bbStripA.box.setFromObject(step1_top);
   bbStripB.box.setFromObject(step1_bot);
-  bbPanel2.box.setFromObject(step2_panel);
-}
 
-// Initial build
-rebuild(7);
+  // Log
+  const szA = new THREE.Vector3(); meshA.geometry.boundingBox.getSize(szA);
+  const szB = new THREE.Vector3(); meshB.geometry.boundingBox.getSize(szB);
+  console.log(`Cut at ${angleDeg}°: strip A ${szA.x.toFixed(0)}×${szA.y.toFixed(0)}×${szA.z.toFixed(0)}, strip B ${szB.x.toFixed(0)}×${szB.y.toFixed(0)}×${szB.z.toFixed(0)}`);
+
+  // Clean up manifold objects
+  stripAbove.delete();
+  stripBelow.delete();
+}
 
 // ─── Slider ───────────────────────────────────────────────────────
 
@@ -410,6 +396,9 @@ slider.addEventListener('input', () => {
   angleVal.textContent = `${v}°`;
   rebuild(v);
 });
+
+// Start async init
+init();
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
