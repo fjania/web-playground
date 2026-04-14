@@ -19,15 +19,17 @@
     background: rgba(28,25,23,0.8); padding: 3px 8px; border-radius: 3px;
   }
   .divider { position: fixed; background: #3d3835; z-index: 5; }
+  /* Per-view status footers — full-width footers for their respective
+     viewport tiles, styled to match the global page footer. */
   .tile-status {
     position: fixed; z-index: 10; pointer-events: none; user-select: none;
+    height: 28px; display: flex; align-items: center;
+    padding: 0 12px;
+    background: rgba(28,25,23,0.92); border-top: 1px solid #3d3835;
     font-size: 10px; color: #a8a29e;
-    background: rgba(28,25,23,0.85); padding: 4px 10px;
-    border: 1px solid #3d3835; border-radius: 4px;
   }
-  /* Per-view status footers — pinned to the bottom of each view's tile. */
-  #join1-status { top: calc(50% - 28px); left: 75%; transform: translateX(-50%); }
-  #join2-status { bottom: 36px; left: 75%; transform: translateX(-50%); }
+  #join1-status { top: calc(50% - 28px); left: 50%; right: 0; }
+  #join2-status { bottom: 28px; left: 50%; right: 0; }
   #statusbar {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
     height: 28px; display: flex; align-items: center; gap: 16px;
