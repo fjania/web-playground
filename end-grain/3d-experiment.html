@@ -162,17 +162,38 @@
   <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
     <input type="checkbox" id="offcuts-b-cb" checked> show offcuts
   </label>
-  <div style="margin-top:8px; font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
-  <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
-  <div id="flip-axis-row2" style="display:none; margin-top:6px;">
-    <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
-    <div style="display:flex; gap:4px;">
-      <button class="flip-btn" data-pair="2" data-axis="x">X</button>
-      <button class="flip-btn" data-pair="2" data-axis="y">Y</button>
-      <button class="flip-btn" data-pair="2" data-axis="z">Z</button>
+  <div style="margin-top:10px; padding-top:8px; border-top:1px solid #3d3835; font-size:9px; color:#a8a29e;">arrangement</div>
+  <div class="mode-switch" style="display:flex; gap:4px; margin-top:4px;">
+    <button class="mode-btn selected" data-view="2" data-mode="pattern">pattern</button>
+    <button class="mode-btn" data-view="2" data-mode="custom">custom</button>
+  </div>
+  <div class="pattern-ctrls" data-view="2" style="margin-top:6px;">
+    <select class="pattern-select" data-view="2"
+            style="width:100%; background:#2a2622; color:#e4cc8f; border:1px solid #3d3835; border-radius:3px; padding:3px; font-family:inherit; font-size:10px;">
+      <option value="identity">identity (reassemble)</option>
+      <option value="flipAlternate" selected>flipAlternate (checker)</option>
+      <option value="rotateAlternate">rotateAlternate</option>
+      <option value="shiftAlternate">shiftAlternate (running bond)</option>
+      <option value="mirrorAlternate">mirrorAlternate (chevron)</option>
+    </select>
+    <div class="shift-row" data-view="2" style="display:none; margin-top:6px;">
+      <label>shift: <span class="shift-val" data-view="2" class="angle-val">25mm</span></label>
+      <input type="range" class="shift-slider" data-view="2" min="-200" max="200" step="5" value="25">
     </div>
   </div>
-  <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
+  <div class="custom-ctrls" data-view="2" style="display:none; margin-top:6px;">
+    <div style="font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
+    <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
+    <div id="flip-axis-row2" style="display:none; margin-top:6px;">
+      <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
+      <div style="display:flex; gap:4px;">
+        <button class="flip-btn" data-pair="2" data-axis="x">X</button>
+        <button class="flip-btn" data-pair="2" data-axis="y">Y</button>
+        <button class="flip-btn" data-pair="2" data-axis="z">Z</button>
+      </div>
+    </div>
+    <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
+  </div>
 </div>
 <!-- Per-view join status footers are injected by JS only when
      ANIMATE_JOINS is enabled (see tile-status CSS + ANIMATE_JOINS flag). -->
@@ -1174,7 +1195,8 @@ function rebuildA() {
 }
 
 // Apply the current arrangement pattern to slicesA, rendering the result
-// into step2_panel and updating the downstream panel2.
+// into step2_panel and updating the downstream panel2. Propagates
+// automatically to cut B + join 2.
 function applyPatternA() {
   if (!slicesA.length) return;
   if (panel2) { panel2.dispose(); panel2 = null; }
@@ -1185,7 +1207,8 @@ function applyPatternA() {
   panel2 = result;
   renderPanel(panel2, step2_panel);
   bbPanel2.box.setFromObject(step2_panel);
-  if (typeof rebuildCut2 === 'function') rebuildCut2();
+  // Propagate: re-cut B on the new panel2, then re-apply B's pattern.
+  if (typeof rebuildB === 'function') rebuildB();
 }
 
 const ripSlider = document.getElementById('rip-slider');
@@ -1266,14 +1289,34 @@ shiftSliderA.addEventListener('input', () => {
 });
 updateShiftVisibility();
 
-let currentRipB = 0, currentBevelB = 90;
+let currentRipB = 0, currentBevelB = 90, currentCountB = 8, currentPitchB = 50;
+let modeB = 'pattern';
+let patternB = 'flipAlternate';
+let shiftB = 25;
+
+function rebuildB() {
+  if (panel2) rebuildCut2();
+  if (modeB === 'pattern') applyPatternB();
+}
+
+function applyPatternB() {
+  if (!slicesB.length) return;
+  if (panel4) { panel4.dispose(); panel4 = null; }
+  step4_panel.clear();
+  const planeN = planeNormal(currentRipB, currentBevelB);
+  const result = applyArrangement(slicesB, patternB, planeN, currentPitchB, { shift: shiftB });
+  if (!result) return;
+  panel4 = result;
+  renderPanel(panel4, step4_panel);
+  bbPanel4.box.setFromObject(step4_panel);
+}
 
 const ripBSlider = document.getElementById('rip-b-slider');
 const ripBVal = document.getElementById('rip-b-val');
 ripBSlider.addEventListener('input', () => {
   currentRipB = parseInt(ripBSlider.value, 10);
   ripBVal.textContent = `${currentRipB}°`;
-  if (panel2) rebuildCut2();
+  rebuildB();
 });
 
 const bevelBSlider = document.getElementById('bevel-b-slider');
@@ -1281,8 +1324,67 @@ const bevelBVal = document.getElementById('bevel-b-val');
 bevelBSlider.addEventListener('input', () => {
   currentBevelB = parseInt(bevelBSlider.value, 10);
   bevelBVal.textContent = `${currentBevelB}°`;
-  if (panel2) rebuildCut2();
+  rebuildB();
 });
+
+const countBSlider = document.getElementById('count-b-slider');
+const countBVal = document.getElementById('count-b-val');
+countBSlider.addEventListener('input', () => {
+  currentCountB = parseInt(countBSlider.value, 10);
+  countBVal.textContent = `${currentCountB}`;
+  rebuildB();
+});
+
+const pitchBSlider = document.getElementById('pitch-b-slider');
+const pitchBVal = document.getElementById('pitch-b-val');
+pitchBSlider.addEventListener('input', () => {
+  currentPitchB = parseInt(pitchBSlider.value, 10);
+  pitchBVal.textContent = `${currentPitchB}mm`;
+  rebuildB();
+});
+
+document.getElementById('offcuts-b-cb').addEventListener('change', applyOffcutVisibility);
+
+// Mode switch (view 2).
+function setModeB(mode) {
+  modeB = mode;
+  document.querySelectorAll('.mode-btn[data-view="2"]').forEach(b => {
+    b.classList.toggle('selected', b.dataset.mode === mode);
+  });
+  document.querySelector('.pattern-ctrls[data-view="2"]').style.display = (mode === 'pattern') ? 'block' : 'none';
+  document.querySelector('.custom-ctrls[data-view="2"]').style.display = (mode === 'custom') ? 'block' : 'none';
+  if (mode === 'pattern') applyPatternB();
+  else {
+    if (panel4) { panel4.dispose(); panel4 = null; }
+    step4_panel.clear();
+  }
+}
+document.querySelectorAll('.mode-btn[data-view="2"]').forEach(btn => {
+  btn.addEventListener('click', () => setModeB(btn.dataset.mode));
+});
+
+// Pattern select + shift slider (view 2).
+const patternSelectB = document.querySelector('.pattern-select[data-view="2"]');
+const shiftRowB = document.querySelector('.shift-row[data-view="2"]');
+const shiftSliderB = document.querySelector('.shift-slider[data-view="2"]');
+const shiftValB = document.querySelector('.shift-val[data-view="2"]');
+
+function updateShiftVisibilityB() {
+  shiftRowB.style.display = (patternB === 'shiftAlternate') ? 'block' : 'none';
+}
+
+patternSelectB.value = patternB;
+patternSelectB.addEventListener('change', () => {
+  patternB = patternSelectB.value;
+  updateShiftVisibilityB();
+  applyPatternB();
+});
+shiftSliderB.addEventListener('input', () => {
+  shiftB = parseInt(shiftSliderB.value, 10);
+  shiftValB.textContent = `${shiftB}mm`;
+  if (patternB === 'shiftAlternate') applyPatternB();
+});
+updateShiftVisibilityB();
 
 // Flip-axis button handlers
 document.querySelectorAll('.flip-btn').forEach(btn => {
@@ -1573,43 +1675,79 @@ function handleSelectionClick(e) {
 let panel2 = null; // result of first join — input to second cut
 let panel4 = null; // result of second join
 
-// View 3 state
-let currentStripC = null, currentStripD = null;
+// View 3 state — N slices + offcuts from cutting panel2.
+let slicesB = [];
+let offcutsB = [];
+let currentStripC = null, currentStripD = null; // legacy (custom mode)
 
 function rebuildCut2() {
-  if (!panel2) return;
+  if (!panel2) {
+    // No input to cut. Clear any stale slice geometry.
+    for (const s of slicesB) s.dispose();
+    for (const o of offcutsB) o.dispose();
+    slicesB = []; offcutsB = [];
+    step3_top.clear();
+    step3_bot.clear();
+    step4_panel.clear();
+    return;
+  }
 
-  // Dispose previous cut strips
-  if (currentStripC) currentStripC.dispose();
-  if (currentStripD) currentStripD.dispose();
+  // Dispose previous results.
+  for (const s of slicesB) s.dispose();
+  for (const o of offcutsB) o.dispose();
+  slicesB = []; offcutsB = [];
+  if (currentStripC) { currentStripC.dispose(); currentStripC = null; }
+  if (currentStripD) { currentStripD.dispose(); currentStripD = null; }
 
   step3_top.clear();
   step3_bot.clear();
   step4_panel.clear();
 
   const planeN = planeNormal(currentRipB, currentBevelB);
+  const planeNArr = [planeN.x, planeN.y, planeN.z];
 
-  const { above, below } = panel2.cut([planeN.x, planeN.y, planeN.z], 0);
-  currentStripC = above;
-  currentStripD = below;
+  const { slices, offcuts } = panel2.cutRepeated(planeNArr, currentPitchB, currentCountB, 0);
+  slicesB = slices;
+  offcutsB = offcuts;
 
-  renderPanel(above, step3_top);
-  renderPanel(below, step3_bot);
-  const sep = 150;
-  step3_top.position.copy(planeN.clone().multiplyScalar(sep));
-  step3_bot.position.copy(planeN.clone().multiplyScalar(-sep));
+  const SLICE_SPACING = Math.max(currentPitchB * 1.5, 80);
+  const center = (currentCountB - 1) / 2;
+  slices.forEach((slice, i) => {
+    const g = new THREE.Group();
+    g.userData.sliceIdx = i;
+    renderPanel(slice, g);
+    g.position.copy(planeN.clone().multiplyScalar((i - center) * SLICE_SPACING));
+    step3_top.add(g);
+  });
+
+  const offcutOffset = (currentCountB / 2 + 1) * SLICE_SPACING;
+  if (offcuts[0] && offcuts[0].size > 0) {
+    const g = new THREE.Group();
+    renderPanelDim(offcuts[0], g);
+    g.position.copy(planeN.clone().multiplyScalar(-offcutOffset));
+    g.userData.isOffcut = true;
+    step3_top.add(g);
+  }
+  if (offcuts[1] && offcuts[1].size > 0) {
+    const g = new THREE.Group();
+    renderPanelDim(offcuts[1], g);
+    g.position.copy(planeN.clone().multiplyScalar(offcutOffset));
+    g.userData.isOffcut = true;
+    step3_top.add(g);
+  }
 
   pvB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
   bbStripC.box.setFromObject(step3_top);
-  bbStripD.box.setFromObject(step3_bot);
 
   setStripSelection('C', null);
   setStripSelection('D', null);
   flipAxis2 = null;
   updateJoin2Button();
 
-  console.log(`Cut B: rip=${currentRipB}° bevel=${currentBevelB}° — strip C = ${above.size} segs, strip D = ${below.size} segs`);
+  applyOffcutVisibility();
+
+  console.log(`Cut B: rip=${currentRipB}° bevel=${currentBevelB}° count=${currentCountB} pitch=${currentPitchB} — ${slices.length} slices, ${offcuts.filter(o => o.size > 0).length} offcuts`);
 }
 
 function updateJoin2Button() {
