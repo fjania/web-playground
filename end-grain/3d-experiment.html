@@ -101,6 +101,13 @@
   <input type="range" id="rip-slider" min="-90" max="90" step="1" value="0">
   <label style="margin-top:6px;">bevel: <span id="bevel-val" class="angle-val">90°</span></label>
   <input type="range" id="bevel-slider" min="45" max="90" step="1" value="90">
+  <label style="margin-top:6px;">slices: <span id="count-val" class="angle-val">8</span></label>
+  <input type="range" id="count-slider" min="1" max="30" step="1" value="8">
+  <label style="margin-top:6px;">thickness: <span id="pitch-val" class="angle-val">50mm</span></label>
+  <input type="range" id="pitch-slider" min="5" max="200" step="5" value="50">
+  <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
+    <input type="checkbox" id="offcuts-cb" checked> show offcuts
+  </label>
   <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
   <button id="join-btn" class="join-btn" disabled>join selected faces</button>
   <div id="flip-axis-row" style="display:none; margin-top:6px;">
@@ -118,6 +125,13 @@
   <input type="range" id="rip-b-slider" min="-90" max="90" step="1" value="0">
   <label style="margin-top:6px;">bevel: <span id="bevel-b-val" class="angle-val">90°</span></label>
   <input type="range" id="bevel-b-slider" min="45" max="90" step="1" value="90">
+  <label style="margin-top:6px;">slices: <span id="count-b-val" class="angle-val">8</span></label>
+  <input type="range" id="count-b-slider" min="1" max="30" step="1" value="8">
+  <label style="margin-top:6px;">thickness: <span id="pitch-b-val" class="angle-val">50mm</span></label>
+  <input type="range" id="pitch-b-slider" min="5" max="200" step="5" value="50">
+  <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
+    <input type="checkbox" id="offcuts-b-cb" checked> show offcuts
+  </label>
   <div style="margin-top:8px; font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
   <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
   <div id="flip-axis-row2" style="display:none; margin-top:6px;">
@@ -720,7 +734,7 @@ async function init() {
     i => i % 2 === 0 ? 'maple' : 'walnut');
   console.log(`Initial panel: ${cubeCount} segments, ${panelLen}×${segH}×${segD}mm`);
 
-  rebuild(currentRipA, currentBevelA);
+  rebuildA();
 
   // Frame the camera to show all entities with buffer
   const frame = new THREE.Box3();
@@ -895,7 +909,13 @@ function stageStatus(stage, progress) {
 
 // ─── Build pipeline from rip + bevel ──────────────────────────────
 
-// Track current cut results for cleanup. Each is a Panel (or null).
+// Current cut A result: array of slice Panels and two offcut Panels.
+// slicesA[i] is an individual slice; offcutsA is a 2-element array.
+let slicesA = [];
+let offcutsA = [];
+
+// Legacy single-joint state — populated only in custom mode (for the
+// existing face-click flow). Pattern mode uses slicesA directly.
 let currentStripAbove = null, currentStripBelow = null;
 
 // Compute the cutting-plane normal given rip and bevel angles in degrees.
@@ -924,56 +944,121 @@ function planeNormal(rip, bevel) {
   return new THREE.Vector3(nx, ny, nz);
 }
 
-function rebuild(rip, bevel) {
+// Build a semi-transparent material per species for rendering offcuts.
+const offcutMats = {};
+for (const sp of ['maple', 'walnut']) {
+  const m = speciesMaterials[sp].clone();
+  m.transparent = true;
+  m.opacity = 0.25;
+  m.depthWrite = false;
+  m.flatShading = true;
+  offcutMats[sp] = m;
+}
+
+// Render a Panel with greyed-out/dim material (for offcuts).
+function renderPanelDim(panel, group) {
+  while (group.children.length) {
+    const c = group.children[0];
+    group.remove(c);
+    if (c.geometry) c.geometry.dispose();
+  }
+  for (const seg of panel.segments) {
+    const mat = offcutMats[seg.species] ?? offcutMats.maple;
+    group.add(manifoldToThree(seg.manifold, mat));
+  }
+}
+
+function rebuild(rip, bevel, count, pitch) {
   if (!Manifold) return;
 
   const planeN = planeNormal(rip, bevel);
+  const planeNArr = [planeN.x, planeN.y, planeN.z];
 
-  // Dispose previous cut manifolds
-  if (currentStripAbove) currentStripAbove.dispose();
-  if (currentStripBelow) currentStripBelow.dispose();
+  // Dispose previous slices + offcuts + legacy custom-mode halves.
+  for (const s of slicesA) s.dispose();
+  for (const o of offcutsA) o.dispose();
+  slicesA = []; offcutsA = [];
+  if (currentStripAbove) { currentStripAbove.dispose(); currentStripAbove = null; }
+  if (currentStripBelow) { currentStripBelow.dispose(); currentStripBelow = null; }
 
   step1_top.clear();
   step1_bot.clear();
   step2_panel.clear();
 
-  // ── Step 1: Cut initial panel with the plane ──
-  const { above, below } = initialPanel.cut([planeN.x, planeN.y, planeN.z], 0);
-  currentStripAbove = above;
-  currentStripBelow = below;
+  // Cut the initial panel into `count` slices plus 2 end offcuts.
+  const { slices, offcuts } = initialPanel.cutRepeated(planeNArr, pitch, count, 0);
+  slicesA = slices;
+  offcutsA = offcuts;
 
-  renderPanel(above, step1_top);
-  renderPanel(below, step1_bot);
+  // Fan slices out along the cut normal so the user can see them separately.
+  // Each slice is offset by (i - (count-1)/2) * sliceSpacing.
+  const SLICE_SPACING = Math.max(pitch * 1.5, 80);
+  const center = (count - 1) / 2;
+  slices.forEach((slice, i) => {
+    const g = new THREE.Group();
+    g.userData.sliceIdx = i;
+    renderPanel(slice, g);
+    g.position.copy(planeN.clone().multiplyScalar((i - center) * SLICE_SPACING));
+    step1_top.add(g);
+  });
 
-  // Display-only separation — pushes strips apart along the cut normal in
-  // the cut view. Never baked into manifold state.
-  const sep = 150;
-  step1_top.position.copy(planeN.clone().multiplyScalar(sep));
-  step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
+  // Offcuts pushed further out beyond the end slices.
+  const offcutOffset = (count / 2 + 1) * SLICE_SPACING;
+  if (offcuts[0] && offcuts[0].size > 0) {
+    const g = new THREE.Group();
+    renderPanelDim(offcuts[0], g);
+    g.position.copy(planeN.clone().multiplyScalar(-offcutOffset));
+    step1_top.add(g);
+    g.userData.isOffcut = true;
+  }
+  if (offcuts[1] && offcuts[1].size > 0) {
+    const g = new THREE.Group();
+    renderPanelDim(offcuts[1], g);
+    g.position.copy(planeN.clone().multiplyScalar(offcutOffset));
+    step1_top.add(g);
+    g.userData.isOffcut = true;
+  }
 
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
   bbStripA.box.setFromObject(step1_top);
-  bbStripB.box.setFromObject(step1_bot);
 
   setStripSelection('A', null);
   setStripSelection('B', null);
   flipAxis1 = null;
   updateJoinButton();
 
-  console.log(`Cut A: rip=${rip}° bevel=${bevel}° — strip A = ${above.size} segs, strip B = ${below.size} segs`);
+  applyOffcutVisibility();
+
+  console.log(`Cut A: rip=${rip}° bevel=${bevel}° count=${count} pitch=${pitch} — ${slices.length} slices, ${offcuts.filter(o => o.size > 0).length} offcuts`);
+}
+
+// Toggle visibility of offcut groups in cut views based on checkbox state.
+function applyOffcutVisibility() {
+  const showA = document.getElementById('offcuts-cb')?.checked ?? true;
+  const showB = document.getElementById('offcuts-b-cb')?.checked ?? true;
+  step1_top.traverse(obj => {
+    if (obj.userData?.isOffcut) obj.visible = showA;
+  });
+  step3_top.traverse(obj => {
+    if (obj.userData?.isOffcut) obj.visible = showB;
+  });
 }
 
 // ─── Sliders ───────────────────────────────────────────────────────
 
-let currentRipA = 0, currentBevelA = 90;
+let currentRipA = 0, currentBevelA = 90, currentCountA = 8, currentPitchA = 50;
+
+function rebuildA() {
+  rebuild(currentRipA, currentBevelA, currentCountA, currentPitchA);
+}
 
 const ripSlider = document.getElementById('rip-slider');
 const ripVal = document.getElementById('rip-val');
 ripSlider.addEventListener('input', () => {
   currentRipA = parseInt(ripSlider.value, 10);
   ripVal.textContent = `${currentRipA}°`;
-  rebuild(currentRipA, currentBevelA);
+  rebuildA();
 });
 
 const bevelSlider = document.getElementById('bevel-slider');
@@ -981,8 +1066,26 @@ const bevelVal = document.getElementById('bevel-val');
 bevelSlider.addEventListener('input', () => {
   currentBevelA = parseInt(bevelSlider.value, 10);
   bevelVal.textContent = `${currentBevelA}°`;
-  rebuild(currentRipA, currentBevelA);
+  rebuildA();
 });
+
+const countSlider = document.getElementById('count-slider');
+const countVal = document.getElementById('count-val');
+countSlider.addEventListener('input', () => {
+  currentCountA = parseInt(countSlider.value, 10);
+  countVal.textContent = `${currentCountA}`;
+  rebuildA();
+});
+
+const pitchSlider = document.getElementById('pitch-slider');
+const pitchVal = document.getElementById('pitch-val');
+pitchSlider.addEventListener('input', () => {
+  currentPitchA = parseInt(pitchSlider.value, 10);
+  pitchVal.textContent = `${currentPitchA}mm`;
+  rebuildA();
+});
+
+document.getElementById('offcuts-cb').addEventListener('change', applyOffcutVisibility);
 
 let currentRipB = 0, currentBevelB = 90;
 
