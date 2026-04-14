@@ -618,6 +618,43 @@ class Panel {
     return { above: new Panel(above), below: new Panel(below) };
   }
 
+  // Cut with `count + 1` parallel planes perpendicular to `normal`, spaced
+  // `pitch` apart, centered on `centerOffset` along the normal. Returns the
+  // `count` inner regions (slices) plus up to 2 end regions (offcuts).
+  //
+  // Plane offsets are computed so that the `count` slices are centered on
+  // `centerOffset`. With count=8 and pitch=50, offsets are at
+  //   centerOffset ± pitch/2, centerOffset ± 3·pitch/2, … up to ±(count-1)/2·pitch
+  // and there are count+1 of them (two extras outside bounding to catch the
+  // offcut wedges).
+  cutRepeated(normal, pitch, count, centerOffset = 0) {
+    if (count < 1) return { slices: [], offcuts: [] };
+    // count+1 plane offsets bounding count slices, plus the two outermost
+    // offcut regions on either side. planeOffsets span
+    //   centerOffset ± count·pitch/2
+    const firstPlane = centerOffset - (count * pitch) / 2;
+    const planeOffsets = [];
+    for (let i = 0; i <= count; i++) planeOffsets.push(firstPlane + i * pitch);
+
+    // Walk plane offsets low → high. For each plane, cut the remaining
+    // panel; `below` becomes a region, `above` is the new remainder. After
+    // the loop, the final remainder is the last offcut. regions is
+    // count + 2 pieces: [offcut0, slice0..sliceN-1, offcut1].
+    const regions = [];
+    let remainder = this.clone();
+    for (const off of planeOffsets) {
+      const { above, below } = remainder.cut(normal, off);
+      regions.push(below);
+      remainder.dispose();
+      remainder = above;
+    }
+    regions.push(remainder);
+    return {
+      slices: regions.slice(1, regions.length - 1),
+      offcuts: [regions[0], regions[regions.length - 1]],
+    };
+  }
+
   // Apply a Three.js Matrix4 to every segment, baking it into new manifold
   // handles. Returns a new Panel; source is not modified.
   //
