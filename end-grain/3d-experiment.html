@@ -21,22 +21,6 @@
     background: rgba(28,25,23,0.7); padding: 2px 6px; border-radius: 3px;
   }
   .divider { position: fixed; background: #3d3835; z-index: 5; }
-  #controls {
-    position: fixed; bottom: 40px; left: 16px; z-index: 20;
-    display: flex; align-items: center; gap: 10px;
-    background: rgba(28,25,23,0.85); border: 1px solid #3d3835;
-    border-radius: 6px; padding: 10px 16px;
-  }
-  #controls label {
-    color: #a8a29e; font-size: 10px; letter-spacing: 0.5px;
-    text-transform: uppercase; white-space: nowrap;
-  }
-  #controls input[type="range"] {
-    width: 200px; accent-color: #2980b9;
-  }
-  #controls .value {
-    color: #e4cc8f; font-size: 11px; min-width: 40px; text-align: right;
-  }
   #statusbar {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
     height: 28px; display: flex; align-items: center; gap: 16px;
@@ -47,26 +31,24 @@
   #statusbar .label { color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
   #statusbar .val { color: #e4cc8f; }
   #statusbar .dim { color: #555; }
+  .step-label {
+    position: fixed; z-index: 10; pointer-events: none; user-select: none;
+    color: #b45309; font-size: 9px; letter-spacing: 0.5px;
+    background: rgba(28,25,23,0.8); padding: 3px 8px; border-radius: 3px;
+  }
 </style>
 </head>
 <body>
 <div id="info">
-  <strong>End Grain — 2-plane CSG</strong><br>
-  drag slider to roll plane B
+  <strong>End Grain — Cut · Combine · Recut</strong><br>
+  3-step pipeline
 </div>
-<div id="statusbar">
-  <span class="dim">hover a piece</span>
-</div>
-<div id="controls">
-  <label>plane B roll</label>
-  <input type="range" id="rollSlider" min="-60" max="60" step="1" value="0">
-  <span class="value" id="rollValue">0°</span>
-</div>
+<div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Brush, Evaluator, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
+import { Brush, Evaluator, SUBTRACTION, INTERSECTION, ADDITION } from 'three-bvh-csg';
 
 // ─── Renderer ──────────────────────────────────────────────────────
 
@@ -130,47 +112,27 @@ const walnutMats = makeWoodMats('#3d2416', '#2a1a0e', '#4a2e1a');
 const mapleCut = new THREE.MeshStandardMaterial({ color: 0xe4cc8f, roughness: 0.75 });
 const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0.75 });
 
-// ─── Strip ─────────────────────────────────────────────────────────
+// ─── Dimensions ────────────────────────────────────────────────────
 
 const cubeSize = 50, cubeCount = 8;
 const halfLen = (cubeCount * cubeSize) / 2;
 const halfZ = cubeSize / 2;
-const stripCenter = new THREE.Vector3(0, cubeSize / 2, 0);
 
-// ─── Planes ────────────────────────────────────────────────────────
-
-const cutA = { normal: new THREE.Vector3(1, 0, -8).normalize(), constant: 0 };
-
-function makeCutB(rollDeg) {
-  const rad = rollDeg * Math.PI / 180;
-  const n = new THREE.Vector3(0, Math.cos(rad), Math.sin(rad)).normalize();
-  return { normal: n, constant: -n.dot(stripCenter) };
-}
-
-// ─── CSG infrastructure ────────────────────────────────────────────
+// ─── CSG helpers ───────────────────────────────────────────────────
 
 const HS = 800;
 const evaluator = new Evaluator();
 
-function makeHalfSpace(cut, mat) {
+function makeHalfSpace(normal, constant, mat) {
   const b = new Brush(new THREE.BoxGeometry(HS, HS, HS), mat);
-  b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), cut.normal);
-  const pp = cut.normal.clone().multiplyScalar(-cut.constant);
-  b.position.copy(pp.add(cut.normal.clone().multiplyScalar(-HS / 2)));
+  b.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  const pp = normal.clone().multiplyScalar(-constant);
+  b.position.copy(pp.add(normal.clone().multiplyScalar(-HS / 2)));
   b.updateMatrixWorld();
   return b;
 }
 
-const combos = [
-  [SUBTRACTION, SUBTRACTION],
-  [SUBTRACTION, INTERSECTION],
-  [INTERSECTION, SUBTRACTION],
-  [INTERSECTION, INTERSECTION],
-];
-
-const sep = 30;
-
-function makePlaneViz(cut, color) {
+function makePlaneViz(normal, constant, color) {
   const m = new THREE.Mesh(
     new THREE.PlaneGeometry(520, 150),
     new THREE.MeshBasicMaterial({
@@ -178,142 +140,143 @@ function makePlaneViz(cut, color) {
       side: THREE.DoubleSide, depthWrite: false,
     })
   );
-  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), cut.normal);
-  m.position.copy(cut.normal.clone().multiplyScalar(-cut.constant));
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  m.position.copy(normal.clone().multiplyScalar(-constant));
   return m;
 }
 
-// ─── Mutable state: current pieces + viz ───────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// STEP 1: Cut the strip with plane A (diagonal front-left → back-right)
+// ═══════════════════════════════════════════════════════════════════
 
-let activePieces = [];
-let pvA = null, pvB = null;
+const planeA = { n: new THREE.Vector3(1, 0, -8).normalize(), d: 0 };
 
-function rebuildCuts(rollDeg) {
-  // Remove old pieces + plane viz from scene
-  activePieces.forEach(g => { scene.remove(g); });
-  if (pvA) scene.remove(pvA);
-  if (pvB) scene.remove(pvB);
-  activePieces = [];
+const step1_top = new THREE.Group();
+const step1_bot = new THREE.Group();
 
-  const cutB = makeCutB(rollDeg);
+for (let i = 0; i < cubeCount; i++) {
+  const x = i * cubeSize - halfLen + cubeSize / 2;
+  const y = cubeSize / 2;
+  const isMaple = i % 2 === 0;
+  const mats = isMaple ? mapleMats : walnutMats;
+  const cutMat = isMaple ? mapleCut : walnutCut;
+  const hs = makeHalfSpace(planeA.n, planeA.d, cutMat);
 
-  const pieceGroups = [
-    new THREE.Group(),
-    new THREE.Group(),
-    new THREE.Group(),
-    new THREE.Group(),
-  ];
+  const cubeTop = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+  cubeTop.position.set(x, y, 0); cubeTop.updateMatrixWorld();
+  const top = evaluator.evaluate(cubeTop, hs, SUBTRACTION);
+  top.castShadow = true; step1_top.add(top);
 
-  for (let i = 0; i < cubeCount; i++) {
-    const x = i * cubeSize - halfLen + cubeSize / 2;
-    const y = cubeSize / 2;
-    const isMaple = i % 2 === 0;
-    const cutMat = isMaple ? mapleCut : walnutCut;
-    const mats = isMaple ? mapleMats : walnutMats;
-    const hsA = makeHalfSpace(cutA, cutMat);
-    const hsB = makeHalfSpace(cutB, cutMat);
-
-    for (let p = 0; p < 4; p++) {
-      try {
-        const cube = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
-        cube.position.set(x, y, 0);
-        cube.updateMatrixWorld();
-
-        const r1 = evaluator.evaluate(cube, hsA, combos[p][0]);
-        r1.updateMatrixWorld();
-        const r2 = evaluator.evaluate(r1, hsB, combos[p][1]);
-
-        if (r2.geometry.index && r2.geometry.index.count > 0) {
-          r2.castShadow = true;
-          r2.receiveShadow = true;
-          pieceGroups[p].add(r2);
-        }
-      } catch { /* skip degenerate */ }
-    }
-  }
-
-  // ── Log the pieces for inspection ──
-  const comboLabels = ['A+ B+', 'A+ B−', 'A− B+', 'A− B−'];
-  console.group(`%cCSG rebuild (roll ${rollDeg}°)`, 'color: #e4cc8f; font-weight: bold');
-  for (let p = 0; p < 4; p++) {
-    const g = pieceGroups[p];
-    if (g.children.length === 0) {
-      console.log(`%c${comboLabels[p]}: empty`, 'color: #78716c');
-      continue;
-    }
-    console.groupCollapsed(`%c${comboLabels[p]}: ${g.children.length} meshes`, 'color: #2980b9');
-    g.children.forEach((mesh, idx) => {
-      const geo = mesh.geometry;
-      const triCount = geo.index ? geo.index.count / 3 : 0;
-      const vertCount = geo.attributes.position ? geo.attributes.position.count : 0;
-      const bb = new THREE.Box3().setFromBufferAttribute(geo.attributes.position);
-      const size = new THREE.Vector3();
-      bb.getSize(size);
-      console.log(`  mesh[${idx}]`, {
-        triangles: triCount,
-        vertices: vertCount,
-        boundingBox: { min: bb.min.toArray().map(v => +v.toFixed(1)), max: bb.max.toArray().map(v => +v.toFixed(1)) },
-        size: size.toArray().map(v => +v.toFixed(1)),
-        materialCount: Array.isArray(mesh.material) ? mesh.material.length : 1,
-        groups: geo.groups?.length || 0,
-        mesh,          // ← the actual Three.js Mesh — expand in console to inspect
-        geometry: geo, // ← the BufferGeometry
-      });
-    });
-    console.log('group object:', g); // ← the THREE.Group itself
-    console.groupEnd();
-  }
-  console.groupEnd();
-
-  // Separate pieces based on both normals
-  const offsets = [
-    new THREE.Vector3(0, sep, -sep),
-    new THREE.Vector3(0, -sep, -sep),
-    new THREE.Vector3(0, sep, sep),
-    new THREE.Vector3(0, -sep, sep),
-  ];
-
-  for (let p = 0; p < 4; p++) {
-    if (pieceGroups[p].children.length > 0) {
-      pieceGroups[p].position.copy(offsets[p]);
-      scene.add(pieceGroups[p]);
-      activePieces.push(pieceGroups[p]);
-    }
-  }
-
-  // Plane visualizations
-  pvA = makePlaneViz(cutA, 0xc0392b); scene.add(pvA);
-  pvB = makePlaneViz(cutB, 0x2980b9); scene.add(pvB);
+  const cubeBot = new Brush(new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize), mats);
+  cubeBot.position.set(x, y, 0); cubeBot.updateMatrixWorld();
+  const bot = evaluator.evaluate(cubeBot, hs, INTERSECTION);
+  bot.castShadow = true; step1_bot.add(bot);
 }
 
-// Initial build
-const initRoll = Math.round((Math.random() - 0.5) * 120);
-document.getElementById('rollSlider').value = initRoll;
-document.getElementById('rollValue').textContent = `${initRoll}°`;
-rebuildCuts(initRoll);
+// Show step 1 with separation
+const sep1 = 20;
+step1_top.position.copy(planeA.n.clone().multiplyScalar(sep1));
+step1_bot.position.copy(planeA.n.clone().multiplyScalar(-sep1));
+scene.add(step1_top);
+scene.add(step1_bot);
 
-// ─── Slider wiring ─────────────────────────────────────────────────
+const pvA = makePlaneViz(planeA.n, planeA.d, 0xc0392b);
+scene.add(pvA);
 
-let pendingRoll = null;
-const slider = document.getElementById('rollSlider');
-const valueEl = document.getElementById('rollValue');
+// ═══════════════════════════════════════════════════════════════════
+// STEP 2: Combine — flip bottom piece and join cut-faces together.
+//
+// In woodworking: you flip one piece over and glue the cut faces
+// together. We mirror the bottom half across the cut plane (reflect
+// in Z so front↔back), then position them touching.
+//
+// For the CSG recut, we don't need to ADDITION them — we just
+// position all the meshes as if glued and cut each one individually.
+// ═══════════════════════════════════════════════════════════════════
 
-slider.addEventListener('input', () => {
-  const deg = +slider.value;
-  valueEl.textContent = `${deg}°`;
-  pendingRoll = deg;
+// The combined group: top half stays in place, bottom half is flipped
+// (mirrored in Z) so the cut faces meet.
+const step2_combined = new THREE.Group();
+
+// Clone top meshes into combined group at original positions (no sep offset)
+step1_top.children.forEach(m => {
+  const c = m.clone();
+  // Undo the step1 separation offset
+  c.position.sub(step1_top.position);
+  step2_combined.add(c);
 });
 
-// Debounce CSG rebuild — run at most once per animation frame
-function checkPendingRebuild() {
-  if (pendingRoll !== null) {
-    rebuildCuts(pendingRoll);
-    rebuildLayout();
-    pendingRoll = null;
+// Clone bottom meshes, mirror in Z, into combined group
+step1_bot.children.forEach(m => {
+  const c = m.clone();
+  c.position.sub(step1_bot.position);
+  // Mirror in Z: reflect geometry across z=0
+  c.scale.z = -1;
+  step2_combined.add(c);
+});
+
+// Offset the combined group to the right so it doesn't overlap step 1
+step2_combined.position.set(0, 0, 0);
+// We'll show this in a separate viewport, not overlapping
+
+// ═══════════════════════════════════════════════════════════════════
+// STEP 3: Recut the combined piece with the opposite diagonal.
+//
+// Plane A went front-left → back-right: normal (1, 0, -8)
+// Opposite diagonal goes front-right → back-left: normal (1, 0, 8)
+// This crosses plane A, creating an X pattern when viewed from above.
+// ═══════════════════════════════════════════════════════════════════
+
+const planeB = { n: new THREE.Vector3(1, 0, 8).normalize(), d: 0 };
+
+const step3_pieces = [new THREE.Group(), new THREE.Group()]; // above B, below B
+
+step2_combined.children.forEach(mesh => {
+  for (let side = 0; side < 2; side++) {
+    try {
+      const geo = mesh.geometry.clone();
+      // Apply the mesh's world transform (including any scale flip) to the geometry
+      const m4 = new THREE.Matrix4();
+      m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+      geo.applyMatrix4(m4);
+
+      const brush = new Brush(geo, mesh.material);
+      brush.updateMatrixWorld();
+
+      // Determine species for cap color from the first material
+      const firstMat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const isLight = firstMat.map || (firstMat.color && firstMat.color.r > 0.5);
+      const capMat = isLight ? mapleCut : walnutCut;
+
+      const hs = makeHalfSpace(planeB.n, planeB.d, capMat);
+      const op = side === 0 ? SUBTRACTION : INTERSECTION;
+      const result = evaluator.evaluate(brush, hs, op);
+
+      if (result.geometry.index && result.geometry.index.count > 0) {
+        result.castShadow = true;
+        step3_pieces[side].add(result);
+      }
+    } catch { /* skip degenerate */ }
   }
-  requestAnimationFrame(checkPendingRebuild);
-}
-requestAnimationFrame(checkPendingRebuild);
+});
+
+// Separate the recut pieces
+step3_pieces[0].position.copy(planeB.n.clone().multiplyScalar(sep1));
+step3_pieces[1].position.copy(planeB.n.clone().multiplyScalar(-sep1));
+step3_pieces.forEach(g => { if (g.children.length > 0) scene.add(g); });
+
+const pvB = makePlaneViz(planeB.n, planeB.d, 0x2980b9);
+scene.add(pvB);
+
+// Collect all visible piece groups for the viewport grid
+const allDisplayGroups = [
+  { group: step1_top, label: 'cut A — top' },
+  { group: step1_bot, label: 'cut A — bot' },
+  { group: step2_combined, label: 'combined' },
+  ...step3_pieces.filter(g => g.children.length > 0).map((g, i) =>
+    ({ group: g, label: `recut ${i + 1}` })
+  ),
+];
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
@@ -324,148 +287,116 @@ controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.target.set(0, 25, 0);
 
 // ─── Layout ────────────────────────────────────────────────────────
+//
+// Left 50%: step 1 (the initial cut, both halves separated + plane A)
+// Right 50%: grid showing step 3 recut pieces + the combined form
 
-function rebuildLayout() {
-  document.querySelectorAll('.divider, .panel-label').forEach(e => e.remove());
+// For the left panel we show step 1 (cut A).
+// For the right panel we show the recut pieces.
+// We hide/show groups per pass.
 
-  const n = activePieces.length;
-  const cols = n <= 2 ? 1 : 2;
-  const rows = Math.ceil(n / cols);
+const rightGroups = step3_pieces.filter(g => g.children.length > 0);
+const nRight = rightGroups.length + 1; // +1 for the combined view
+const rightAll = [step2_combined, ...rightGroups];
+const rightLabels = ['combined (flipped + joined)', ...rightGroups.map((_, i) => `recut piece ${i+1}`)];
 
+const cols = nRight <= 2 ? 1 : 2;
+const rows = Math.ceil(nRight / cols);
+
+function buildLayout() {
+  document.querySelectorAll('.divider, .panel-label, .step-label').forEach(e => e.remove());
+
+  // Vertical divider
   const dv = document.createElement('div'); dv.className = 'divider';
-  dv.style.cssText = 'top:0; left:50%; width:1px; height:100%';
-  document.body.appendChild(dv);
+  dv.style.cssText = 'top:0; left:50%; width:1px; height:100%'; document.body.appendChild(dv);
 
   if (cols > 1) {
     const d = document.createElement('div'); d.className = 'divider';
-    d.style.cssText = 'top:0; left:75%; width:1px; height:100%';
-    document.body.appendChild(d);
+    d.style.cssText = 'top:0; left:75%; width:1px; height:100%'; document.body.appendChild(d);
   }
   for (let r = 1; r < rows; r++) {
     const d = document.createElement('div'); d.className = 'divider';
-    d.style.cssText = `top:${(r/rows)*100}%; left:50%; width:50%; height:1px`;
-    document.body.appendChild(d);
+    d.style.cssText = `top:${(r/rows)*100}%; left:50%; width:50%; height:1px`; document.body.appendChild(d);
   }
 
-  const mkLabel = (txt, css) => {
-    const el = document.createElement('div');
-    el.className = 'panel-label'; el.textContent = txt; el.style.cssText = css;
-    document.body.appendChild(el);
+  const mkLabel = (txt, css, cls = 'panel-label') => {
+    const el = document.createElement('div'); el.className = cls; el.textContent = txt;
+    el.style.cssText = css; document.body.appendChild(el);
   };
-  mkLabel('combined', 'top:8px; left:calc(25% - 30px)');
-  for (let i = 0; i < n; i++) {
+
+  mkLabel('step 1: diagonal cut', 'top:8px; left:calc(25% - 50px)', 'step-label');
+  for (let i = 0; i < nRight; i++) {
     const c = i % cols, r = Math.floor(i / cols);
     const lx = 50 + (c / cols) * 50 + 25 / cols;
-    mkLabel(`piece ${i+1}`, `top:${(r/rows)*100 + 1}%; left:calc(${lx}% - 20px)`);
+    const label = i === 0 ? 'step 2: combined' : `step 3: recut piece ${i}`;
+    mkLabel(label, `top:${(r/rows)*100 + 1}%; left:calc(${lx}% - 40px)`, 'step-label');
   }
 }
-rebuildLayout();
+buildLayout();
 
-// ─── Raycaster: hover detection + status bar ───────────────────────
+// ─── Hover / raycaster ─────────────────────────────────────────────
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const statusbar = document.getElementById('statusbar');
-let hoveredMesh = null;
-let hoveredOriginalEmissive = null;
+let hoveredMesh = null, hoveredOrig = null;
+
+function getAllMeshes() {
+  const out = [];
+  [step1_top, step1_bot, step2_combined, ...step3_pieces].forEach(g => {
+    g.traverse(m => { if (m.isMesh) out.push(m); });
+  });
+  return out;
+}
 
 renderer.domElement.addEventListener('mousemove', (e) => {
-  // Figure out which viewport the mouse is in (left half = combined)
   const W = window.innerWidth, H = window.innerHeight;
   const leftW = Math.floor(W / 2);
-
-  // For raycasting we need normalized device coords relative to the
-  // viewport the mouse is over. We use the left (combined) viewport's
-  // aspect for simplicity since all viewports share the same camera.
   let nx, ny;
   if (e.clientX < leftW) {
-    // Left viewport
-    nx = (e.clientX / leftW) * 2 - 1;
-    ny = -(e.clientY / H) * 2 + 1;
+    nx = (e.clientX / leftW) * 2 - 1; ny = -(e.clientY / H) * 2 + 1;
   } else {
-    // Right viewport — still same camera, just different scissor
-    const rW = W - leftW;
-    nx = ((e.clientX - leftW) / rW) * 2 - 1;
-    ny = -(e.clientY / H) * 2 + 1;
+    nx = ((e.clientX - leftW) / (W - leftW)) * 2 - 1; ny = -(e.clientY / H) * 2 + 1;
   }
-
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(getAllMeshes(), false);
 
-  // Only test against the piece group meshes (skip plane viz, lights, etc.)
-  const testMeshes = [];
-  activePieces.forEach(g => {
-    g.children.forEach(m => { if (m.isMesh) testMeshes.push(m); });
-  });
-
-  const hits = raycaster.intersectObjects(testMeshes, false);
-
-  // Un-highlight previous
-  if (hoveredMesh && hoveredMesh !== (hits[0]?.object)) {
-    if (hoveredMesh.material) {
-      const mats = Array.isArray(hoveredMesh.material) ? hoveredMesh.material : [hoveredMesh.material];
-      mats.forEach((m, i) => {
-        if (hoveredOriginalEmissive && hoveredOriginalEmissive[i]) {
-          m.emissive?.copy(hoveredOriginalEmissive[i]);
-        }
-      });
-    }
-    hoveredMesh = null;
-    hoveredOriginalEmissive = null;
+  // Un-highlight
+  if (hoveredMesh && hoveredMesh !== hits[0]?.object) {
+    const mats = Array.isArray(hoveredMesh.material) ? hoveredMesh.material : [hoveredMesh.material];
+    mats.forEach((m, i) => { if (hoveredOrig?.[i]) m.emissive?.copy(hoveredOrig[i]); });
+    hoveredMesh = null; hoveredOrig = null;
   }
 
   if (hits.length > 0) {
-    const hit = hits[0];
-    const mesh = hit.object;
-
-    // Highlight: add a subtle emissive glow
+    const hit = hits[0], mesh = hit.object;
     if (mesh !== hoveredMesh) {
       hoveredMesh = mesh;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      hoveredOriginalEmissive = mats.map(m => m.emissive ? m.emissive.clone() : new THREE.Color(0));
-      mats.forEach(m => {
-        if (m.emissive) m.emissive.set(0x333333);
-      });
+      hoveredOrig = mats.map(m => m.emissive ? m.emissive.clone() : new THREE.Color(0));
+      mats.forEach(m => { if (m.emissive) m.emissive.set(0x333333); });
     }
-
-    // Find which piece group this mesh belongs to
-    let pieceIdx = -1;
-    for (let i = 0; i < activePieces.length; i++) {
-      if (activePieces[i].children.includes(mesh)) { pieceIdx = i; break; }
-    }
-
     const geo = mesh.geometry;
-    const triCount = geo.index ? geo.index.count / 3 : 0;
-    const vertCount = geo.attributes.position ? geo.attributes.position.count : 0;
-    const bb = new THREE.Box3().setFromBufferAttribute(geo.attributes.position);
-    const size = new THREE.Vector3(); bb.getSize(size);
+    const tris = geo.index ? geo.index.count / 3 : 0;
+    const verts = geo.attributes.position?.count || 0;
     const pt = hit.point;
-
     statusbar.innerHTML = [
-      `<span class="label">piece</span> <span class="val">${pieceIdx + 1}</span>`,
-      `<span class="label">tris</span> <span class="val">${triCount}</span>`,
-      `<span class="label">verts</span> <span class="val">${vertCount}</span>`,
-      `<span class="label">size</span> <span class="val">${size.x.toFixed(0)} × ${size.y.toFixed(0)} × ${size.z.toFixed(0)}</span>`,
+      `<span class="label">tris</span> <span class="val">${tris}</span>`,
+      `<span class="label">verts</span> <span class="val">${verts}</span>`,
       `<span class="label">hit</span> <span class="val">(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)}, ${pt.z.toFixed(1)})</span>`,
       `<span class="label">face</span> <span class="val">${hit.faceIndex ?? '—'}</span>`,
-      `<span class="label">materials</span> <span class="val">${Array.isArray(mesh.material) ? mesh.material.length : 1}</span>`,
     ].join('  ');
   } else {
     statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
   }
 });
 
-// Clear highlight when mouse leaves the canvas
 renderer.domElement.addEventListener('mouseleave', () => {
   if (hoveredMesh) {
     const mats = Array.isArray(hoveredMesh.material) ? hoveredMesh.material : [hoveredMesh.material];
-    mats.forEach((m, i) => {
-      if (hoveredOriginalEmissive && hoveredOriginalEmissive[i]) {
-        m.emissive?.copy(hoveredOriginalEmissive[i]);
-      }
-    });
-    hoveredMesh = null;
-    hoveredOriginalEmissive = null;
+    mats.forEach((m, i) => { if (hoveredOrig?.[i]) m.emissive?.copy(hoveredOrig[i]); });
+    hoveredMesh = null; hoveredOrig = null;
   }
   statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
 });
@@ -477,35 +408,48 @@ function animate() {
   controls.update();
 
   const W = window.innerWidth, H = window.innerHeight;
-  const n = activePieces.length;
-  const cols = n <= 2 ? 1 : 2;
-  const rows = Math.ceil(n / cols);
-
   renderer.setScissorTest(true);
 
-  // Left: combined
-  activePieces.forEach(g => g.visible = true);
-  if (pvA) pvA.visible = true;
-  if (pvB) pvB.visible = true;
-  renderer.setViewport(0, 0, W/2|0, H);
-  renderer.setScissor(0, 0, W/2|0, H);
-  camera.aspect = (W/2) / H;
-  camera.updateProjectionMatrix();
-  renderer.setClearColor(0x1c1917, 1); renderer.clear();
-  renderer.render(scene, camera);
+  // ── Left: Step 1 (the diagonal cut, two halves + plane A) ──
+  {
+    step1_top.visible = true; step1_bot.visible = true;
+    pvA.visible = true; pvB.visible = false;
+    step2_combined.visible = false;
+    step3_pieces.forEach(g => g.visible = false);
 
-  // Right: piece grid
+    const vw = Math.floor(W / 2);
+    renderer.setViewport(0, 0, vw, H);
+    renderer.setScissor(0, 0, vw, H);
+    camera.aspect = vw / H;
+    camera.updateProjectionMatrix();
+    renderer.setClearColor(0x1c1917, 1); renderer.clear();
+    renderer.render(scene, camera);
+  }
+
+  // ── Right: grid of step 2 (combined) + step 3 (recut pieces) ──
   const rW = Math.ceil(W / 2);
   const cW = Math.floor(rW / cols), cH = Math.floor(H / rows);
 
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < nRight; i++) {
     const c = i % cols, r = Math.floor(i / cols);
-    activePieces.forEach(g => g.visible = false);
-    activePieces[i].visible = true;
-    if (pvA) pvA.visible = false;
-    if (pvB) pvB.visible = false;
 
-    const vx = (W/2|0) + c * cW;
+    // Hide everything, show only this group
+    step1_top.visible = false; step1_bot.visible = false;
+    pvA.visible = false;
+    step2_combined.visible = false;
+    step3_pieces.forEach(g => g.visible = false);
+    pvB.visible = false;
+
+    if (i === 0) {
+      // Combined view
+      step2_combined.visible = true;
+    } else {
+      // Recut piece
+      rightGroups[i - 1].visible = true;
+      pvB.visible = true;
+    }
+
+    const vx = Math.floor(W / 2) + c * cW;
     const vy = H - (r + 1) * cH;
     renderer.setViewport(vx, vy, cW, cH);
     renderer.setScissor(vx, vy, cW, cH);
