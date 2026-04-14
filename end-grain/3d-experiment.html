@@ -48,8 +48,8 @@
   left: diagonal cut &middot; right: joined
 </div>
 <div id="controls">
-  <label>cut tilt: <span id="tilt-val" class="angle-val">12mm</span></label>
-  <input type="range" id="tilt-slider" min="-25" max="25" step="1" value="12">
+  <label>cut angle: <span id="angle-val" class="angle-val">7°</span></label>
+  <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -122,14 +122,13 @@ const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-const cubeSize = 50, cubeCount = 24;
+const cubeSize = 50, cubeCount = 8;
 const halfLen = (cubeCount * cubeSize) / 2;
 
 // ─── CSG helpers ───────────────────────────────────────────────────
 
-const HS = 2000; // must exceed strip length in all dimensions
+const HS = 800;
 const evaluator = new Evaluator();
-evaluator.useCDTClipping = true; // more robust triangulation for coplanar faces
 
 function makeHalfSpace(normal, constant, mat) {
   const b = new Brush(new THREE.BoxGeometry(HS, HS, HS), mat);
@@ -148,28 +147,19 @@ scene.add(step1_top);
 scene.add(step1_bot);
 
 const pvA = new THREE.Mesh(
-  new THREE.PlaneGeometry(1400, 150),
+  new THREE.PlaneGeometry(520, 150),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvA);
 
-const step2_anim = new THREE.Group();  // pre-union: two sub-groups animating
-const step2_top = new THREE.Group();
-const step2_bot = new THREE.Group();
-step2_anim.add(step2_top);
-step2_anim.add(step2_bot);
-scene.add(step2_anim);
-
-const step2_union = new THREE.Group();  // post-union: single solid mesh
+const step2_union = new THREE.Group();
 scene.add(step2_union);
 
-// ─── Build pipeline from tilt ─────────────────────────────────────
+// ─── Build pipeline from angle ────────────────────────────────────
 
-function rebuild(tiltMm) {
-  // tiltMm = Z displacement at strip ends. Plane passes through origin,
-  // tilting so that at x=±halfLen the plane crosses z=±tiltMm.
-  // Normal = (tiltMm/halfLen, 0, -1).normalize()
-  const planeN = new THREE.Vector3(tiltMm / halfLen, 0, -1).normalize();
+function rebuild(angleDeg) {
+  const rad = angleDeg * Math.PI / 180;
+  const planeN = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
   const planeD = 0;
 
   // Clear previous geometry
@@ -205,82 +195,52 @@ function rebuild(tiltMm) {
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // ── Step 2: Clone halves into animation groups, then animate + union ──
-  step2_top.clear();
-  step2_bot.clear();
-  step2_union.clear();
-  step2_top.position.set(0, 0, 0);
+  // ── Step 2: Combine — slide top half along Z, then union ──
+  // Collect all meshes with world transforms baked in, applying the Z offset
+  // so uncut faces touch.
+  const allMeshes = [];
 
-  // Clone geometry with only the mesh's local transform (no group offset)
-  function cloneBaked(mesh) {
+  // Top half: offset in +Z so its min-Z face meets bot's max-Z face
+  step1_top.updateMatrixWorld(true);
+  const bbTopTemp = new THREE.Box3().setFromObject(step1_top);
+  const bbBotTemp = new THREE.Box3().setFromObject(step1_bot);
+  // Remove separation offset for the combine calculation
+  const topMinZ = bbTopTemp.min.z - sep * planeN.z;
+  const botMaxZ = bbBotTemp.max.z + sep * planeN.z;
+  const zOffset = botMaxZ - topMinZ;
+
+  // Collect top half meshes with Z offset
+  step1_top.children.forEach(mesh => {
     const geo = mesh.geometry.clone();
     const m4 = new THREE.Matrix4();
     m4.compose(mesh.position, mesh.quaternion, mesh.scale);
     geo.applyMatrix4(m4);
-    return geo;
-  }
-
-  // Clone halves into step2 groups for animation.
-  // Both start separated along the cut normal (like step 1),
-  // then animate to flush (original positions, cut faces touching).
-  step1_top.children.forEach(mesh => {
-    const m = new THREE.Mesh(cloneBaked(mesh), mesh.material);
-    m.castShadow = true;
-    step2_top.add(m);
+    // Apply Z offset
+    const pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      pos.setZ(v, pos.getZ(v) + zOffset);
+    }
+    pos.needsUpdate = true;
+    allMeshes.push({ geo, material: mesh.material });
   });
+
+  // Collect bottom half meshes at original positions
   step1_bot.children.forEach(mesh => {
-    const m = new THREE.Mesh(cloneBaked(mesh), mesh.material);
-    m.castShadow = true;
-    step2_bot.add(m);
+    const geo = mesh.geometry.clone();
+    const m4 = new THREE.Matrix4();
+    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+    geo.applyMatrix4(m4);
+    allMeshes.push({ geo, material: mesh.material });
   });
 
-  // Animation: start separated along cut normal, animate to zero separation.
-  // Store the normal so the render loop can interpolate.
-  animPlaneN = planeN.clone();
-  animStart = performance.now() / 1000;
-  animDone = false;
-  step2_anim.visible = true;
-  step2_union.visible = false;
+  // Union all meshes
+  console.log(`Rebuilding: angle=${angleDeg}°, unioning ${allMeshes.length} meshes...`);
+  let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
+  result.updateMatrixWorld();
 
-  // Start at separated positions (same as step 1)
-  step2_top.position.copy(planeN.clone().multiplyScalar(sep));
-  step2_bot.position.copy(planeN.clone().multiplyScalar(-sep));
-}
-
-// ─── Animation + union ─────────────────────────────────────────────
-
-let animStart = 0, animDone = true, animPlaneN = new THREE.Vector3();
-const animDuration = 2.0;
-
-function performUnion() {
-  console.log('--- Performing CSG union ---');
-  const allMeshes = [];
-
-  // Collect all meshes with final world positions baked in
-  [step2_top, step2_bot].forEach(group => {
-    group.updateMatrixWorld(true);
-    group.traverse(m => {
-      if (!m.isMesh) return;
-      const geo = m.geometry.clone();
-      geo.applyMatrix4(m.matrixWorld);
-      allMeshes.push({ geo, material: m.material });
-    });
-  });
-
-  // Union with tiny scale to avoid coplanar face artifacts
-  const EPS = 1e-4;
-  console.log(`Unioning ${allMeshes.length} meshes...`);
-
-  function makeBrush(geo, material) {
-    const b = new Brush(geo, material);
-    b.scale.setScalar(1 + EPS);
-    b.updateMatrixWorld();
-    return b;
-  }
-
-  let result = makeBrush(allMeshes[0].geo, allMeshes[0].material);
   for (let i = 1; i < allMeshes.length; i++) {
-    const b = makeBrush(allMeshes[i].geo, allMeshes[i].material);
+    const b = new Brush(allMeshes[i].geo, allMeshes[i].material);
+    b.updateMatrixWorld();
     result = evaluator.evaluate(result, b, ADDITION);
     result.updateMatrixWorld();
   }
@@ -288,36 +248,31 @@ function performUnion() {
   result.castShadow = true;
   step2_union.add(result);
 
-  // Log
+  // Log result
   const bb = new THREE.Box3().setFromObject(result);
   const sz = new THREE.Vector3(); bb.getSize(sz);
   const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
   console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
-
-  // Swap: hide animation groups, show union
-  step2_anim.visible = false;
-  step2_union.visible = true;
-  console.log('--- Union complete ---');
 }
 
 // Initial build
-rebuild(12);
+rebuild(7);
 
 // ─── Slider ───────────────────────────────────────────────────────
 
-const slider = document.getElementById('tilt-slider');
-const tiltVal = document.getElementById('tilt-val');
+const slider = document.getElementById('angle-slider');
+const angleVal = document.getElementById('angle-val');
 
 slider.addEventListener('input', () => {
   const v = parseInt(slider.value, 10);
-  tiltVal.textContent = `${v}mm`;
+  angleVal.textContent = `${v}°`;
   rebuild(v);
 });
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-camera.position.set(900, 500, 800);
+camera.position.set(350, 250, 400);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.target.set(0, 25, 0);
@@ -353,7 +308,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups = inLeft ? [step1_top, step1_bot] : (animDone ? [step2_union] : [step2_top, step2_bot]);
+  const groups = inLeft ? [step1_top, step1_bot] : [step2_union];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -430,19 +385,6 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Drive animation: halves slide from separated → flush along cut normal
-  if (!animDone) {
-    const t = Math.min((performance.now() / 1000 - animStart) / animDuration, 1);
-    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    const curSep = 20 * (1 - ease); // 20 → 0
-    step2_top.position.copy(animPlaneN.clone().multiplyScalar(curSep));
-    step2_bot.position.copy(animPlaneN.clone().multiplyScalar(-curSep));
-    if (t >= 1) {
-      animDone = true;
-      performUnion();
-    }
-  }
-
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
   renderer.setScissorTest(true);
@@ -452,7 +394,6 @@ function animate() {
   // ── Left: Step 1 (cut halves separated + plane viz) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
-  step2_anim.visible = false;
   step2_union.visible = false;
 
   renderer.setViewport(0, 0, halfW, H);
@@ -467,11 +408,10 @@ function animate() {
   renderer.clearDepth();
   renderer.render(axesScene, axesCamera);
 
-  // ── Right: Step 2 (animation or union) ──
+  // ── Right: Step 2 (union) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
-  step2_anim.visible = !animDone;
-  step2_union.visible = animDone;
+  step2_union.visible = true;
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
