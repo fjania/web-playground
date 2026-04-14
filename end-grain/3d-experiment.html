@@ -288,7 +288,10 @@ function manifoldToThree(mf, material) {
   geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1));
   geo.computeVertexNormals();
 
-  const obj = new THREE.Mesh(geo, material);
+  // Clone material and enable flat shading for hard edges
+  const mat = material.clone();
+  mat.flatShading = true;
+  const obj = new THREE.Mesh(geo, mat);
   obj.castShadow = true;
   return obj;
 }
