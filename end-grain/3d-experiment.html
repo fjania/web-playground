@@ -290,7 +290,13 @@ async function init() {
 // Convert a Manifold to a Three.js Mesh with material groups
 function manifoldToThree(mf, idToMat, materials) {
   const mesh = mf.getMesh();
-  console.log('Manifold mesh keys:', Object.keys(mesh), 'numVert:', mesh.numVert, 'numTri:', mesh.numTri);
+  const numRuns = mesh.runIndex.length - 1;
+  const knownIDs = new Set(idToMat.keys());
+  let unknownRuns = 0;
+  for (let r = 0; r < numRuns; r++) {
+    if (!knownIDs.has(mesh.runOriginalID[r])) unknownRuns++;
+  }
+  console.log(`Manifold mesh: ${mesh.numVert} verts, ${mesh.numTri} tris, ${numRuns} runs (${unknownRuns} unknown IDs)`);
   const numVerts = mesh.numVert;
   const numProp = mesh.numProp;
 
@@ -306,16 +312,31 @@ function manifoldToThree(mf, idToMat, materials) {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1));
 
-  // Build material groups from runs
+  // Build material groups from runs.
+  // Known IDs map directly to materials. Unknown IDs (cut faces) need
+  // per-triangle species lookup based on the triangle's X position.
   const numRun = mesh.runIndex.length - 1;
+  const idx = mesh.triVerts;
+
   for (let run = 0; run < numRun; run++) {
     const origID = mesh.runOriginalID[run];
     const startIdx = mesh.runIndex[run];
     const endIdx = mesh.runIndex[run + 1];
-    const count = endIdx - startIdx;
-    // Map originalID to material index; unknown IDs → cut material (index 2)
-    const matIdx = idToMat.get(origID) ?? 2;
-    geo.addGroup(startIdx, count, matIdx);
+
+    if (idToMat.has(origID)) {
+      // Known segment — single material for the whole run
+      geo.addGroup(startIdx, endIdx - startIdx, idToMat.get(origID));
+    } else {
+      // Cut face — determine species per triangle by centroid X position
+      for (let t = startIdx; t < endIdx; t += 3) {
+        const v0 = idx[t], v1 = idx[t + 1], v2 = idx[t + 2];
+        const cx = (positions[v0 * 3] + positions[v1 * 3] + positions[v2 * 3]) / 3;
+        // Which segment does this X fall in?
+        const segIdx = Math.floor((cx + halfLen) / segW);
+        const isMaple = (segIdx % 2 === 0);
+        geo.addGroup(t, 3, isMaple ? 0 : 1);
+      }
+    }
   }
 
   geo.computeVertexNormals();
