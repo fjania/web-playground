@@ -318,7 +318,8 @@ const bbPanel4 = { box: new THREE.Box3() };
 let selectionA = null, selectionB = null;
 let selectionC = null, selectionD = null;
 
-// Highlight meshes for each strip's selected face
+// Highlight meshes for each strip's selected face.
+// Added as children of each strip group so they inherit the strip's offset.
 const highlightA = new THREE.Group(); scene.add(highlightA);
 const highlightB = new THREE.Group(); scene.add(highlightB);
 const highlightC = new THREE.Group(); scene.add(highlightC);
@@ -331,29 +332,32 @@ const HL_COLOR_ROT = 0xff9922;      // orange — selected with rotation
 // stripGroup is the THREE.Group containing all segment meshes of the strip.
 // hit is the raycaster hit object.
 function findFaceAtHit(hit, stripGroup) {
+  // Compute face data in MODEL space (the strip group's local coords).
+  // Each segment mesh has identity local transform, so its raw vertex
+  // positions match the underlying manifold's coords. The strip group
+  // has only a translation offset for visual separation in the cut view —
+  // we ignore that here so the face data aligns with the manifold data.
   const mesh = hit.object;
-  mesh.updateMatrixWorld(true);
   const geo = mesh.geometry;
   const pos = geo.attributes.position;
   const idx = geo.index;
   const faceIdx = hit.faceIndex;
 
-  // Get clicked triangle vertices in world space
-  const a = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(faceIdx * 3)).applyMatrix4(mesh.matrixWorld);
-  const b = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(faceIdx * 3 + 1)).applyMatrix4(mesh.matrixWorld);
-  const c = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(faceIdx * 3 + 2)).applyMatrix4(mesh.matrixWorld);
+  // Get clicked triangle vertices in model space
+  const a = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(faceIdx * 3));
+  const b = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(faceIdx * 3 + 1));
+  const c = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(faceIdx * 3 + 2));
 
   const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
   const planeD = normal.dot(a);
 
   // Find all coplanar triangles in the strip
-  const normalTol = 0.001; // 1 - cos(angle)
-  const distTol = 0.5;     // mm
+  const normalTol = 0.001;
+  const distTol = 0.5;
   const verts = [];
 
   stripGroup.traverse(m => {
     if (!m.isMesh) return;
-    m.updateMatrixWorld(true);
     const g = m.geometry;
     const p = g.attributes.position;
     const i = g.index;
@@ -361,9 +365,9 @@ function findFaceAtHit(hit, stripGroup) {
     const ab = new THREE.Vector3(), ac = new THREE.Vector3();
     const n = new THREE.Vector3();
     for (let t = 0; t < i.count; t += 3) {
-      va.fromBufferAttribute(p, i.getX(t)).applyMatrix4(m.matrixWorld);
-      vb.fromBufferAttribute(p, i.getX(t + 1)).applyMatrix4(m.matrixWorld);
-      vc.fromBufferAttribute(p, i.getX(t + 2)).applyMatrix4(m.matrixWorld);
+      va.fromBufferAttribute(p, i.getX(t));
+      vb.fromBufferAttribute(p, i.getX(t + 1));
+      vc.fromBufferAttribute(p, i.getX(t + 2));
       ab.subVectors(vb, va);
       ac.subVectors(vc, va);
       n.crossVectors(ab, ac).normalize();
@@ -408,6 +412,9 @@ function findFaceAtHit(hit, stripGroup) {
 }
 
 // Build a flat polygon mesh that highlights the selected face.
+// The highlight is positioned in MODEL space (matching the face data) — it
+// will be added as a child of the strip group, so it inherits the group's
+// world offset for display.
 function buildFaceHighlight(face, color) {
   const geo = new THREE.PlaneGeometry(face.width, face.height);
   const mat = new THREE.MeshBasicMaterial({
@@ -416,8 +423,6 @@ function buildFaceHighlight(face, color) {
   });
   const mesh = new THREE.Mesh(geo, mat);
 
-  // Build a matrix: x = u, y = v, z = normal
-  // Position at the face's bounding rect center, nudged out along normal
   const center = face.centroid.clone()
     .addScaledVector(face.u, (face.minU + face.maxU) / 2)
     .addScaledVector(face.v, (face.minV + face.maxV) / 2)
@@ -431,6 +436,7 @@ function buildFaceHighlight(face, color) {
 
 function setStripSelection(strip, selection) {
   const hlGroup = { A: highlightA, B: highlightB, C: highlightC, D: highlightD }[strip];
+  const stripGroup = { A: step1_top, B: step1_bot, C: step3_top, D: step3_bot }[strip];
   hlGroup.clear();
   if (!selection) {
     if (strip === 'A') selectionA = null;
@@ -441,6 +447,9 @@ function setStripSelection(strip, selection) {
   }
   const color = selection.rotate ? HL_COLOR_ROT : HL_COLOR_SEL;
   hlGroup.add(buildFaceHighlight(selection, color));
+  // Match the strip group's world offset so the highlight renders in the
+  // same place as the visible strip geometry.
+  hlGroup.position.copy(stripGroup.position);
   if (strip === 'A') selectionA = selection;
   else if (strip === 'B') selectionB = selection;
   else if (strip === 'C') selectionC = selection;
