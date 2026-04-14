@@ -25,8 +25,9 @@
     background: rgba(28,25,23,0.85); padding: 4px 10px;
     border: 1px solid #3d3835; border-radius: 4px;
   }
-  #join1-status { top: 28px; left: 75%; transform: translateX(-50%); }
-  #join2-status { top: calc(50% + 28px); left: 75%; transform: translateX(-50%); }
+  /* Per-view status footers — pinned to the bottom of each view's tile. */
+  #join1-status { top: calc(50% - 28px); left: 75%; transform: translateX(-50%); }
+  #join2-status { bottom: 36px; left: 75%; transform: translateX(-50%); }
   #statusbar {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
     height: 28px; display: flex; align-items: center; gap: 16px;
@@ -104,8 +105,8 @@
   </div>
   <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
-<div id="join1-status" class="tile-status" style="display:none;"></div>
-<div id="join2-status" class="tile-status" style="display:none;"></div>
+<div id="join1-status" class="tile-status">idle</div>
+<div id="join2-status" class="tile-status">idle</div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
 <script type="module">
@@ -1241,7 +1242,6 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
   panelGroup.add(gB);
 
   const statusEl = document.getElementById(which === 1 ? 'join1-status' : 'join2-status');
-  statusEl.style.display = 'block';
 
   // Degenerate: no stages (identical faces). Clone and hand off.
   if (stages.length === 0) {
@@ -1249,7 +1249,6 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
     renderPanel(a, gA);
     renderPanel(b, gB);
     statusEl.textContent = `join complete (${a.size + b.size} segments)`;
-    setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
     onComplete(a.concat(b));
     return;
   }
@@ -1291,7 +1290,6 @@ function joinAnimFrame(now) {
     joinAnim.currentA = null;
     joinAnim.currentB = null;
     statusEl.textContent = `join complete (${finalPanel.size} segments)`;
-    setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
     const cb = joinAnim.onComplete;
     joinAnim = null;
     cb(finalPanel);
