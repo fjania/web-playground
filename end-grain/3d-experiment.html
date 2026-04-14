@@ -170,8 +170,57 @@ const step3_bot = new THREE.Group();
 scene.add(step3_top);
 scene.add(step3_bot);
 
+const step4_anim = new THREE.Group();
+const step4_top = new THREE.Group();
+const step4_bot = new THREE.Group();
+step4_anim.add(step4_top);
+step4_anim.add(step4_bot);
+scene.add(step4_anim);
+
 const step4_union = new THREE.Group();
 scene.add(step4_union);
+
+let anim4Start = 0, anim4Done = true, anim4PlaneN = new THREE.Vector3();
+const anim4Duration = 2.0;
+
+function performStep4Union() {
+  console.log('--- Step 4 union ---');
+  const meshes = [];
+  [step4_top, step4_bot].forEach(group => {
+    group.updateMatrixWorld(true);
+    group.traverse(m => {
+      if (!m.isMesh) return;
+      const geo = m.geometry.clone();
+      geo.applyMatrix4(m.matrixWorld);
+      meshes.push({ geo, material: m.material });
+    });
+  });
+
+  let result4 = new Brush(meshes[0].geo, meshes[0].material);
+  result4.updateMatrixWorld();
+  for (let i = 1; i < meshes.length; i++) {
+    const b = new Brush(meshes[i].geo, meshes[i].material);
+    b.updateMatrixWorld();
+    result4 = evaluator.evaluate(result4, b, ADDITION);
+    result4.updateMatrixWorld();
+  }
+
+  // Center at origin
+  result4.geometry.computeBoundingBox();
+  const c = new THREE.Vector3();
+  result4.geometry.boundingBox.getCenter(c);
+  result4.geometry.translate(-c.x, -c.y, -c.z);
+
+  result4.castShadow = true;
+  step4_union.add(result4);
+
+  step4_anim.visible = false;
+  step4_union.visible = true;
+
+  const bb = new THREE.Box3().setFromObject(result4);
+  const sz = new THREE.Vector3(); bb.getSize(sz);
+  console.log(`Step 4 union: bounds ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+}
 
 // ─── Build pipeline from angle ────────────────────────────────────
 
@@ -313,7 +362,7 @@ function rebuild(angleA, angleB) {
 
   console.log(`Recut: angle=${angleB}°`);
 
-  // ── Step 4: Recombine recut halves (same approach as step 2) ──
+  // ── Step 4: Animate recut halves closing, then union ──
   function cloneBaked(mesh) {
     const geo = mesh.geometry.clone();
     const m4 = new THREE.Matrix4();
@@ -322,51 +371,28 @@ function rebuild(angleA, angleB) {
     return geo;
   }
 
-  const step4Meshes = [];
-
-  step3_top.updateMatrixWorld(true);
-  step3_bot.updateMatrixWorld(true);
-  const bb3Top = new THREE.Box3().setFromObject(step3_top);
-  const bb3Bot = new THREE.Box3().setFromObject(step3_bot);
-  const topMinZ3 = bb3Top.min.z - 20 * planeB_n.z;
-  const botMaxZ3 = bb3Bot.max.z + 20 * planeB_n.z;
-  const zOffset3 = botMaxZ3 - topMinZ3;
-
+  // Clone recut halves into step4 animation groups
+  step4_top.clear();
+  step4_bot.clear();
   step3_top.children.forEach(mesh => {
-    const geo = cloneBaked(mesh);
-    const pos = geo.attributes.position;
-    for (let v = 0; v < pos.count; v++) {
-      pos.setZ(v, pos.getZ(v) + zOffset3);
-    }
-    pos.needsUpdate = true;
-    step4Meshes.push({ geo, material: mesh.material });
+    const m = new THREE.Mesh(cloneBaked(mesh), mesh.material);
+    m.castShadow = true;
+    step4_top.add(m);
   });
   step3_bot.children.forEach(mesh => {
-    step4Meshes.push({ geo: cloneBaked(mesh), material: mesh.material });
+    const m = new THREE.Mesh(cloneBaked(mesh), mesh.material);
+    m.castShadow = true;
+    step4_bot.add(m);
   });
 
-  console.log(`Step 4: unioning ${step4Meshes.length} recut meshes...`);
-  let result4 = new Brush(step4Meshes[0].geo, step4Meshes[0].material);
-  result4.updateMatrixWorld();
-  for (let i = 1; i < step4Meshes.length; i++) {
-    const b = new Brush(step4Meshes[i].geo, step4Meshes[i].material);
-    b.updateMatrixWorld();
-    result4 = evaluator.evaluate(result4, b, ADDITION);
-    result4.updateMatrixWorld();
-  }
-
-  // Center at origin
-  result4.geometry.computeBoundingBox();
-  const center4 = new THREE.Vector3();
-  result4.geometry.boundingBox.getCenter(center4);
-  result4.geometry.translate(-center4.x, -center4.y, -center4.z);
-
-  result4.castShadow = true;
-  step4_union.add(result4);
-
-  const bb4 = new THREE.Box3().setFromObject(result4);
-  const sz4 = new THREE.Vector3(); bb4.getSize(sz4);
-  console.log(`Step 4 union: bounds ${sz4.x.toFixed(1)} × ${sz4.y.toFixed(1)} × ${sz4.z.toFixed(1)}`);
+  // Start animation: separated along plane B normal → flush
+  step4_top.position.copy(planeB_n.clone().multiplyScalar(20));
+  step4_bot.position.copy(planeB_n.clone().multiplyScalar(-20));
+  anim4PlaneN = planeB_n.clone();
+  anim4Start = performance.now() / 1000;
+  anim4Done = false;
+  step4_anim.visible = true;
+  step4_union.visible = false;
 }
 
 // Initial build
@@ -437,7 +463,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   const groups = vpIdx === 0 ? [step1_top, step1_bot]
     : vpIdx === 1 ? [step2_union]
     : vpIdx === 2 ? [step3_top, step3_bot]
-    : [step4_union];
+    : (anim4Done ? [step4_union] : [step4_top, step4_bot]);
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -518,7 +544,8 @@ function setAllVisible(vis) {
   pvB.visible = vis.s2 || false;
   step3_top.visible = vis.s3 || false;
   step3_bot.visible = vis.s3 || false;
-  step4_union.visible = vis.s4 || false;
+  step4_anim.visible = vis.s4 && !anim4Done || false;
+  step4_union.visible = vis.s4 && anim4Done || false;
 }
 
 function renderViewport(x, y, w, h, vis, bg) {
@@ -540,6 +567,19 @@ function renderViewport(x, y, w, h, vis, bg) {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+
+  // Drive step 4 animation: halves close along plane B normal
+  if (!anim4Done) {
+    const t = Math.min((performance.now() / 1000 - anim4Start) / anim4Duration, 1);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const curSep = 20 * (1 - ease);
+    step4_top.position.copy(anim4PlaneN.clone().multiplyScalar(curSep));
+    step4_bot.position.copy(anim4PlaneN.clone().multiplyScalar(-curSep));
+    if (t >= 1) {
+      anim4Done = true;
+      performStep4Union();
+    }
+  }
 
   const W = window.innerWidth, H = window.innerHeight;
   const qW = Math.floor(W / 4);
