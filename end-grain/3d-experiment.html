@@ -415,9 +415,10 @@ function rebuild(angleA, angleB) {
     botMinZ4 = Math.min(botMinZ4, m.geometry.boundingBox.min.z);
     botMaxZ4 = Math.max(botMaxZ4, m.geometry.boundingBox.max.z);
   });
-  // Slide top half in +Z so its min-Z face aligns with bot's max-Z face
-  // (uncut faces touching, cut faces pointing outward)
-  anim4ZTarget = botMaxZ4 - topMinZ4;
+  // The recut halves overlap in Z. To place them with uncut faces touching,
+  // slide the top half so the overlap is removed and faces are adjacent.
+  const overlap = Math.min(topMaxZ4, botMaxZ4) - Math.max(topMinZ4, botMinZ4);
+  anim4ZTarget = botMaxZ4 - topMinZ4 - overlap;
   console.log(`Step 4 animation: topZ=[${topMinZ4.toFixed(1)},${topMaxZ4.toFixed(1)}], botZ=[${botMinZ4.toFixed(1)},${botMaxZ4.toFixed(1)}], offset=${anim4ZTarget.toFixed(1)}`);
 
   // Start animation: begin with pieces separated (top half pulled back in -Z),
