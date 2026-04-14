@@ -180,7 +180,7 @@ scene.add(step4_anim);
 const step4_union = new THREE.Group();
 scene.add(step4_union);
 
-let anim4Start = 0, anim4Done = true, anim4ZTarget = 0;
+let anim4Start = 0, anim4Done = true, anim4ZTarget = 0, anim4ZStart = 0;
 const anim4Duration = 2.0;
 
 function performStep4Union() {
@@ -399,22 +399,33 @@ function rebuild(angleA, angleB) {
     step4_bot.add(m);
   });
 
-  // Compute the Z offset for the combine (same logic as step 2)
+  // Compute the Z offset for the combine.
+  // Slide top half so its min-Z uncut face meets bot half's max-Z uncut face.
   step4_top.position.set(0, 0, 0);
   step4_bot.position.set(0, 0, 0);
-  let topMinZ4 = Infinity, botMaxZ4 = -Infinity;
+  let topMinZ4 = Infinity, topMaxZ4 = -Infinity;
+  let botMinZ4 = Infinity, botMaxZ4 = -Infinity;
   step4_top.children.forEach(m => {
     m.geometry.computeBoundingBox();
     topMinZ4 = Math.min(topMinZ4, m.geometry.boundingBox.min.z);
+    topMaxZ4 = Math.max(topMaxZ4, m.geometry.boundingBox.max.z);
   });
   step4_bot.children.forEach(m => {
     m.geometry.computeBoundingBox();
+    botMinZ4 = Math.min(botMinZ4, m.geometry.boundingBox.min.z);
     botMaxZ4 = Math.max(botMaxZ4, m.geometry.boundingBox.max.z);
   });
+  // Slide top half in +Z so its min-Z face aligns with bot's max-Z face
+  // (uncut faces touching, cut faces pointing outward)
   anim4ZTarget = botMaxZ4 - topMinZ4;
-  console.log(`Step 4 animation: Z offset = ${anim4ZTarget.toFixed(1)}`);
+  console.log(`Step 4 animation: topZ=[${topMinZ4.toFixed(1)},${topMaxZ4.toFixed(1)}], botZ=[${botMinZ4.toFixed(1)},${botMaxZ4.toFixed(1)}], offset=${anim4ZTarget.toFixed(1)}`);
 
-  // Start animation: top half slides along Z to meet bot half's uncut face
+  // Start animation: begin with pieces separated (top half pulled back in -Z),
+  // then slide to final Z offset position.
+  // Start offset: pull top half back so there's a visible gap from the bot half.
+  const topDepth = topMaxZ4 - topMinZ4;
+  anim4ZStart = -(topDepth + 40); // clear of bot half with a 40mm gap
+  step4_top.position.z = anim4ZStart;
   anim4Start = performance.now() / 1000;
   anim4Done = false;
   step4_anim.visible = true;
@@ -598,7 +609,7 @@ function animate() {
   if (!anim4Done) {
     const t = Math.min((performance.now() / 1000 - anim4Start) / anim4Duration, 1);
     const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    step4_top.position.z = ease * anim4ZTarget;
+    step4_top.position.z = anim4ZStart + ease * (anim4ZTarget - anim4ZStart);
     if (t >= 1) {
       anim4Done = true;
       performStep4Union();
