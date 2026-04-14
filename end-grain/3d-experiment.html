@@ -120,6 +120,94 @@ const walnutMats = makeWoodMats('#3d2416', '#2a1a0e', '#4a2e1a');
 const mapleCut = new THREE.MeshStandardMaterial({ color: 0xe4cc8f, roughness: 0.75 });
 const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0.75 });
 
+// Map every material to a species name for status bar lookup
+const matSpecies = new Map();
+mapleMats.forEach(m => matSpecies.set(m, 'maple'));
+walnutMats.forEach(m => matSpecies.set(m, 'walnut'));
+matSpecies.set(mapleCut, 'maple');
+matSpecies.set(walnutCut, 'walnut');
+
+// ─── Geometry stats helpers ───────────────────────────────────────
+
+// Signed volume of a triangle with vertices a, b, c (relative to origin)
+function signedTriVol(a, b, c) {
+  return a.dot(new THREE.Vector3().crossVectors(b, c)) / 6;
+}
+
+function meshVolume(geo) {
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  if (!idx) return 0;
+  let vol = 0;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < idx.count; i += 3) {
+    a.fromBufferAttribute(pos, idx.getX(i));
+    b.fromBufferAttribute(pos, idx.getX(i + 1));
+    c.fromBufferAttribute(pos, idx.getX(i + 2));
+    vol += signedTriVol(a, b, c);
+  }
+  return Math.abs(vol);
+}
+
+function meshSurfaceArea(geo) {
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  if (!idx) return 0;
+  let area = 0;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const ab = new THREE.Vector3(), ac = new THREE.Vector3();
+  for (let i = 0; i < idx.count; i += 3) {
+    a.fromBufferAttribute(pos, idx.getX(i));
+    b.fromBufferAttribute(pos, idx.getX(i + 1));
+    c.fromBufferAttribute(pos, idx.getX(i + 2));
+    ab.subVectors(b, a);
+    ac.subVectors(c, a);
+    area += ab.cross(ac).length() / 2;
+  }
+  return area;
+}
+
+function meshMaterialCount(mesh) {
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  // With CSG multi-material, groups map triangle ranges to material indices
+  const geo = mesh.geometry;
+  const usedIndices = new Set();
+  if (geo.groups && geo.groups.length > 0) {
+    geo.groups.forEach(g => usedIndices.add(g.materialIndex));
+  } else {
+    return mats.length;
+  }
+  return usedIndices.size;
+}
+
+function hitSpecies(hit) {
+  const mesh = hit.object;
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const geo = mesh.geometry;
+  // Find which material group this face belongs to
+  if (geo.groups && geo.groups.length > 0) {
+    const faceStart = hit.faceIndex * 3;
+    for (const g of geo.groups) {
+      if (faceStart >= g.start && faceStart < g.start + g.count) {
+        const mat = mats[g.materialIndex];
+        return matSpecies.get(mat) || '?';
+      }
+    }
+  }
+  // Single material
+  return matSpecies.get(mats[0]) || '?';
+}
+
+function fmtVol(mm3) {
+  if (mm3 > 1e6) return (mm3 / 1e6).toFixed(1) + ' cm³';
+  return mm3.toFixed(0) + ' mm³';
+}
+
+function fmtArea(mm2) {
+  if (mm2 > 1e4) return (mm2 / 1e4).toFixed(1) + ' cm²';
+  return mm2.toFixed(0) + ' mm²';
+}
+
 // ─── Dimensions ────────────────────────────────────────────────────
 
 const segW = 50, segH = 50, segD = 500, cubeCount = 32;
@@ -385,10 +473,20 @@ renderer.domElement.addEventListener('mousemove', (e) => {
     const pt = hit.point;
     const bb = new THREE.Box3().setFromObject(mesh);
     const sz = new THREE.Vector3(); bb.getSize(sz);
-    statusbar.innerHTML = `<span class="label">tris</span> <span class="val">${tris}</span>  ` +
-      `<span class="label">hit</span> <span class="val">(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)}, ${pt.z.toFixed(1)})</span>  ` +
+    const vol = meshVolume(geo);
+    const area = meshSurfaceArea(geo);
+    const matCount = meshMaterialCount(mesh);
+    const species = hitSpecies(hit);
+    const fn = hit.face ? hit.face.normal : null;
+    const normalStr = fn ? `(${fn.x.toFixed(2)}, ${fn.y.toFixed(2)}, ${fn.z.toFixed(2)})` : '—';
+    statusbar.innerHTML =
+      `<span class="label">species</span> <span class="val">${species}</span>  ` +
+      `<span class="label">vol</span> <span class="val">${fmtVol(vol)}</span>  ` +
+      `<span class="label">area</span> <span class="val">${fmtArea(area)}</span>  ` +
+      `<span class="label">materials</span> <span class="val">${matCount}</span>  ` +
+      `<span class="label">normal</span> <span class="val">${normalStr}</span>  ` +
       `<span class="label">bounds</span> <span class="val">${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}</span>  ` +
-      `<span class="label">face</span> <span class="val">${hit.faceIndex ?? '—'}</span>`;
+      `<span class="label">tris</span> <span class="val">${tris}</span>`;
   } else {
     statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
   }
