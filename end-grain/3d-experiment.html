@@ -488,12 +488,13 @@ function rebuild(angleDeg) {
   renderPanel(above, step1_top);
   renderPanel(below, step1_bot);
 
-  // Strips sit at their natural positions (no separation offset)
-  step1_top.position.set(0, 0, 0);
-  step1_bot.position.set(0, 0, 0);
+  // Push strips apart by a fixed amount along the cut normal
+  const planeN = new THREE.Vector3(nx, 0, nz);
+  const sep = 40;
+  step1_top.position.copy(planeN.clone().multiplyScalar(sep));
+  step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
 
   // Update plane viz
-  const planeN = new THREE.Vector3(nx, 0, nz);
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
   // Update bounding boxes
