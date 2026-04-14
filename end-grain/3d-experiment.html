@@ -380,6 +380,12 @@ async function init() {
   console.log(`Initial panel: ${cubeCount} segments, ${panelLen}×${segH}×${segD}mm`);
 
   rebuild(7);
+
+  // Frame the camera to show all entities with buffer
+  const frame = new THREE.Box3();
+  frame.expandByObject(step1_top);
+  frame.expandByObject(step1_bot);
+  frameCameraToBox(frame, 1.3);
 }
 
 // Convert a single Manifold to a Three.js Mesh with the given material
@@ -528,6 +534,30 @@ const camera = new THREE.PerspectiveCamera(45, 1, 1, 10000);
 camera.position.set(1000, 600, 800);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
+
+// Frame the camera so the given Box3 fits with some buffer.
+// Keeps the existing view direction (orbital angle).
+function frameCameraToBox(box, buffer = 1.3) {
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+
+  // Account for the split viewport — each half is the full scene's aspect
+  const halfAspect = (window.innerWidth / 2) / window.innerHeight;
+  const fovV = camera.fov * Math.PI / 180;
+  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * halfAspect);
+
+  // Radius of enclosing sphere
+  const radius = size.length() / 2;
+  const distV = radius / Math.sin(fovV / 2);
+  const distH = radius / Math.sin(fovH / 2);
+  const dist = Math.max(distV, distH) * buffer;
+
+  // Keep current view direction
+  const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+  camera.position.copy(center).addScaledVector(dir, dist);
+  controls.target.copy(center);
+  controls.update();
+}
 controls.target.set(0, 25, 0);
 
 // ─── Layout ────────────────────────────────────────────────────────
