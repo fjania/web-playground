@@ -92,6 +92,11 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 - Write subject in imperative mood, lowercase
 - Keep subject line under 72 characters
 
+### Push after every commit
+After every commit, push immediately to the remote. The exploration
+trail needs to be visible in GitHub, not just local. If the branch
+has no upstream yet, set it with `git push -u origin <branch>`.
+
 ### Branches
 - Work on feature branches, not directly on master
 - Branch naming: `<type>/<short-description>` (e.g., `feat/portfolio-landing`, `fix/worker-cleanup`)
