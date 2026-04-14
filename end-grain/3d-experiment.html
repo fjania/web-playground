@@ -215,11 +215,16 @@ const segW = 50, segH = 50, segD = 500, cubeCount = 32;
 const halfLen = (cubeCount * segW) / 2;
 const panelLen = cubeCount * segW;
 
-// ─── Manifold init + panel building ───────────────────────────────
+// ─── Manifold init + assembly model ───────────────────────────────
+//
+// A "panel" is an array of { manifold, species } objects — an assembly
+// of individual segments that are treated as one logical piece.
+// Cutting a panel = cutting each segment individually with the same plane.
+// No CSG union needed — segments keep their identity and materials.
 
-// Groups (persistent across rebuilds)
-const step1_top = new THREE.Group();
-const step1_bot = new THREE.Group();
+// Scene groups
+const step1_top = new THREE.Group(); // strip A
+const step1_bot = new THREE.Group(); // strip B
 scene.add(step1_top);
 scene.add(step1_bot);
 
@@ -240,12 +245,11 @@ scene.add(bbStripA);
 scene.add(bbStripB);
 scene.add(bbPanel2);
 
-// Cut face material (for newly created faces from boolean ops)
-const cutMat = new THREE.MeshStandardMaterial({ color: 0xaa8855, roughness: 0.7 });
-matSpecies.set(cutMat, 'cut');
+// Material per species: index 0 = maple, index 1 = walnut
+const speciesMaterials = { maple: mapleMats[0], walnut: walnutMats[0] };
 
-// These get set during async init
-let Manifold, panelManifold, idToMatIndex, allMaterials;
+let Manifold;
+let initialPanel; // array of { manifold, species }
 
 async function init() {
   console.log('Loading manifold-3d WASM...');
@@ -254,53 +258,24 @@ async function init() {
   Manifold = wasm.Manifold;
   console.log('Manifold ready.');
 
-  // Build initial panel: union of alternating maple/walnut segments.
-  // Each segment gets a unique originalID so we can track materials.
-  const idMap = new Map(); // originalID → material index
-  // Material array: [maple side, walnut side, maple end-grain, walnut end-grain, cut]
-  // Simplified: index 0 = maple, index 1 = walnut, index 2 = cut face
-  allMaterials = [mapleMats[0], walnutMats[0], cutMat];
-
-  let acc = null;
+  // Build initial panel as an assembly of individual segments
+  initialPanel = [];
   for (let i = 0; i < cubeCount; i++) {
     const x = i * segW - halfLen + segW / 2;
-    const seg = Manifold.cube([segW, segH, segD], true)
-      .translate([x, 0, 0])
-      .asOriginal();
-    const isMaple = i % 2 === 0;
-    idMap.set(seg.originalID(), isMaple ? 0 : 1);
-
-    if (!acc) {
-      acc = seg;
-    } else {
-      acc = acc.add(seg);
-    }
+    const mf = Manifold.cube([segW, segH, segD], true).translate([x, 0, 0]);
+    initialPanel.push({ manifold: mf, species: i % 2 === 0 ? 'maple' : 'walnut' });
   }
+  console.log(`Initial panel: ${cubeCount} segments, ${panelLen}×${segH}×${segD}mm`);
 
-  panelManifold = acc;
-  idToMatIndex = idMap;
-
-  const bb = panelManifold.boundingBox();
-  console.log('Initial panel built. BBox:', JSON.stringify(bb));
-
-  // Initial build
   rebuild(7);
 }
 
-// Convert a Manifold to a Three.js Mesh with material groups
-function manifoldToThree(mf, idToMat, materials) {
+// Convert a single Manifold to a Three.js Mesh with the given material
+function manifoldToThree(mf, material) {
   const mesh = mf.getMesh();
-  const numRuns = mesh.runIndex.length - 1;
-  const knownIDs = new Set(idToMat.keys());
-  let unknownRuns = 0;
-  for (let r = 0; r < numRuns; r++) {
-    if (!knownIDs.has(mesh.runOriginalID[r])) unknownRuns++;
-  }
-  console.log(`Manifold mesh: ${mesh.numVert} verts, ${mesh.numTri} tris, ${numRuns} runs (${unknownRuns} unknown IDs)`);
   const numVerts = mesh.numVert;
   const numProp = mesh.numProp;
 
-  // Extract positions
   const positions = new Float32Array(numVerts * 3);
   for (let i = 0; i < numVerts; i++) {
     positions[i * 3]     = mesh.vertProperties[i * numProp];
@@ -311,68 +286,68 @@ function manifoldToThree(mf, idToMat, materials) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1));
-
-  // Build material groups from runs.
-  // Known IDs map directly to materials. Unknown IDs (cut faces) need
-  // per-triangle species lookup based on the triangle's X position.
-  const numRun = mesh.runIndex.length - 1;
-  const idx = mesh.triVerts;
-
-  for (let run = 0; run < numRun; run++) {
-    const origID = mesh.runOriginalID[run];
-    const startIdx = mesh.runIndex[run];
-    const endIdx = mesh.runIndex[run + 1];
-
-    if (idToMat.has(origID)) {
-      // Known segment — single material for the whole run
-      geo.addGroup(startIdx, endIdx - startIdx, idToMat.get(origID));
-    } else {
-      // Cut face — determine species per triangle by centroid X position
-      for (let t = startIdx; t < endIdx; t += 3) {
-        const v0 = idx[t], v1 = idx[t + 1], v2 = idx[t + 2];
-        // Use centroid X to determine species
-        const cx = (positions[v0 * 3] + positions[v1 * 3] + positions[v2 * 3]) / 3;
-        const segIdx = Math.max(0, Math.min(cubeCount - 1, Math.floor((cx + halfLen) / segW)));
-        const isMaple = (segIdx % 2 === 0);
-        geo.addGroup(t, 3, isMaple ? 0 : 1);
-      }
-    }
-  }
-
   geo.computeVertexNormals();
-  if (mesh.delete) mesh.delete();
 
-  const obj = new THREE.Mesh(geo, materials);
+  const obj = new THREE.Mesh(geo, material);
   obj.castShadow = true;
   return obj;
 }
 
+// Cut a panel (assembly) with a plane. Returns { above: [...], below: [...] }
+function cutPanel(panel, normal, offset) {
+  const above = [], below = [];
+  for (const seg of panel) {
+    const [a, b] = seg.manifold.splitByPlane(normal, offset);
+    // splitByPlane may return empty manifolds for segments entirely on one side
+    if (a.numVert() > 0) above.push({ manifold: a, species: seg.species });
+    else a.delete();
+    if (b.numVert() > 0) below.push({ manifold: b, species: seg.species });
+    else b.delete();
+  }
+  return { above, below };
+}
+
+// Render a panel assembly into a Three.js Group
+function renderPanel(panel, group) {
+  group.clear();
+  for (const seg of panel) {
+    const mat = speciesMaterials[seg.species];
+    const mesh = manifoldToThree(seg.manifold, mat);
+    group.add(mesh);
+  }
+}
+
 // ─── Build pipeline from angle ────────────────────────────────────
+
+// Track current cut results for cleanup
+let currentStripAbove = null, currentStripBelow = null;
 
 function rebuild(angleDeg) {
   if (!Manifold) return;
 
   const rad = angleDeg * Math.PI / 180;
   const nx = Math.sin(rad), nz = -Math.cos(rad);
-  // Manifold normal: [nx, 0, nz], offset = 0 (plane through origin)
+
+  // Clean up previous cut manifolds
+  if (currentStripAbove) currentStripAbove.forEach(s => s.manifold.delete());
+  if (currentStripBelow) currentStripBelow.forEach(s => s.manifold.delete());
 
   step1_top.clear();
   step1_bot.clear();
   step2_panel.clear();
 
-  // ── Step 1: Split panel into two strips ──
-  const [stripAbove, stripBelow] = panelManifold.splitByPlane([nx, 0, nz], 0);
+  // ── Step 1: Cut each segment with the plane ──
+  const { above, below } = cutPanel(initialPanel, [nx, 0, nz], 0);
+  currentStripAbove = above;
+  currentStripBelow = below;
 
-  const meshA = manifoldToThree(stripAbove, idToMatIndex, allMaterials);
-  step1_top.add(meshA);
-
-  const meshB = manifoldToThree(stripBelow, idToMatIndex, allMaterials);
-  step1_bot.add(meshB);
+  renderPanel(above, step1_top);
+  renderPanel(below, step1_bot);
 
   // Separate strips along the cut normal so bounding boxes don't overlap
   const planeN = new THREE.Vector3(nx, 0, nz);
-  meshA.geometry.computeBoundingBox();
-  meshB.geometry.computeBoundingBox();
+  const bbA = new THREE.Box3().setFromObject(step1_top);
+  const bbB = new THREE.Box3().setFromObject(step1_bot);
   function extentAlongNormal(box, n) {
     let minD = Infinity, maxD = -Infinity;
     for (let ix = 0; ix < 2; ix++) for (let iy = 0; iy < 2; iy++) for (let iz = 0; iz < 2; iz++) {
@@ -384,8 +359,8 @@ function rebuild(angleDeg) {
     }
     return { min: minD, max: maxD };
   }
-  const extA = extentAlongNormal(meshA.geometry.boundingBox, planeN);
-  const extB = extentAlongNormal(meshB.geometry.boundingBox, planeN);
+  const extA = extentAlongNormal(bbA, planeN);
+  const extB = extentAlongNormal(bbB, planeN);
   const gap = 30;
   step1_top.position.copy(planeN.clone().multiplyScalar(Math.abs(extA.min) + gap / 2));
   step1_bot.position.copy(planeN.clone().multiplyScalar(-(Math.abs(extB.max) + gap / 2)));
@@ -397,14 +372,7 @@ function rebuild(angleDeg) {
   bbStripA.box.setFromObject(step1_top);
   bbStripB.box.setFromObject(step1_bot);
 
-  // Log
-  const szA = new THREE.Vector3(); meshA.geometry.boundingBox.getSize(szA);
-  const szB = new THREE.Vector3(); meshB.geometry.boundingBox.getSize(szB);
-  console.log(`Cut at ${angleDeg}°: strip A ${szA.x.toFixed(0)}×${szA.y.toFixed(0)}×${szA.z.toFixed(0)}, strip B ${szB.x.toFixed(0)}×${szB.y.toFixed(0)}×${szB.z.toFixed(0)}`);
-
-  // Clean up manifold objects
-  stripAbove.delete();
-  stripBelow.delete();
+  console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs`);
 }
 
 // ─── Slider ───────────────────────────────────────────────────────
