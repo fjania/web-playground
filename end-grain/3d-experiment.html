@@ -19,6 +19,14 @@
     background: rgba(28,25,23,0.8); padding: 3px 8px; border-radius: 3px;
   }
   .divider { position: fixed; background: #3d3835; z-index: 5; }
+  .tile-status {
+    position: fixed; z-index: 10; pointer-events: none; user-select: none;
+    font-size: 10px; color: #a8a29e;
+    background: rgba(28,25,23,0.85); padding: 4px 10px;
+    border: 1px solid #3d3835; border-radius: 4px;
+  }
+  #join1-status { top: 28px; left: 75%; transform: translateX(-50%); }
+  #join2-status { top: calc(50% + 28px); left: 75%; transform: translateX(-50%); }
   #statusbar {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
     height: 28px; display: flex; align-items: center; gap: 16px;
@@ -96,6 +104,8 @@
   </div>
   <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
+<div id="join1-status" class="tile-status" style="display:none;"></div>
+<div id="join2-status" class="tile-status" style="display:none;"></div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
 <script type="module">
@@ -670,6 +680,108 @@ function rotatePanelAboutAxis(panel, axis, angle, point) {
   return transformPanel(panel, full);
 }
 
+// Compute the ordered list of stages needed to join two faces. Each stage is
+// a rotation or translation applied to one of the two strip groups ('A' or 'B').
+// Used by both the instant join and the animated join. Stages in world space.
+function computeJoinStages(selA, selB, flipAxis) {
+  const stages = [];
+
+  // Stage: in-plane pre-rotation of A (if flagged)
+  if (selA.rotate) {
+    stages.push({
+      group: 'A',
+      type: 'rotation',
+      axis: selA.normal.clone(),
+      angle: Math.PI,
+      pivot: selA.centroid.clone(),
+      label: 'pre-rotating A 180° about face normal',
+    });
+  }
+
+  // Stage: in-plane pre-rotation of B (if flagged)
+  if (selB.rotate) {
+    stages.push({
+      group: 'B',
+      type: 'rotation',
+      axis: selB.normal.clone(),
+      angle: Math.PI,
+      pivot: selB.centroid.clone(),
+      label: 'pre-rotating B 180° about face normal',
+    });
+  }
+
+  // Stage: main rotation of B to bring its face normal antiparallel to A's
+  const targetNormal = selA.normal.clone().negate();
+  const currentNormal = selB.normal.clone();
+  const dot = currentNormal.dot(targetNormal);
+  if (dot < 0.9999) {
+    let axis, angle;
+    if (dot < -0.9999) {
+      if (!flipAxis) throw new Error('parallel normals require a flip axis');
+      axis = new THREE.Vector3(flipAxis === 'x' ? 1 : 0, flipAxis === 'y' ? 1 : 0, flipAxis === 'z' ? 1 : 0);
+      angle = Math.PI;
+    } else {
+      axis = new THREE.Vector3().crossVectors(currentNormal, targetNormal).normalize();
+      angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+    }
+    stages.push({
+      group: 'B',
+      type: 'rotation',
+      axis,
+      angle,
+      pivot: selB.centroid.clone(),
+      label: 'rotating B to align normals',
+    });
+  }
+
+  // Stage: translate B to align centroids
+  const delta = new THREE.Vector3().subVectors(selA.centroid, selB.centroid);
+  if (delta.length() > 1e-6) {
+    stages.push({
+      group: 'B',
+      type: 'translation',
+      delta,
+      label: 'translating B to align centroids',
+    });
+  }
+
+  return stages;
+}
+
+function rotationMatrixAboutPoint(axis, angle, pivot) {
+  const m1 = new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
+  const rot = new THREE.Matrix4().makeRotationAxis(axis.clone().normalize(), angle);
+  const m2 = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
+  return m2.multiply(rot).multiply(m1);
+}
+
+function stageMatrixAtProgress(stage, progress) {
+  if (stage.type === 'rotation') {
+    return rotationMatrixAboutPoint(stage.axis, stage.angle * progress, stage.pivot);
+  } else { // translation
+    const d = stage.delta.clone().multiplyScalar(progress);
+    return new THREE.Matrix4().makeTranslation(d.x, d.y, d.z);
+  }
+}
+
+function fmtAxis(v) {
+  const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+  if (ax > 0.99) return (v.x > 0 ? '+' : '-') + 'X';
+  if (ay > 0.99) return (v.y > 0 ? '+' : '-') + 'Y';
+  if (az > 0.99) return (v.z > 0 ? '+' : '-') + 'Z';
+  return `(${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)})`;
+}
+
+function stageStatus(stage, progress) {
+  if (stage.type === 'rotation') {
+    const deg = stage.angle * progress * 180 / Math.PI;
+    return `${stage.label}: ${deg.toFixed(1)}° about ${fmtAxis(stage.axis)} axis`;
+  } else {
+    const d = stage.delta.clone().multiplyScalar(progress);
+    return `${stage.label}: Δ=(${d.x.toFixed(1)}, ${d.y.toFixed(1)}, ${d.z.toFixed(1)}) mm`;
+  }
+}
+
 // Join two strip assemblies at the selected faces using arbitrary-orientation geometry.
 // selA/selB: face objects with { normal, centroid, u, v, width, height, rotate, ... }
 // flipAxis: 'x'/'y'/'z' or null. Required when normals are parallel.
@@ -818,21 +930,13 @@ document.getElementById('join2-btn').addEventListener('click', () => {
   if (selectionC === null || selectionD === null) return;
   if (!currentStripC || !currentStripD) return;
 
-  let joined = joinStrips(currentStripC, currentStripD, selectionC, selectionD, flipAxis2);
-  const bb = panelBoundingBox(joined);
-  const c = new THREE.Vector3(); bb.getCenter(c);
-  const centered = translatePanel(joined, -c.x, -c.y, -c.z);
-  joined.forEach(s => s.manifold.delete());
-
-  if (panel4) panel4.forEach(s => s.manifold.delete());
-  panel4 = centered;
-
-  step4_panel.clear();
-  renderPanel(panel4, step4_panel);
-  bbPanel4.box.setFromObject(step4_panel);
-
-  const sz = new THREE.Vector3(); bbPanel4.box.getSize(sz);
-  console.log(`Joined panel4: ${panel4.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+  startJoinAnimation(2, currentStripC, currentStripD, selectionC, selectionD, flipAxis2, (finalAssembly) => {
+    if (panel4) panel4.forEach(s => s.manifold.delete());
+    panel4 = finalAssembly;
+    bbPanel4.box.setFromObject(step4_panel);
+    const sz = new THREE.Vector3(); bbPanel4.box.getSize(sz);
+    console.log(`Joined panel4: ${panel4.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+  });
 });
 
 // Start async init
@@ -1122,12 +1226,92 @@ function updateJoin2Button() {
   updateFlipAxisUI(2, result.validFlipAxes, flipAxis2);
 }
 
-document.getElementById('join-btn').addEventListener('click', () => {
-  if (selectionA === null || selectionB === null) return;
-  if (!currentStripAbove || !currentStripBelow) return;
+// ─── Join animation ───────────────────────────────────────────────
+//
+// Animates the join stages in series instead of applying the full transform
+// instantly. The user sees each rotation/translation play out, with a status
+// footer on the join's tile showing what's currently happening.
 
-  // Build panel2 as an assembly, then center it at the origin
-  let joined = joinStrips(currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1);
+let joinAnim = null;
+const STAGE_DURATION_MS = 2000;
+
+function startJoinAnimation(which, stripAbove, stripBelow, selA, selB, flipAxis, onComplete) {
+  const stages = computeJoinStages(selA, selB, flipAxis);
+
+  // Cancel any running animation
+  if (joinAnim) joinAnim = null;
+
+  // Build Three.js groups for the two strips in the target tile. These will
+  // get their matrix updated each frame.
+  const panelGroup = which === 1 ? step2_panel : step4_panel;
+  panelGroup.clear();
+  const animA = new THREE.Group();
+  const animB = new THREE.Group();
+  renderPanel(stripAbove, animA);
+  renderPanel(stripBelow, animB);
+  animA.matrixAutoUpdate = false;
+  animB.matrixAutoUpdate = false;
+  panelGroup.add(animA);
+  panelGroup.add(animB);
+
+  const statusEl = document.getElementById(which === 1 ? 'join1-status' : 'join2-status');
+  statusEl.style.display = 'block';
+
+  joinAnim = {
+    which,
+    stages,
+    stripAbove, stripBelow,
+    animA, animB,
+    stageIdx: 0,
+    stageStartTime: performance.now(),
+    accA: new THREE.Matrix4(),
+    accB: new THREE.Matrix4(),
+    statusEl,
+    onComplete,
+  };
+
+  // If no stages (degenerate: identical faces), finalize immediately
+  if (stages.length === 0) finalizeJoinAnimation();
+}
+
+function updateJoinAnimation(now) {
+  if (!joinAnim) return;
+
+  const stage = joinAnim.stages[joinAnim.stageIdx];
+  if (!stage) {
+    finalizeJoinAnimation();
+    return;
+  }
+
+  const elapsed = now - joinAnim.stageStartTime;
+  const progress = Math.min(elapsed / STAGE_DURATION_MS, 1);
+
+  const stageMat = stageMatrixAtProgress(stage, progress);
+  const acc = stage.group === 'A' ? joinAnim.accA : joinAnim.accB;
+  const full = new THREE.Matrix4().multiplyMatrices(stageMat, acc);
+
+  const group = stage.group === 'A' ? joinAnim.animA : joinAnim.animB;
+  group.matrix.copy(full);
+
+  joinAnim.statusEl.textContent = stageStatus(stage, progress);
+
+  if (progress >= 1) {
+    // Bake stage into accumulator, move to next stage
+    const finalMat = stageMatrixAtProgress(stage, 1);
+    if (stage.group === 'A') joinAnim.accA.premultiply(finalMat);
+    else joinAnim.accB.premultiply(finalMat);
+    joinAnim.stageIdx++;
+    joinAnim.stageStartTime = now;
+  }
+}
+
+function finalizeJoinAnimation() {
+  const { which, stripAbove, stripBelow, accA, accB, onComplete, statusEl } = joinAnim;
+
+  // Apply the final accumulated matrices to the manifold assemblies
+  const finalA = transformPanel(stripAbove, accA);
+  const finalB = transformPanel(stripBelow, accB);
+  let joined = [...finalA, ...finalB];
 
   // Center at origin
   const bb = panelBoundingBox(joined);
@@ -1135,20 +1319,30 @@ document.getElementById('join-btn').addEventListener('click', () => {
   const centered = translatePanel(joined, -c.x, -c.y, -c.z);
   joined.forEach(s => s.manifold.delete());
 
-  // Free old panel2
-  if (panel2) panel2.forEach(s => s.manifold.delete());
-  panel2 = centered;
+  statusEl.textContent = `join complete (${centered.length} segments)`;
+  setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
 
-  // Render panel2 into view 2
-  step2_panel.clear();
-  renderPanel(panel2, step2_panel);
-  bbPanel2.box.setFromObject(step2_panel);
+  const panelGroup = which === 1 ? step2_panel : step4_panel;
+  panelGroup.clear();
+  renderPanel(centered, panelGroup);
 
-  const sz = new THREE.Vector3(); bbPanel2.box.getSize(sz);
-  console.log(`Joined panel2: ${panel2.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+  onComplete(centered);
 
-  // Rebuild view 3 (second cut) with current second slider angle
-  rebuildCut2();
+  joinAnim = null;
+}
+
+document.getElementById('join-btn').addEventListener('click', () => {
+  if (selectionA === null || selectionB === null) return;
+  if (!currentStripAbove || !currentStripBelow) return;
+
+  startJoinAnimation(1, currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1, (finalAssembly) => {
+    if (panel2) panel2.forEach(s => s.manifold.delete());
+    panel2 = finalAssembly;
+    bbPanel2.box.setFromObject(step2_panel);
+    const sz = new THREE.Vector3(); bbPanel2.box.getSize(sz);
+    console.log(`Joined panel2: ${panel2.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+    rebuildCut2();
+  });
 });
 
 // ─── Axes gizmo (corner reference) ─────────────────────────────────
@@ -1229,6 +1423,7 @@ function renderViewport(x, y, w, h, viewName, bg) {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  updateJoinAnimation(performance.now());
 
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
