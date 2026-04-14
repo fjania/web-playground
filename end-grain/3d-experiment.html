@@ -70,6 +70,25 @@
     width: 160px; accent-color: #b45309;
   }
   .ctrl-panel .angle-val { color: #e4cc8f; font-weight: bold; }
+  /* Quick camera-angle buttons positioned next to each viewport's
+     axes gizmo in the lower-left corner of the tile. */
+  .view-quick-btns {
+    position: fixed; z-index: 11;
+    display: flex; gap: 4px;
+    pointer-events: auto;
+  }
+  .view-quick-btns[data-tile="tl"] { bottom: calc(50% + 32px); left: 96px; }
+  .view-quick-btns[data-tile="tr"] { bottom: calc(50% + 32px); left: calc(50% + 96px); }
+  .view-quick-btns[data-tile="bl"] { bottom: 60px; left: 96px; }
+  .view-quick-btns[data-tile="br"] { bottom: 60px; left: calc(50% + 96px); }
+  .view-quick-btns button {
+    padding: 3px 8px; font-size: 9px;
+    font-family: inherit; letter-spacing: 0.5px;
+    background: rgba(28,25,23,0.85); color: #a8a29e;
+    border: 1px solid #3d3835; border-radius: 3px;
+    cursor: pointer; text-transform: uppercase;
+  }
+  .view-quick-btns button:hover { background: #3d3835; color: #e4cc8f; }
 </style>
 </head>
 <body>
@@ -1025,6 +1044,38 @@ mkLabel('step 1: cut A', 'top:8px; left:calc(25% - 30px)');
 mkLabel('step 2: join 1', 'top:8px; left:calc(75% - 30px)');
 mkLabel('step 3: cut B', 'top:calc(50% + 8px); left:calc(25% - 30px)');
 mkLabel('step 4: join 2', 'top:calc(50% + 8px); left:calc(75% - 30px)');
+
+// ─── Quick camera-angle buttons next to each tile's axes gizmo ────
+
+function setCameraView(name) {
+  const target = controls.target.clone();
+  const dist = Math.max(camera.position.distanceTo(target), 100);
+  if (name === 'top') {
+    // Ortho to XZ plane — camera looks down -Y.
+    camera.position.copy(target).add(new THREE.Vector3(0, dist, 0));
+    camera.up.set(0, 0, -1);
+  } else if (name === 'front') {
+    // Ortho to ZY plane — camera looks along -X from +X.
+    camera.position.copy(target).add(new THREE.Vector3(dist, 0, 0));
+    camera.up.set(0, 1, 0);
+  }
+  camera.lookAt(target);
+  controls.update();
+}
+
+for (const tile of ['tl', 'tr', 'bl', 'br']) {
+  const container = document.createElement('div');
+  container.className = 'view-quick-btns';
+  container.dataset.tile = tile;
+  for (const view of ['top', 'front']) {
+    const btn = document.createElement('button');
+    btn.textContent = view;
+    btn.dataset.view = view;
+    btn.addEventListener('click', () => setCameraView(view));
+    container.appendChild(btn);
+  }
+  document.body.appendChild(container);
+}
 
 // ─── Hover / raycaster ─────────────────────────────────────────────
 
