@@ -330,9 +330,10 @@ function manifoldToThree(mf, idToMat, materials) {
       // Cut face — determine species per triangle by centroid X position
       for (let t = startIdx; t < endIdx; t += 3) {
         const v0 = idx[t], v1 = idx[t + 1], v2 = idx[t + 2];
-        const cx = (positions[v0 * 3] + positions[v1 * 3] + positions[v2 * 3]) / 3;
-        // Which segment does this X fall in? Clamp to valid range.
-        const segIdx = Math.max(0, Math.min(cubeCount - 1, Math.floor((cx + halfLen) / segW)));
+        // Use the median X of the 3 vertices (robust against boundary-spanning triangles)
+        const x0 = positions[v0 * 3], x1 = positions[v1 * 3], x2 = positions[v2 * 3];
+        const medX = x0 + x1 + x2 - Math.min(x0, x1, x2) - Math.max(x0, x1, x2);
+        const segIdx = Math.max(0, Math.min(cubeCount - 1, Math.floor((medX + halfLen) / segW)));
         const isMaple = (segIdx % 2 === 0);
         geo.addGroup(t, 3, isMaple ? 0 : 1);
       }
