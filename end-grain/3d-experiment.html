@@ -130,8 +130,8 @@
   </div>
   <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
-<div id="join1-status" class="tile-status">idle</div>
-<div id="join2-status" class="tile-status">idle</div>
+<!-- Per-view join status footers are injected by JS only when
+     ANIMATE_JOINS is enabled (see tile-status CSS + ANIMATE_JOINS flag). -->
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
 <script type="module">
@@ -1316,7 +1316,19 @@ function updateJoin2Button() {
 // Flip to `true` to animate joins stage-by-stage as a debugging tool.
 // Off by default — joins snap directly to final state. The animation code
 // below is intact and requires no reimplementation to turn back on.
+// When enabled, we also inject the per-view status footers that show
+// stage progress; they're otherwise absent from the UI.
 const ANIMATE_JOINS = false;
+
+if (ANIMATE_JOINS) {
+  for (const id of ['join1-status', 'join2-status']) {
+    const el = document.createElement('div');
+    el.id = id;
+    el.className = 'tile-status';
+    el.textContent = 'idle';
+    document.body.appendChild(el);
+  }
+}
 
 let joinAnim = null;
 const STAGE_DURATION_MS = 2000;
@@ -1341,14 +1353,16 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
   panelGroup.add(gA);
   panelGroup.add(gB);
 
+  // statusEl is only present when ANIMATE_JOINS injected the footer divs.
   const statusEl = document.getElementById(which === 1 ? 'join1-status' : 'join2-status');
+  const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt; };
 
   // Degenerate: no stages (identical faces). Clone and hand off.
   if (stages.length === 0) {
     const a = srcA.clone(), b = srcB.clone();
     renderPanel(a, gA);
     renderPanel(b, gB);
-    statusEl.textContent = `join complete (${a.size + b.size} segments)`;
+    setStatus(`join complete (${a.size + b.size} segments)`);
     onComplete(a.concat(b));
     return;
   }
@@ -1377,7 +1391,7 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
     renderPanel(finalA, gA);
     renderPanel(finalB, gB);
     const finalPanel = finalA.concat(finalB);
-    statusEl.textContent = `join complete (${finalPanel.size} segments)`;
+    setStatus(`join complete (${finalPanel.size} segments)`);
     onComplete(finalPanel);
     return;
   }
@@ -1396,6 +1410,7 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
 function joinAnimFrame(now) {
   if (!joinAnim) return;
   const { srcA, srcB, stages, preAccA, preAccB, gA, gB, statusEl } = joinAnim;
+  const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt; };
 
   // Finished all stages — currentA/B hold the final geometry. Hand it off.
   if (joinAnim.stageIdx >= stages.length) {
@@ -1403,7 +1418,7 @@ function joinAnimFrame(now) {
     // Ownership of segment manifolds transfers to finalPanel; don't dispose.
     joinAnim.currentA = null;
     joinAnim.currentB = null;
-    statusEl.textContent = `join complete (${finalPanel.size} segments)`;
+    setStatus(`join complete (${finalPanel.size} segments)`);
     const cb = joinAnim.onComplete;
     joinAnim = null;
     cb(finalPanel);
@@ -1433,7 +1448,7 @@ function joinAnimFrame(now) {
   joinAnim.currentA = newA;
   joinAnim.currentB = newB;
 
-  statusEl.textContent = stageStatus(stage, progress);
+  setStatus(stageStatus(stage, progress));
 
   if (progress >= 1) {
     joinAnim.stageIdx++;
