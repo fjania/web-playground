@@ -54,6 +54,7 @@
   <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
   <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
   <button id="join-btn" disabled style="margin-top:6px; width:100%; padding:6px; background:#2d5a27; color:#e4cc8f; border:1px solid #3d5a37; border-radius:4px; font-family:inherit; font-size:10px; letter-spacing:0.5px; cursor:pointer; text-transform:uppercase;">join selected faces</button>
+  <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -312,8 +313,38 @@ function updateFacePlanes(facePlanesGroup, box) {
   });
 }
 
+// Get the two dimensions of a bounding box face
+function faceDims(box, faceIdx) {
+  const size = new THREE.Vector3(); box.getSize(size);
+  const def = FACE_DEFS[faceIdx];
+  if (def.axis === 'x') return [size.y, size.z].sort((a,b) => a-b);
+  if (def.axis === 'y') return [size.x, size.z].sort((a,b) => a-b);
+  return [size.x, size.y].sort((a,b) => a-b);
+}
+
 function updateJoinButton() {
-  document.getElementById('join-btn').disabled = (selectedFaceA === null || selectedFaceB === null);
+  const btn = document.getElementById('join-btn');
+  const errEl = document.getElementById('join-error');
+
+  if (selectedFaceA === null || selectedFaceB === null) {
+    btn.disabled = true;
+    errEl.textContent = '';
+    return;
+  }
+
+  // Check dimension match
+  const dimsA = faceDims(bbStripA.box, selectedFaceA);
+  const dimsB = faceDims(bbStripB.box, selectedFaceB);
+  const tol = 1; // 1mm tolerance
+  const match = Math.abs(dimsA[0] - dimsB[0]) < tol && Math.abs(dimsA[1] - dimsB[1]) < tol;
+
+  if (match) {
+    btn.disabled = false;
+    errEl.textContent = '';
+  } else {
+    btn.disabled = true;
+    errEl.textContent = `face mismatch: ${dimsA[0].toFixed(0)}×${dimsA[1].toFixed(0)} vs ${dimsB[0].toFixed(0)}×${dimsB[1].toFixed(0)}`;
+  }
 }
 
 // Material per species: index 0 = maple, index 1 = walnut
@@ -616,10 +647,85 @@ renderer.domElement.addEventListener('click', (e) => {
 
 document.getElementById('join-btn').addEventListener('click', () => {
   if (selectedFaceA === null || selectedFaceB === null) return;
-  const faceA = FACE_DEFS[selectedFaceA];
-  const faceB = FACE_DEFS[selectedFaceB];
-  console.log(`JOIN: strip A face ${faceA.axis}${faceA.sign > 0 ? '+' : '-'} → strip B face ${faceB.axis}${faceB.sign > 0 ? '+' : '-'}`);
-  // TODO: implement join
+  if (!currentStripAbove || !currentStripBelow) return;
+
+  const defA = FACE_DEFS[selectedFaceA];
+  const defB = FACE_DEFS[selectedFaceB];
+  console.log(`JOIN: strip A face ${defA.axis}${defA.sign > 0 ? '+' : '-'} → strip B face ${defB.axis}${defB.sign > 0 ? '+' : '-'}`);
+
+  step2_panel.clear();
+
+  // Render both strips into step2_panel.
+  // Strip A goes at origin (no offset). Strip B is translated so its
+  // selected face is flush against strip A's selected face.
+
+  // Get strip A's bounding box (at origin, no group offset)
+  const groupA = new THREE.Group();
+  renderPanel(currentStripAbove, groupA);
+  const bbA = new THREE.Box3().setFromObject(groupA);
+
+  const groupB = new THREE.Group();
+  renderPanel(currentStripBelow, groupB);
+  const bbB = new THREE.Box3().setFromObject(groupB);
+
+  // Face A's position along its axis (the face plane coordinate)
+  const faceAPos = defA.sign > 0 ? bbA.max[defA.axis] : bbA.min[defA.axis];
+  // Face B's position along its axis
+  const faceBPos = defB.sign > 0 ? bbB.max[defB.axis] : bbB.min[defB.axis];
+
+  // If both faces are on the same axis, just translate along that axis.
+  // If different axes, we'd need rotation — flag for now.
+  if (defA.axis !== defB.axis) {
+    console.warn('Cross-axis join not yet supported — requires rotation');
+    // For now, just place them without rotation
+  }
+
+  // Translate strip B so face B meets face A.
+  // Face A's outward normal points in defA.sign direction on defA.axis.
+  // Face B's outward normal points in defB.sign direction on defB.axis.
+  // For faces to touch, B must be translated so faceBPos lands on faceAPos.
+  // But the normals should be opposing — if both point +Z, strip B needs to
+  // be on the -Z side, which means we flip the placement.
+
+  const offset = new THREE.Vector3(0, 0, 0);
+
+  if (defA.axis === defB.axis) {
+    // Same axis. The translation on that axis = faceAPos - faceBPos.
+    // But we also need the faces to be "touching" — normals opposing.
+    // If both signs are the same (e.g., both +Z), the faces point the same way.
+    // We need to place B so its face meets A's face from the other side.
+    if (defA.sign === defB.sign) {
+      // Faces point same direction. B needs to approach from the opposite side.
+      // Place B so its face position matches A's face position.
+      // B's face at faceBPos needs to land at faceAPos.
+      offset[defA.axis] = faceAPos - faceBPos;
+    } else {
+      // Faces point opposite directions — natural mating.
+      // A's face is at faceAPos, B's face is at faceBPos.
+      // We want them to touch: B's face should be at faceAPos.
+      offset[defA.axis] = faceAPos - faceBPos;
+    }
+  }
+
+  // Also center the non-join axes (align bounding box centers)
+  const centerA = new THREE.Vector3(); bbA.getCenter(centerA);
+  const centerB = new THREE.Vector3(); bbB.getCenter(centerB);
+  for (const ax of ['x', 'y', 'z']) {
+    if (ax !== defA.axis) {
+      offset[ax] = centerA[ax] - centerB[ax];
+    }
+  }
+
+  groupB.position.copy(offset);
+
+  step2_panel.add(groupA);
+  step2_panel.add(groupB);
+
+  // Update bounding box
+  bbPanel2.box.setFromObject(step2_panel);
+
+  const sz = new THREE.Vector3(); bbPanel2.box.getSize(sz);
+  console.log(`Joined panel: bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
 });
 
 // ─── Axes gizmo (corner reference) ─────────────────────────────────
