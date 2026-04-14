@@ -49,11 +49,53 @@
 
 ## Source Control Practices
 
-### Commits
+### Commit on every change — CRITICAL for exploration
+This repo is an exploration sandbox. We try ideas, reject them, pivot.
+That means every code change must be committed so we can review the
+full exploration trail, diff against earlier states, and revert
+cleanly when an approach doesn't work out.
+
+**Rules:**
+- **Commit after every change**, even small ones. Never leave
+  uncommitted work across user turns.
+- **Never bundle multiple changes into one commit** — one logical
+  change per commit, always.
+- **Commit before trying an idea that might not work** so the
+  pre-attempt state is recoverable.
+- If the user doesn't explicitly ask for a commit, still commit.
+  The only exception: the user explicitly says "don't commit yet."
+
+### Commit message format
+Every commit message must include BOTH:
+
+1. **Comprehensive description of what was done** — technical detail
+   of what changed, why, and any relevant context (file refactors,
+   algorithm changes, config tweaks, etc.).
+
+2. **The user's prompt that triggered the change** — verbatim (or
+   very close to it) in a "Prompt:" section. This makes it easy to
+   scan the git log and see the explicit instruction that led to
+   each state.
+
+**Format:**
+```
+<type>: <short imperative subject, under 72 chars>
+
+<technical description of what changed and why>
+
+Prompt: <the user's prompt, verbatim or lightly trimmed>
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+```
+
 - Use conventional commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
-- Write in imperative mood, lowercase: `feat: add word cloud palette picker`
+- Write subject in imperative mood, lowercase
 - Keep subject line under 72 characters
-- One logical change per commit — don't bundle unrelated work
+
+### Push after every commit
+After every commit, push immediately to the remote. The exploration
+trail needs to be visible in GitHub, not just local. If the branch
+has no upstream yet, set it with `git push -u origin <branch>`.
 
 ### Branches
 - Work on feature branches, not directly on master
