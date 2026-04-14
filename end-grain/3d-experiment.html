@@ -331,8 +331,8 @@ function manifoldToThree(mf, idToMat, materials) {
       for (let t = startIdx; t < endIdx; t += 3) {
         const v0 = idx[t], v1 = idx[t + 1], v2 = idx[t + 2];
         const cx = (positions[v0 * 3] + positions[v1 * 3] + positions[v2 * 3]) / 3;
-        // Which segment does this X fall in?
-        const segIdx = Math.floor((cx + halfLen) / segW);
+        // Which segment does this X fall in? Clamp to valid range.
+        const segIdx = Math.max(0, Math.min(cubeCount - 1, Math.floor((cx + halfLen) / segW)));
         const isMaple = (segIdx % 2 === 0);
         geo.addGroup(t, 3, isMaple ? 0 : 1);
       }
