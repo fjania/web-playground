@@ -30,11 +30,13 @@
   #statusbar .val { color: #e4cc8f; }
   #statusbar .dim { color: #555; }
   #controls {
-    position: fixed; top: 10px; right: 10px; z-index: 10;
+    position: fixed; top: 10px; right: calc(50% + 10px); z-index: 10;
     background: rgba(28,25,23,0.92); border: 1px solid #3d3835;
     border-radius: 6px; padding: 12px 16px;
     color: #a8a29e; font-size: 10px;
   }
+  #join-btn:disabled { opacity: 0.4; cursor: default; }
+  #join-btn:not(:disabled):hover { background: #3d7a37; }
   #controls label { display: block; margin-bottom: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
   #controls input[type="range"] {
     width: 160px; accent-color: #b45309;
@@ -50,6 +52,8 @@
 <div id="controls">
   <label>cut angle: <span id="angle-val" class="angle-val">7°</span></label>
   <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
+  <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
+  <button id="join-btn" disabled style="margin-top:6px; width:100%; padding:6px; background:#2d5a27; color:#e4cc8f; border:1px solid #3d5a37; border-radius:4px; font-family:inherit; font-size:10px; letter-spacing:0.5px; cursor:pointer; text-transform:uppercase;">join selected faces</button>
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -245,15 +249,71 @@ scene.add(bbStripA);
 scene.add(bbStripB);
 scene.add(bbPanel2);
 
-// Red join-face indicators
-const joinFaceMat = new THREE.MeshBasicMaterial({
-  color: 0xff2222, transparent: true, opacity: 0.35,
+// Clickable bounding box face planes (6 per strip)
+const faceUnselectedMat = new THREE.MeshBasicMaterial({
+  color: 0x4488ff, transparent: true, opacity: 0.08,
   side: THREE.DoubleSide, depthWrite: false
 });
-const joinFaceA = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), joinFaceMat);
-const joinFaceB = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), joinFaceMat);
-scene.add(joinFaceA);
-scene.add(joinFaceB);
+const faceSelectedMat = new THREE.MeshBasicMaterial({
+  color: 0x22cc44, transparent: true, opacity: 0.4,
+  side: THREE.DoubleSide, depthWrite: false
+});
+
+// Face definitions: axis, sign, rotation to orient a Z-facing plane to that face
+const FACE_DEFS = [
+  { axis: 'x', sign: +1, rot: [0, Math.PI/2, 0] },   // +X
+  { axis: 'x', sign: -1, rot: [0, -Math.PI/2, 0] },  // -X
+  { axis: 'y', sign: +1, rot: [-Math.PI/2, 0, 0] },  // +Y
+  { axis: 'y', sign: -1, rot: [Math.PI/2, 0, 0] },   // -Y
+  { axis: 'z', sign: +1, rot: [0, 0, 0] },            // +Z
+  { axis: 'z', sign: -1, rot: [0, Math.PI, 0] },      // -Z
+];
+
+function createFacePlanes(strip) {
+  const group = new THREE.Group();
+  for (let i = 0; i < 6; i++) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), faceUnselectedMat.clone());
+    mesh.userData = { strip, faceIdx: i, def: FACE_DEFS[i], selected: false };
+    group.add(mesh);
+  }
+  return group;
+}
+
+const facePlanesA = createFacePlanes('A');
+const facePlanesB = createFacePlanes('B');
+scene.add(facePlanesA);
+scene.add(facePlanesB);
+
+// Selection state: which face index is selected per strip (null = none)
+let selectedFaceA = null, selectedFaceB = null;
+
+function updateFacePlanes(facePlanesGroup, box) {
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+
+  facePlanesGroup.children.forEach((mesh, i) => {
+    const def = FACE_DEFS[i];
+    const isSelected = mesh.userData.selected;
+    mesh.material = isSelected ? faceSelectedMat.clone() : faceUnselectedMat.clone();
+
+    // Size: the two dimensions perpendicular to the face axis
+    if (def.axis === 'x') mesh.scale.set(size.z, size.y, 1);
+    else if (def.axis === 'y') mesh.scale.set(size.x, size.z, 1);
+    else mesh.scale.set(size.x, size.y, 1);
+
+    // Position: center of the box face
+    mesh.position.copy(center);
+    if (def.axis === 'x') mesh.position.x = def.sign > 0 ? box.max.x : box.min.x;
+    else if (def.axis === 'y') mesh.position.y = def.sign > 0 ? box.max.y : box.min.y;
+    else mesh.position.z = def.sign > 0 ? box.max.z : box.min.z;
+
+    mesh.rotation.set(...def.rot);
+  });
+}
+
+function updateJoinButton() {
+  document.getElementById('join-btn').disabled = (selectedFaceA === null || selectedFaceB === null);
+}
 
 // Material per species: index 0 = maple, index 1 = walnut
 const speciesMaterials = { maple: mapleMats[0], walnut: walnutMats[0] };
@@ -385,64 +445,11 @@ function rebuild(angleDeg) {
   bbStripA.box.setFromObject(step1_top);
   bbStripB.box.setFromObject(step1_bot);
 
-  // ── Highlight the join faces (closest parallel faces between the two BBs) ──
-  // The cut normal is mostly along Z, so the join faces are the Z-facing faces.
-  // More precisely: find which axis has the largest gap between the two boxes.
-  const finalA = bbStripA.box;
-  const finalB = bbStripB.box;
-  const gaps = [
-    { axis: 'x', gap: finalB.min.x - finalA.max.x, sign: 1 },
-    { axis: 'x', gap: finalA.min.x - finalB.max.x, sign: -1 },
-    { axis: 'y', gap: finalB.min.y - finalA.max.y, sign: 1 },
-    { axis: 'y', gap: finalA.min.y - finalB.max.y, sign: -1 },
-    { axis: 'z', gap: finalB.min.z - finalA.max.z, sign: 1 },
-    { axis: 'z', gap: finalA.min.z - finalB.max.z, sign: -1 },
-  ];
-  // The join axis is the one with the largest positive gap (most separated)
-  gaps.sort((a, b) => b.gap - a.gap);
-  const joinAxis = gaps[0].axis;
-  const joinSign = gaps[0].sign;
+  // Update clickable face planes on each strip's bounding box
+  updateFacePlanes(facePlanesA, bbStripA.box);
+  updateFacePlanes(facePlanesB, bbStripB.box);
 
-  // Size and position the red face planes on the inner faces of each BB
-  const sizeA = new THREE.Vector3(); finalA.getSize(sizeA);
-  const sizeB = new THREE.Vector3(); finalB.getSize(sizeB);
-  const centerA = new THREE.Vector3(); finalA.getCenter(centerA);
-  const centerB = new THREE.Vector3(); finalB.getCenter(centerB);
-
-  if (joinAxis === 'z') {
-    // A's face: at A's max-Z (if sign>0) or min-Z
-    joinFaceA.scale.set(sizeA.x, sizeA.y, 1);
-    joinFaceA.position.copy(centerA);
-    joinFaceA.position.z = joinSign > 0 ? finalA.max.z : finalA.min.z;
-    joinFaceA.rotation.set(0, 0, 0);
-
-    joinFaceB.scale.set(sizeB.x, sizeB.y, 1);
-    joinFaceB.position.copy(centerB);
-    joinFaceB.position.z = joinSign > 0 ? finalB.min.z : finalB.max.z;
-    joinFaceB.rotation.set(0, 0, 0);
-  } else if (joinAxis === 'x') {
-    joinFaceA.scale.set(sizeA.z, sizeA.y, 1);
-    joinFaceA.position.copy(centerA);
-    joinFaceA.position.x = joinSign > 0 ? finalA.max.x : finalA.min.x;
-    joinFaceA.rotation.set(0, Math.PI / 2, 0);
-
-    joinFaceB.scale.set(sizeB.z, sizeB.y, 1);
-    joinFaceB.position.copy(centerB);
-    joinFaceB.position.x = joinSign > 0 ? finalB.min.x : finalB.max.x;
-    joinFaceB.rotation.set(0, Math.PI / 2, 0);
-  } else {
-    joinFaceA.scale.set(sizeA.x, sizeA.z, 1);
-    joinFaceA.position.copy(centerA);
-    joinFaceA.position.y = joinSign > 0 ? finalA.max.y : finalA.min.y;
-    joinFaceA.rotation.set(Math.PI / 2, 0, 0);
-
-    joinFaceB.scale.set(sizeB.x, sizeB.z, 1);
-    joinFaceB.position.copy(centerB);
-    joinFaceB.position.y = joinSign > 0 ? finalB.min.y : finalB.max.y;
-    joinFaceB.rotation.set(Math.PI / 2, 0, 0);
-  }
-
-  console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs, join axis = ${joinAxis}`);
+  console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs`);
 }
 
 // ─── Slider ───────────────────────────────────────────────────────
@@ -552,6 +559,68 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   }
 });
 
+// ─── Click handler for face selection ──────────────────────────────
+
+renderer.domElement.addEventListener('click', (e) => {
+  const W = window.innerWidth, H = window.innerHeight;
+  const leftW = Math.floor(W / 2);
+  if (e.clientX >= leftW) return; // only left viewport
+
+  const nx = (e.clientX / leftW) * 2 - 1;
+  const ny = -(e.clientY / H) * 2 + 1;
+  const clickMouse = new THREE.Vector2(nx, ny);
+  const clickRay = new THREE.Raycaster();
+  clickRay.setFromCamera(clickMouse, camera);
+
+  // Test against all face plane meshes
+  const allFaces = [...facePlanesA.children, ...facePlanesB.children];
+  const hits = clickRay.intersectObjects(allFaces, false);
+  if (hits.length === 0) return;
+
+  const hit = hits[0].object;
+  const strip = hit.userData.strip;
+  const faceIdx = hit.userData.faceIdx;
+
+  if (strip === 'A') {
+    // Deselect previous
+    if (selectedFaceA !== null) {
+      facePlanesA.children[selectedFaceA].userData.selected = false;
+    }
+    // Toggle: if clicking the same face, deselect
+    if (selectedFaceA === faceIdx) {
+      selectedFaceA = null;
+    } else {
+      selectedFaceA = faceIdx;
+      hit.userData.selected = true;
+    }
+    updateFacePlanes(facePlanesA, bbStripA.box);
+  } else {
+    if (selectedFaceB !== null) {
+      facePlanesB.children[selectedFaceB].userData.selected = false;
+    }
+    if (selectedFaceB === faceIdx) {
+      selectedFaceB = null;
+    } else {
+      selectedFaceB = faceIdx;
+      hit.userData.selected = true;
+    }
+    updateFacePlanes(facePlanesB, bbStripB.box);
+  }
+
+  updateJoinButton();
+  console.log(`Face selection: A=${selectedFaceA !== null ? FACE_DEFS[selectedFaceA].axis + (FACE_DEFS[selectedFaceA].sign > 0 ? '+' : '-') : 'none'}, B=${selectedFaceB !== null ? FACE_DEFS[selectedFaceB].axis + (FACE_DEFS[selectedFaceB].sign > 0 ? '+' : '-') : 'none'}`);
+});
+
+// ─── Join button handler ──────────────────────────────────────────
+
+document.getElementById('join-btn').addEventListener('click', () => {
+  if (selectedFaceA === null || selectedFaceB === null) return;
+  const faceA = FACE_DEFS[selectedFaceA];
+  const faceB = FACE_DEFS[selectedFaceB];
+  console.log(`JOIN: strip A face ${faceA.axis}${faceA.sign > 0 ? '+' : '-'} → strip B face ${faceB.axis}${faceB.sign > 0 ? '+' : '-'}`);
+  // TODO: implement join
+});
+
 // ─── Axes gizmo (corner reference) ─────────────────────────────────
 
 const axesScene = new THREE.Scene();
@@ -603,11 +672,11 @@ function animate() {
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // ── Left: Step 1 (cut strips separated + plane viz + join faces) ──
+  // ── Left: Step 1 (cut strips separated + plane viz + face selectors) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
   bbStripA.visible = true; bbStripB.visible = true;
-  joinFaceA.visible = true; joinFaceB.visible = true;
+  facePlanesA.visible = true; facePlanesB.visible = true;
   step2_panel.visible = false;
   bbPanel2.visible = false;
 
@@ -627,7 +696,7 @@ function animate() {
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
   bbStripA.visible = false; bbStripB.visible = false;
-  joinFaceA.visible = false; joinFaceB.visible = false;
+  facePlanesA.visible = false; facePlanesB.visible = false;
   step2_panel.visible = true;
   bbPanel2.visible = true;
 
