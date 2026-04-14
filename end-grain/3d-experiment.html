@@ -180,9 +180,14 @@ scene.add(pvA);
 
 const step2 = new THREE.Group();
 
+// Reflect a point across the cut plane (normal n, constant d=0):
+//   reflected = point - 2 * dot(n, point) * n
+// This makes the bottom half's cut surface align perfectly with the
+// top half's cut surface.
+const n = planeA_n;
+
 // Add top half meshes at their original positions (no separation offset)
 step1_top.children.forEach(mesh => {
-  // Bake geometry to world space (accounts for the mesh's position from CSG)
   const geo = mesh.geometry.clone();
   const mat4 = new THREE.Matrix4();
   mat4.compose(mesh.position, mesh.quaternion, mesh.scale);
@@ -193,18 +198,26 @@ step1_top.children.forEach(mesh => {
   step2.add(m);
 });
 
-// Add bottom half meshes, mirrored in Z
+// Add bottom half meshes, REFLECTED across the cut plane
 step1_bot.children.forEach(mesh => {
   const geo = mesh.geometry.clone();
   const mat4 = new THREE.Matrix4();
   mat4.compose(mesh.position, mesh.quaternion, mesh.scale);
   geo.applyMatrix4(mat4);
-  // Mirror in Z: negate all z coordinates
+
+  // Reflect every vertex across the cut plane: p' = p - 2*(n·p + d)*n
   const pos = geo.attributes.position;
   for (let v = 0; v < pos.count; v++) {
-    pos.setZ(v, -pos.getZ(v));
+    const px = pos.getX(v), py = pos.getY(v), pz = pos.getZ(v);
+    const dot = n.x * px + n.y * py + n.z * pz + planeA_d;
+    pos.setXYZ(v,
+      px - 2 * dot * n.x,
+      py - 2 * dot * n.y,
+      pz - 2 * dot * n.z
+    );
   }
   pos.needsUpdate = true;
+  // Reflection reverses winding → flip normals
   geo.computeVertexNormals();
 
   const m = new THREE.Mesh(geo, mesh.material);
