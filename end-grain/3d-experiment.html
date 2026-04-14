@@ -293,6 +293,9 @@ scene.add(facePlanesB);
 // Selection state: { faceIdx, rotate } per strip (null = none selected)
 let selectionA = null, selectionB = null;
 
+// Hover tracker: which strip/panel is being hovered ('A', 'B', 'P', or null)
+let hoveredStrip = null;
+
 function updateFacePlanes(facePlanesGroup, box) {
   const size = new THREE.Vector3(); box.getSize(size);
   const center = new THREE.Vector3(); box.getCenter(center);
@@ -485,31 +488,15 @@ function rebuild(angleDeg) {
   renderPanel(above, step1_top);
   renderPanel(below, step1_bot);
 
-  // Separate strips along the cut normal so bounding boxes don't overlap
-  const planeN = new THREE.Vector3(nx, 0, nz);
-  const bbA = new THREE.Box3().setFromObject(step1_top);
-  const bbB = new THREE.Box3().setFromObject(step1_bot);
-  function extentAlongNormal(box, n) {
-    let minD = Infinity, maxD = -Infinity;
-    for (let ix = 0; ix < 2; ix++) for (let iy = 0; iy < 2; iy++) for (let iz = 0; iz < 2; iz++) {
-      const d = n.x * (ix ? box.max.x : box.min.x) +
-                n.y * (iy ? box.max.y : box.min.y) +
-                n.z * (iz ? box.max.z : box.min.z);
-      minD = Math.min(minD, d);
-      maxD = Math.max(maxD, d);
-    }
-    return { min: minD, max: maxD };
-  }
-  const extA = extentAlongNormal(bbA, planeN);
-  const extB = extentAlongNormal(bbB, planeN);
-  const gap = 30;
-  step1_top.position.copy(planeN.clone().multiplyScalar(Math.abs(extA.min) + gap / 2));
-  step1_bot.position.copy(planeN.clone().multiplyScalar(-(Math.abs(extB.max) + gap / 2)));
+  // Strips sit at their natural positions (no separation offset)
+  step1_top.position.set(0, 0, 0);
+  step1_bot.position.set(0, 0, 0);
 
   // Update plane viz
+  const planeN = new THREE.Vector3(nx, 0, nz);
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // Update bounding boxes (after separation is applied)
+  // Update bounding boxes
   bbStripA.box.setFromObject(step1_top);
   bbStripB.box.setFromObject(step1_bot);
 
@@ -591,6 +578,10 @@ renderer.domElement.addEventListener('mousemove', (e) => {
       hoveredOrig = mats.map(m => m.emissive ? m.emissive.clone() : new THREE.Color(0));
       mats.forEach(m => { if (m.emissive) m.emissive.set(0x333333); });
     }
+    // Determine which strip/panel the hovered mesh belongs to
+    let p = mesh.parent;
+    while (p && p !== step1_top && p !== step1_bot && p !== step2_panel) p = p.parent;
+    hoveredStrip = p === step1_top ? 'A' : p === step1_bot ? 'B' : p === step2_panel ? 'P' : null;
     const geo = mesh.geometry;
     const tris = geo.index ? geo.index.count / 3 : 0;
     const pt = hit.point;
@@ -624,6 +615,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
       `<span class="label">tris</span> <span class="val">${tris}</span>`;
   } else {
     statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
+    hoveredStrip = null;
   }
 });
 
@@ -813,10 +805,11 @@ function animate() {
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // ── Left: Step 1 (cut strips separated + plane viz + face selectors) ──
+  // ── Left: Step 1 (cut strips + plane viz + face selectors) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
-  bbStripA.visible = true; bbStripB.visible = true;
+  bbStripA.visible = hoveredStrip === 'A';
+  bbStripB.visible = hoveredStrip === 'B';
   facePlanesA.visible = true; facePlanesB.visible = true;
   step2_panel.visible = false;
   bbPanel2.visible = false;
@@ -839,7 +832,7 @@ function animate() {
   bbStripA.visible = false; bbStripB.visible = false;
   facePlanesA.visible = false; facePlanesB.visible = false;
   step2_panel.visible = true;
-  bbPanel2.visible = true;
+  bbPanel2.visible = hoveredStrip === 'P';
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
