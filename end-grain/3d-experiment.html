@@ -22,7 +22,7 @@
   }
   .divider { position: fixed; background: #3d3835; z-index: 5; }
   #controls {
-    position: fixed; bottom: 16px; left: 16px; z-index: 20;
+    position: fixed; bottom: 40px; left: 16px; z-index: 20;
     display: flex; align-items: center; gap: 10px;
     background: rgba(28,25,23,0.85); border: 1px solid #3d3835;
     border-radius: 6px; padding: 10px 16px;
@@ -37,12 +37,25 @@
   #controls .value {
     color: #e4cc8f; font-size: 11px; min-width: 40px; text-align: right;
   }
+  #statusbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+    height: 28px; display: flex; align-items: center; gap: 16px;
+    padding: 0 12px;
+    background: rgba(28,25,23,0.92); border-top: 1px solid #3d3835;
+    font-size: 10px; color: #78716c;
+  }
+  #statusbar .label { color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
+  #statusbar .val { color: #e4cc8f; }
+  #statusbar .dim { color: #555; }
 </style>
 </head>
 <body>
 <div id="info">
   <strong>End Grain — 2-plane CSG</strong><br>
   drag slider to roll plane B
+</div>
+<div id="statusbar">
+  <span class="dim">hover a piece</span>
 </div>
 <div id="controls">
   <label>plane B roll</label>
@@ -347,6 +360,115 @@ function rebuildLayout() {
   }
 }
 rebuildLayout();
+
+// ─── Raycaster: hover detection + status bar ───────────────────────
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const statusbar = document.getElementById('statusbar');
+let hoveredMesh = null;
+let hoveredOriginalEmissive = null;
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+  // Figure out which viewport the mouse is in (left half = combined)
+  const W = window.innerWidth, H = window.innerHeight;
+  const leftW = Math.floor(W / 2);
+
+  // For raycasting we need normalized device coords relative to the
+  // viewport the mouse is over. We use the left (combined) viewport's
+  // aspect for simplicity since all viewports share the same camera.
+  let nx, ny;
+  if (e.clientX < leftW) {
+    // Left viewport
+    nx = (e.clientX / leftW) * 2 - 1;
+    ny = -(e.clientY / H) * 2 + 1;
+  } else {
+    // Right viewport — still same camera, just different scissor
+    const rW = W - leftW;
+    nx = ((e.clientX - leftW) / rW) * 2 - 1;
+    ny = -(e.clientY / H) * 2 + 1;
+  }
+
+  mouse.set(nx, ny);
+  raycaster.setFromCamera(mouse, camera);
+
+  // Only test against the piece group meshes (skip plane viz, lights, etc.)
+  const testMeshes = [];
+  activePieces.forEach(g => {
+    g.children.forEach(m => { if (m.isMesh) testMeshes.push(m); });
+  });
+
+  const hits = raycaster.intersectObjects(testMeshes, false);
+
+  // Un-highlight previous
+  if (hoveredMesh && hoveredMesh !== (hits[0]?.object)) {
+    if (hoveredMesh.material) {
+      const mats = Array.isArray(hoveredMesh.material) ? hoveredMesh.material : [hoveredMesh.material];
+      mats.forEach((m, i) => {
+        if (hoveredOriginalEmissive && hoveredOriginalEmissive[i]) {
+          m.emissive?.copy(hoveredOriginalEmissive[i]);
+        }
+      });
+    }
+    hoveredMesh = null;
+    hoveredOriginalEmissive = null;
+  }
+
+  if (hits.length > 0) {
+    const hit = hits[0];
+    const mesh = hit.object;
+
+    // Highlight: add a subtle emissive glow
+    if (mesh !== hoveredMesh) {
+      hoveredMesh = mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      hoveredOriginalEmissive = mats.map(m => m.emissive ? m.emissive.clone() : new THREE.Color(0));
+      mats.forEach(m => {
+        if (m.emissive) m.emissive.set(0x333333);
+      });
+    }
+
+    // Find which piece group this mesh belongs to
+    let pieceIdx = -1;
+    for (let i = 0; i < activePieces.length; i++) {
+      if (activePieces[i].children.includes(mesh)) { pieceIdx = i; break; }
+    }
+
+    const geo = mesh.geometry;
+    const triCount = geo.index ? geo.index.count / 3 : 0;
+    const vertCount = geo.attributes.position ? geo.attributes.position.count : 0;
+    const bb = new THREE.Box3().setFromBufferAttribute(geo.attributes.position);
+    const size = new THREE.Vector3(); bb.getSize(size);
+    const pt = hit.point;
+
+    statusbar.innerHTML = [
+      `<span class="label">piece</span> <span class="val">${pieceIdx + 1}</span>`,
+      `<span class="label">tris</span> <span class="val">${triCount}</span>`,
+      `<span class="label">verts</span> <span class="val">${vertCount}</span>`,
+      `<span class="label">size</span> <span class="val">${size.x.toFixed(0)} × ${size.y.toFixed(0)} × ${size.z.toFixed(0)}</span>`,
+      `<span class="label">hit</span> <span class="val">(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)}, ${pt.z.toFixed(1)})</span>`,
+      `<span class="label">face</span> <span class="val">${hit.faceIndex ?? '—'}</span>`,
+      `<span class="label">materials</span> <span class="val">${Array.isArray(mesh.material) ? mesh.material.length : 1}</span>`,
+    ].join('  ');
+  } else {
+    statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
+  }
+});
+
+// Clear highlight when mouse leaves the canvas
+renderer.domElement.addEventListener('mouseleave', () => {
+  if (hoveredMesh) {
+    const mats = Array.isArray(hoveredMesh.material) ? hoveredMesh.material : [hoveredMesh.material];
+    mats.forEach((m, i) => {
+      if (hoveredOriginalEmissive && hoveredOriginalEmissive[i]) {
+        m.emissive?.copy(hoveredOriginalEmissive[i]);
+      }
+    });
+    hoveredMesh = null;
+    hoveredOriginalEmissive = null;
+  }
+  statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
+});
 
 // ─── Render loop ───────────────────────────────────────────────────
 
