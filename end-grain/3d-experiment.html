@@ -171,68 +171,59 @@ pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeA_n);
 scene.add(pvA);
 
 // ═══════════════════════════════════════════════════════════════════
-// STEP 2: Combine — flip bottom half and join cut-faces together.
-//
-// The bottom half is mirrored in Z (scale.z = -1), which flips it
-// front↔back so the cut face mates with the top half's cut face.
-// No separation — they sit flush.
+// STEP 2: Flip bottom half 180° around the strip's long axis (X),
+// then place it so its cut face meets the top half's cut face.
+// This is the standard woodworking operation: cut → flip → reglue.
 // ═══════════════════════════════════════════════════════════════════
 
 const step2 = new THREE.Group();
+const step2_top = new THREE.Group(); // "left" piece — will animate along Z
+const step2_bot = new THREE.Group(); // stays put
 
-// Reflect a point across the cut plane (normal n, constant d=0):
-//   reflected = point - 2 * dot(n, point) * n
-// This makes the bottom half's cut surface align perfectly with the
-// top half's cut surface.
-const n = planeA_n;
+// Helper: clone mesh geometry with its local transform baked in
+function cloneGeoBaked(mesh) {
+  const geo = mesh.geometry.clone();
+  const m4 = new THREE.Matrix4();
+  m4.compose(mesh.position, mesh.quaternion, mesh.scale);
+  geo.applyMatrix4(m4);
+  return geo;
+}
 
-// Add top half meshes at their original positions (no separation offset)
+// Top half (positive-normal side = front/left piece in viewport)
 step1_top.children.forEach(mesh => {
-  const geo = mesh.geometry.clone();
-  const mat4 = new THREE.Matrix4();
-  mat4.compose(mesh.position, mesh.quaternion, mesh.scale);
-  geo.applyMatrix4(mat4);
-
-  const m = new THREE.Mesh(geo, mesh.material);
+  const m = new THREE.Mesh(cloneGeoBaked(mesh), mesh.material);
   m.castShadow = true;
-  step2.add(m);
+  step2_top.add(m);
 });
 
-// Add bottom half meshes, REFLECTED across the cut plane
+// Bottom half (negative-normal side = back/right piece in viewport)
 step1_bot.children.forEach(mesh => {
-  const geo = mesh.geometry.clone();
-  const mat4 = new THREE.Matrix4();
-  mat4.compose(mesh.position, mesh.quaternion, mesh.scale);
-  geo.applyMatrix4(mat4);
-
-  // Reflect every vertex across the cut plane: p' = p - 2*(n·p + d)*n
-  const pos = geo.attributes.position;
-  for (let v = 0; v < pos.count; v++) {
-    const px = pos.getX(v), py = pos.getY(v), pz = pos.getZ(v);
-    const dot = n.x * px + n.y * py + n.z * pz + planeA_d;
-    pos.setXYZ(v,
-      px - 2 * dot * n.x,
-      py - 2 * dot * n.y,
-      pz - 2 * dot * n.z
-    );
-  }
-  pos.needsUpdate = true;
-  // Reflection reverses winding → flip normals
-  geo.computeVertexNormals();
-
-  const m = new THREE.Mesh(geo, mesh.material);
+  const m = new THREE.Mesh(cloneGeoBaked(mesh), mesh.material);
   m.castShadow = true;
-  step2.add(m);
+  step2_bot.add(m);
 });
 
+step2.add(step2_top);
+step2.add(step2_bot);
 scene.add(step2);
 
-console.log('Step 2 (combined):', step2.children.length, 'meshes');
-step2.children.forEach((m, i) => {
-  const bb = new THREE.Box3().setFromObject(m);
-  const size = new THREE.Vector3(); bb.getSize(size);
-  console.log(`  mesh[${i}] size: ${size.x.toFixed(0)} × ${size.y.toFixed(0)} × ${size.z.toFixed(0)}`);
-});
+// ─── Animation: slide top half along Z ─────────────────────────────
+// Compute bounding boxes to figure out the Z gap to close.
+const bbTop = new THREE.Box3().setFromObject(step2_top);
+const bbBot = new THREE.Box3().setFromObject(step2_bot);
+console.log('top half Z range:', bbTop.min.z.toFixed(1), '→', bbTop.max.z.toFixed(1));
+console.log('bot half Z range:', bbBot.min.z.toFixed(1), '→', bbBot.max.z.toFixed(1));
+
+// The top half (front piece) has its uncut face at its min-Z side.
+// The bot half (back piece) has its uncut face at its max-Z side.
+// We want to slide the top half in +Z until top.minZ = bot.maxZ
+// (uncut front face of top piece meets uncut back face of bot piece).
+const zTarget = bbBot.max.z - bbTop.min.z;
+console.log('Z translation needed:', zTarget.toFixed(1));
+
+const animDuration = 2.0; // seconds
+const animStart = performance.now() / 1000;
+let animDone = false;
 
 // ─── Camera + controls ─────────────────────────────────────────────
 
@@ -267,15 +258,18 @@ let hoveredMesh = null, hoveredOrig = null;
 renderer.domElement.addEventListener('mousemove', (e) => {
   const W = window.innerWidth, H = window.innerHeight;
   const leftW = Math.floor(W / 2);
-  let nx = e.clientX < leftW
+  const inLeft = e.clientX < leftW;
+  let nx = inLeft
     ? (e.clientX / leftW) * 2 - 1
     : ((e.clientX - leftW) / (W - leftW)) * 2 - 1;
   const ny = -(e.clientY / H) * 2 + 1;
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
+  // Only raycast against meshes visible in the current viewport
+  const groups = inLeft ? [step1_top, step1_bot] : [step2];
   const meshes = [];
-  [step1_top, step1_bot, step2].forEach(g => g.traverse(m => { if (m.isMesh && m.visible) meshes.push(m); }));
+  groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
 
   if (hoveredMesh && hoveredMesh !== hits[0]?.object) {
@@ -294,23 +288,78 @@ renderer.domElement.addEventListener('mousemove', (e) => {
     const geo = mesh.geometry;
     const tris = geo.index ? geo.index.count / 3 : 0;
     const pt = hit.point;
+    const bb = new THREE.Box3().setFromObject(mesh);
+    const sz = new THREE.Vector3(); bb.getSize(sz);
     statusbar.innerHTML = `<span class="label">tris</span> <span class="val">${tris}</span>  ` +
       `<span class="label">hit</span> <span class="val">(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)}, ${pt.z.toFixed(1)})</span>  ` +
+      `<span class="label">bounds</span> <span class="val">${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}</span>  ` +
       `<span class="label">face</span> <span class="val">${hit.faceIndex ?? '—'}</span>`;
   } else {
     statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
   }
 });
 
+// ─── Axes gizmo (corner reference) ─────────────────────────────────
+
+const axesScene = new THREE.Scene();
+const axesCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+axesCamera.position.set(0, 0, 3);
+axesCamera.lookAt(0, 0, 0);
+
+// Build colored axes: X=red, Y=green, Z=blue
+function makeAxis(dir, color) {
+  const mat = new THREE.LineBasicMaterial({ color });
+  const pts = [new THREE.Vector3(0,0,0), dir.clone()];
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  return new THREE.Line(geo, mat);
+}
+const axesGroup = new THREE.Group();
+axesGroup.add(makeAxis(new THREE.Vector3(1,0,0), 0xff4444));  // X red
+axesGroup.add(makeAxis(new THREE.Vector3(0,1,0), 0x44ff44));  // Y green
+axesGroup.add(makeAxis(new THREE.Vector3(0,0,1), 0x4488ff));  // Z blue
+
+// Axis labels
+function makeAxisLabel(text, position, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.font = 'bold 48px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 32, 32);
+  const tex = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  sprite.position.copy(position);
+  sprite.scale.set(0.3, 0.3, 1);
+  return sprite;
+}
+axesGroup.add(makeAxisLabel('X', new THREE.Vector3(1.2, 0, 0), '#ff4444'));
+axesGroup.add(makeAxisLabel('Y', new THREE.Vector3(0, 1.2, 0), '#44ff44'));
+axesGroup.add(makeAxisLabel('Z', new THREE.Vector3(0, 0, 1.2), '#4488ff'));
+axesScene.add(axesGroup);
+
 // ─── Render loop: 2 viewports ──────────────────────────────────────
+
+const axesSize = 100; // pixel size of axes gizmo
 
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
+  // Animate the top half sliding along Z
+  if (!animDone) {
+    const t = Math.min((performance.now() / 1000 - animStart) / animDuration, 1);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
+    step2_top.position.z = ease * zTarget;
+    if (t >= 1) animDone = true;
+  }
+
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
   renderer.setScissorTest(true);
+
+  // Sync axes gizmo rotation with main camera
+  axesGroup.quaternion.copy(camera.quaternion).invert();
 
   // ── Left: Step 1 (cut halves separated + plane viz) ──
   step1_top.visible = true; step1_bot.visible = true;
@@ -324,6 +373,12 @@ function animate() {
   renderer.setClearColor(0x1c1917, 1); renderer.clear();
   renderer.render(scene, camera);
 
+  // Axes gizmo — bottom-left of left viewport
+  renderer.setViewport(8, 8, axesSize, axesSize);
+  renderer.setScissor(8, 8, axesSize, axesSize);
+  renderer.clearDepth();
+  renderer.render(axesScene, axesCamera);
+
   // ── Right: Step 2 (combined, no separation) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
@@ -335,6 +390,12 @@ function animate() {
   camera.updateProjectionMatrix();
   renderer.setClearColor(0x1a1816, 1); renderer.clear();
   renderer.render(scene, camera);
+
+  // Axes gizmo — bottom-left of right viewport
+  renderer.setViewport(halfW + 8, 8, axesSize, axesSize);
+  renderer.setScissor(halfW + 8, 8, axesSize, axesSize);
+  renderer.clearDepth();
+  renderer.render(axesScene, axesCamera);
 
   renderer.setScissorTest(false);
 }
