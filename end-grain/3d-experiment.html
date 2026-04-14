@@ -122,12 +122,12 @@ const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-const segW = 50, segH = 50, segD = 150, cubeCount = 8;
+const segW = 50, segH = 50, segD = 150, cubeCount = 16;
 const halfLen = (cubeCount * segW) / 2;
 
 // ─── CSG helpers ───────────────────────────────────────────────────
 
-const HS = 800;
+const HS = 2000;
 const evaluator = new Evaluator();
 
 function makeHalfSpace(normal, constant, mat) {
@@ -272,7 +272,7 @@ slider.addEventListener('input', () => {
 // ─── Camera + controls ─────────────────────────────────────────────
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-camera.position.set(350, 250, 400);
+camera.position.set(600, 400, 600);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.target.set(0, 25, 0);
