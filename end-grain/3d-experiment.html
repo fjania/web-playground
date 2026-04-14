@@ -274,19 +274,13 @@ scene.add(pvB);
 const step4_panel = new THREE.Group();
 scene.add(step4_panel);
 
-// Wireframe bounding boxes
-const bbStripA = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
-const bbStripB = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
-const bbPanel2 = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
-const bbStripC = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
-const bbStripD = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
-const bbPanel4 = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
-scene.add(bbStripA);
-scene.add(bbStripB);
-scene.add(bbPanel2);
-scene.add(bbStripC);
-scene.add(bbStripD);
-scene.add(bbPanel4);
+// Bounding boxes (kept as data only — not added to scene; used for join logic)
+const bbStripA = { box: new THREE.Box3() };
+const bbStripB = { box: new THREE.Box3() };
+const bbPanel2 = { box: new THREE.Box3() };
+const bbStripC = { box: new THREE.Box3() };
+const bbStripD = { box: new THREE.Box3() };
+const bbPanel4 = { box: new THREE.Box3() };
 
 // Clickable bounding box face planes (6 per strip)
 // State: 0 = off, 1 = selected, 2 = selected with rotation
@@ -323,14 +317,13 @@ function createFacePlanes(strip) {
   return group;
 }
 
+// Face selection planes are no longer used — selection method being replaced.
+// Keeping placeholders so the join logic can still reference selections.
 const facePlanesA = createFacePlanes('A');
 const facePlanesB = createFacePlanes('B');
 const facePlanesC = createFacePlanes('C');
 const facePlanesD = createFacePlanes('D');
-scene.add(facePlanesA);
-scene.add(facePlanesB);
-scene.add(facePlanesC);
-scene.add(facePlanesD);
+// (not added to scene)
 
 // Selection state: { faceIdx, rotate } per strip (null = none selected)
 let selectionA = null, selectionB = null;
@@ -818,59 +811,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   }
 });
 
-// ─── Click handler for face selection ──────────────────────────────
-
-renderer.domElement.addEventListener('click', (e) => {
-  const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
-  // Only TL (0) and BL (2) viewports have face selection
-  if (vpIdx !== 0 && vpIdx !== 2) return;
-
-  const clickMouse = new THREE.Vector2(nx, ny);
-  const clickRay = new THREE.Raycaster();
-  clickRay.setFromCamera(clickMouse, camera);
-
-  // Test against the appropriate face planes for this viewport
-  const allFaces = vpIdx === 0
-    ? [...facePlanesA.children, ...facePlanesB.children]
-    : [...facePlanesC.children, ...facePlanesD.children];
-  const hits = clickRay.intersectObjects(allFaces, false);
-  if (hits.length === 0) return;
-
-  const hit = hits[0].object;
-  const strip = hit.userData.strip;
-  const faceIdx = hit.userData.faceIdx;
-  const faceGroup = { A: facePlanesA, B: facePlanesB, C: facePlanesC, D: facePlanesD }[strip];
-  const getSel = () => ({ A: selectionA, B: selectionB, C: selectionC, D: selectionD }[strip]);
-  const currentSel = getSel();
-
-  if (currentSel && currentSel.faceIdx !== faceIdx) {
-    faceGroup.children[currentSel.faceIdx].userData.state = 0;
-  }
-
-  const targetMesh = faceGroup.children[faceIdx];
-  const prevState = currentSel && currentSel.faceIdx === faceIdx ? (currentSel.rotate ? 2 : 1) : 0;
-  const newState = (prevState + 1) % 3;
-  targetMesh.userData.state = newState;
-
-  const newSel = newState === 0 ? null : { faceIdx, rotate: newState === 2 };
-  if (strip === 'A') selectionA = newSel;
-  else if (strip === 'B') selectionB = newSel;
-  else if (strip === 'C') selectionC = newSel;
-  else selectionD = newSel;
-
-  if (vpIdx === 0) {
-    updateFacePlanes(facePlanesA, bbStripA.box);
-    updateFacePlanes(facePlanesB, bbStripB.box);
-    updateJoinButton();
-  } else {
-    updateFacePlanes(facePlanesC, bbStripC.box);
-    updateFacePlanes(facePlanesD, bbStripD.box);
-    updateJoin2Button();
-  }
-
-  const fmt = (sel) => sel === null ? 'none' : FACE_DEFS[sel.faceIdx].axis + (FACE_DEFS[sel.faceIdx].sign > 0 ? '+' : '-') + (sel.rotate ? ' (rot)' : '');
-  console.log(`Face selection: A=${fmt(selectionA)}, B=${fmt(selectionB)}, C=${fmt(selectionC)}, D=${fmt(selectionD)}`);
-});
+// ─── Click handler for face selection (removed pending new selection method) ──
 
 // ─── Join button handler ──────────────────────────────────────────
 
@@ -1024,28 +965,17 @@ axesScene.add(axesGroup);
 const axesSize = 80;
 
 function setView(name) {
-  // Show/hide everything based on which viewport we're rendering
   step1_top.visible = name === 'cut1';
   step1_bot.visible = name === 'cut1';
   pvA.visible = name === 'cut1';
-  facePlanesA.visible = name === 'cut1';
-  facePlanesB.visible = name === 'cut1';
-  bbStripA.visible = name === 'cut1' && hoveredStrip === 'A';
-  bbStripB.visible = name === 'cut1' && hoveredStrip === 'B';
 
   step2_panel.visible = name === 'join1';
-  bbPanel2.visible = name === 'join1' && hoveredStrip === 'P';
 
   step3_top.visible = name === 'cut2';
   step3_bot.visible = name === 'cut2';
   pvB.visible = name === 'cut2';
-  facePlanesC.visible = name === 'cut2';
-  facePlanesD.visible = name === 'cut2';
-  bbStripC.visible = name === 'cut2' && hoveredStrip === 'C';
-  bbStripD.visible = name === 'cut2' && hoveredStrip === 'D';
 
   step4_panel.visible = name === 'join2';
-  bbPanel4.visible = name === 'join2' && hoveredStrip === 'P4';
 }
 
 function renderViewport(x, y, w, h, viewName, bg) {
