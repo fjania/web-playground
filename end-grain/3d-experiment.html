@@ -301,11 +301,12 @@ function updateFacePlanes(facePlanesGroup, box) {
     else if (def.axis === 'y') mesh.scale.set(size.x, size.z, 1);
     else mesh.scale.set(size.x, size.y, 1);
 
-    // Position: center of the box face
+    // Position: center of the box face, nudged outward slightly to prevent z-fighting
+    const nudge = 2;
     mesh.position.copy(center);
-    if (def.axis === 'x') mesh.position.x = def.sign > 0 ? box.max.x : box.min.x;
-    else if (def.axis === 'y') mesh.position.y = def.sign > 0 ? box.max.y : box.min.y;
-    else mesh.position.z = def.sign > 0 ? box.max.z : box.min.z;
+    if (def.axis === 'x') mesh.position.x = (def.sign > 0 ? box.max.x : box.min.x) + def.sign * nudge;
+    else if (def.axis === 'y') mesh.position.y = (def.sign > 0 ? box.max.y : box.min.y) + def.sign * nudge;
+    else mesh.position.z = (def.sign > 0 ? box.max.z : box.min.z) + def.sign * nudge;
 
     mesh.rotation.set(...def.rot);
   });
