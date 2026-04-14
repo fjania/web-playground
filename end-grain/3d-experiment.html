@@ -251,12 +251,17 @@ scene.add(bbStripB);
 scene.add(bbPanel2);
 
 // Clickable bounding box face planes (6 per strip)
+// State: 0 = off, 1 = selected, 2 = selected with rotation
 const faceUnselectedMat = new THREE.MeshBasicMaterial({
   color: 0x4488ff, transparent: true, opacity: 0.08,
   side: THREE.DoubleSide, depthWrite: false
 });
 const faceSelectedMat = new THREE.MeshBasicMaterial({
   color: 0x22cc44, transparent: true, opacity: 0.4,
+  side: THREE.DoubleSide, depthWrite: false
+});
+const faceSelectedRotMat = new THREE.MeshBasicMaterial({
+  color: 0xff9922, transparent: true, opacity: 0.5,
   side: THREE.DoubleSide, depthWrite: false
 });
 
@@ -274,7 +279,7 @@ function createFacePlanes(strip) {
   const group = new THREE.Group();
   for (let i = 0; i < 6; i++) {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), faceUnselectedMat.clone());
-    mesh.userData = { strip, faceIdx: i, def: FACE_DEFS[i], selected: false };
+    mesh.userData = { strip, faceIdx: i, def: FACE_DEFS[i], state: 0 };
     group.add(mesh);
   }
   return group;
@@ -285,8 +290,8 @@ const facePlanesB = createFacePlanes('B');
 scene.add(facePlanesA);
 scene.add(facePlanesB);
 
-// Selection state: which face index is selected per strip (null = none)
-let selectedFaceA = null, selectedFaceB = null;
+// Selection state: { faceIdx, rotate } per strip (null = none selected)
+let selectionA = null, selectionB = null;
 
 function updateFacePlanes(facePlanesGroup, box) {
   const size = new THREE.Vector3(); box.getSize(size);
@@ -294,8 +299,10 @@ function updateFacePlanes(facePlanesGroup, box) {
 
   facePlanesGroup.children.forEach((mesh, i) => {
     const def = FACE_DEFS[i];
-    const isSelected = mesh.userData.selected;
-    mesh.material = isSelected ? faceSelectedMat.clone() : faceUnselectedMat.clone();
+    const state = mesh.userData.state;
+    mesh.material = state === 2 ? faceSelectedRotMat.clone()
+                  : state === 1 ? faceSelectedMat.clone()
+                  : faceUnselectedMat.clone();
 
     // Size: the two dimensions perpendicular to the face axis
     if (def.axis === 'x') mesh.scale.set(size.z, size.y, 1);
@@ -326,16 +333,16 @@ function updateJoinButton() {
   const btn = document.getElementById('join-btn');
   const errEl = document.getElementById('join-error');
 
-  if (selectedFaceA === null || selectedFaceB === null) {
+  if (selectionA === null || selectionB === null) {
     btn.disabled = true;
     errEl.textContent = '';
     return;
   }
 
   // Check dimension match
-  const dimsA = faceDims(bbStripA.box, selectedFaceA);
-  const dimsB = faceDims(bbStripB.box, selectedFaceB);
-  const tol = 1; // 1mm tolerance
+  const dimsA = faceDims(bbStripA.box, selectionA.faceIdx);
+  const dimsB = faceDims(bbStripB.box, selectionB.faceIdx);
+  const tol = 1;
   const match = Math.abs(dimsA[0] - dimsB[0]) < tol && Math.abs(dimsA[1] - dimsB[1]) < tol;
 
   if (match) {
@@ -420,6 +427,35 @@ function renderPanel(panel, group) {
     const mesh = manifoldToThree(seg.manifold, mat);
     group.add(mesh);
   }
+}
+
+// Rotate a group 180° about the axis parallel to the given face's normal,
+// passing through the group's bounding box center. Bakes the rotation into
+// each child mesh's geometry so the group's transform remains identity.
+function applyFaceRotation(group, faceDef, enabled) {
+  if (!enabled) return;
+  const bb = new THREE.Box3().setFromObject(group);
+  const center = new THREE.Vector3(); bb.getCenter(center);
+
+  // Rotation axis in world: unit vector along faceDef.axis
+  const axis = new THREE.Vector3(
+    faceDef.axis === 'x' ? 1 : 0,
+    faceDef.axis === 'y' ? 1 : 0,
+    faceDef.axis === 'z' ? 1 : 0
+  );
+
+  // Build a matrix: translate to origin, rotate 180° about axis, translate back
+  const m = new THREE.Matrix4()
+    .makeTranslation(-center.x, -center.y, -center.z);
+  const rot = new THREE.Matrix4().makeRotationAxis(axis, Math.PI);
+  const back = new THREE.Matrix4().makeTranslation(center.x, center.y, center.z);
+  const full = back.multiply(rot).multiply(m);
+
+  group.children.forEach(mesh => {
+    mesh.geometry.applyMatrix4(full);
+    mesh.geometry.computeVertexNormals();
+    mesh.geometry.computeBoundingBox();
+  });
 }
 
 // ─── Build pipeline from angle ────────────────────────────────────
@@ -612,60 +648,58 @@ renderer.domElement.addEventListener('click', (e) => {
   const hit = hits[0].object;
   const strip = hit.userData.strip;
   const faceIdx = hit.userData.faceIdx;
+  const faceGroup = strip === 'A' ? facePlanesA : facePlanesB;
+  const currentSel = strip === 'A' ? selectionA : selectionB;
 
-  if (strip === 'A') {
-    // Deselect previous
-    if (selectedFaceA !== null) {
-      facePlanesA.children[selectedFaceA].userData.selected = false;
-    }
-    // Toggle: if clicking the same face, deselect
-    if (selectedFaceA === faceIdx) {
-      selectedFaceA = null;
-    } else {
-      selectedFaceA = faceIdx;
-      hit.userData.selected = true;
-    }
-    updateFacePlanes(facePlanesA, bbStripA.box);
-  } else {
-    if (selectedFaceB !== null) {
-      facePlanesB.children[selectedFaceB].userData.selected = false;
-    }
-    if (selectedFaceB === faceIdx) {
-      selectedFaceB = null;
-    } else {
-      selectedFaceB = faceIdx;
-      hit.userData.selected = true;
-    }
-    updateFacePlanes(facePlanesB, bbStripB.box);
+  // Three-state cycling logic:
+  // - Click unselected face: select it (state 1)
+  // - Click selected face (state 1): upgrade to rotation (state 2)
+  // - Click rotation face (state 2): deselect (state 0)
+  // - Click different face while one is selected: replace (new face → state 1)
+
+  // If a different face was previously selected, clear it
+  if (currentSel && currentSel.faceIdx !== faceIdx) {
+    faceGroup.children[currentSel.faceIdx].userData.state = 0;
   }
 
+  const targetMesh = faceGroup.children[faceIdx];
+  const prevState = currentSel && currentSel.faceIdx === faceIdx ? (currentSel.rotate ? 2 : 1) : 0;
+  const newState = (prevState + 1) % 3;
+  targetMesh.userData.state = newState;
+
+  const newSel = newState === 0 ? null : { faceIdx, rotate: newState === 2 };
+  if (strip === 'A') selectionA = newSel;
+  else selectionB = newSel;
+
+  updateFacePlanes(facePlanesA, bbStripA.box);
+  updateFacePlanes(facePlanesB, bbStripB.box);
+
   updateJoinButton();
-  console.log(`Face selection: A=${selectedFaceA !== null ? FACE_DEFS[selectedFaceA].axis + (FACE_DEFS[selectedFaceA].sign > 0 ? '+' : '-') : 'none'}, B=${selectedFaceB !== null ? FACE_DEFS[selectedFaceB].axis + (FACE_DEFS[selectedFaceB].sign > 0 ? '+' : '-') : 'none'}`);
+  const fmt = (sel) => sel === null ? 'none' : FACE_DEFS[sel.faceIdx].axis + (FACE_DEFS[sel.faceIdx].sign > 0 ? '+' : '-') + (sel.rotate ? ' (rot)' : '');
+  console.log(`Face selection: A=${fmt(selectionA)}, B=${fmt(selectionB)}`);
 });
 
 // ─── Join button handler ──────────────────────────────────────────
 
 document.getElementById('join-btn').addEventListener('click', () => {
-  if (selectedFaceA === null || selectedFaceB === null) return;
+  if (selectionA === null || selectionB === null) return;
   if (!currentStripAbove || !currentStripBelow) return;
 
-  const defA = FACE_DEFS[selectedFaceA];
-  const defB = FACE_DEFS[selectedFaceB];
-  console.log(`JOIN: strip A face ${defA.axis}${defA.sign > 0 ? '+' : '-'} → strip B face ${defB.axis}${defB.sign > 0 ? '+' : '-'}`);
+  const defA = FACE_DEFS[selectionA.faceIdx];
+  const defB = FACE_DEFS[selectionB.faceIdx];
+  console.log(`JOIN: A ${defA.axis}${defA.sign > 0 ? '+' : '-'}${selectionA.rotate ? '(rot)' : ''} ↔ B ${defB.axis}${defB.sign > 0 ? '+' : '-'}${selectionB.rotate ? '(rot)' : ''}`);
 
   step2_panel.clear();
 
   // Render both strips into step2_panel.
-  // Strip A goes at origin (no offset). Strip B is translated so its
-  // selected face is flush against strip A's selected face.
-
-  // Get strip A's bounding box (at origin, no group offset)
   const groupA = new THREE.Group();
   renderPanel(currentStripAbove, groupA);
+  applyFaceRotation(groupA, defA, selectionA.rotate);
   const bbA = new THREE.Box3().setFromObject(groupA);
 
   const groupB = new THREE.Group();
   renderPanel(currentStripBelow, groupB);
+  applyFaceRotation(groupB, defB, selectionB.rotate);
   const bbB = new THREE.Box3().setFromObject(groupB);
 
   // Face A's position along its axis (the face plane coordinate)
