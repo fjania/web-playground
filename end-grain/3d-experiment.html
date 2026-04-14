@@ -434,20 +434,19 @@ function sameFace(selA, faceB) {
 let hoveredStrip = null;
 
 // Check if two selected faces can be joined. Returns { ok, error }.
+//
+// Rules:
+//   1. Both strips must have a face selected.
+//   2. Normals constraint: both face normals must share a common perpendicular
+//      axis (i.e., they lie in a common plane). This is always satisfied for
+//      non-parallel normals (the cross product gives the axis), and trivially
+//      for parallel ones — so this is essentially never violated for valid
+//      face selections.
+//
+// Dimensions are no longer required to match — the join will align face
+// centroids and any excess overhang will be handled in a later trim step.
 function checkJoinCompat(selA, selB) {
   if (!selA || !selB) return { ok: false, error: '' };
-
-  // Dimension match (in each face's own 2D frame)
-  const dimsA = [selA.width, selA.height].sort((a, b) => a - b);
-  const dimsB = [selB.width, selB.height].sort((a, b) => a - b);
-  const tol = 1;
-  if (Math.abs(dimsA[0] - dimsB[0]) > tol || Math.abs(dimsA[1] - dimsB[1]) > tol) {
-    return {
-      ok: false,
-      error: `face dims mismatch: ${dimsA[0].toFixed(0)}×${dimsA[1].toFixed(0)} vs ${dimsB[0].toFixed(0)}×${dimsB[1].toFixed(0)}`,
-    };
-  }
-
   return { ok: true, error: '' };
 }
 
