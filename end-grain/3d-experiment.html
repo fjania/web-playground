@@ -267,7 +267,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   raycaster.setFromCamera(mouse, camera);
 
   // Only raycast against meshes visible in the current viewport
-  const groups = inLeft ? [step1_top, step1_bot] : [step2];
+  const groups = inLeft ? [step1_top, step1_bot] : (animDone ? [step2_union] : [step2]);
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -338,6 +338,63 @@ axesGroup.add(makeAxisLabel('Y', new THREE.Vector3(0, 1.2, 0), '#44ff44'));
 axesGroup.add(makeAxisLabel('Z', new THREE.Vector3(0, 0, 1.2), '#4488ff'));
 axesScene.add(axesGroup);
 
+// ─── CSG union after animation ─────────────────────────────────────
+
+const step2_union = new THREE.Group();
+step2_union.visible = false;
+scene.add(step2_union);
+
+function performUnion() {
+  console.log('--- Performing CSG union ---');
+
+  // Collect all meshes from both halves with their final world positions baked in.
+  const allMeshes = [];
+  [step2_top, step2_bot].forEach(group => {
+    group.updateMatrixWorld(true);
+    group.traverse(m => {
+      if (!m.isMesh) return;
+      const geo = m.geometry.clone();
+      geo.applyMatrix4(m.matrixWorld);
+      allMeshes.push({ geo, material: m.material });
+    });
+  });
+
+  console.log(`Unioning ${allMeshes.length} meshes...`);
+
+  // Union all meshes into one via sequential CSG ADDITION.
+  // Start with first mesh as a Brush, then union each subsequent mesh.
+  let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
+  result.updateMatrixWorld();
+
+  for (let i = 1; i < allMeshes.length; i++) {
+    const b = new Brush(allMeshes[i].geo, allMeshes[i].material);
+    b.updateMatrixWorld();
+    result = evaluator.evaluate(result, b, ADDITION);
+    result.updateMatrixWorld();
+  }
+
+  result.castShadow = true;
+  step2_union.add(result);
+
+  // Log the result
+  const bb = new THREE.Box3().setFromObject(result);
+  const sz = new THREE.Vector3(); bb.getSize(sz);
+  const geo = result.geometry;
+  const tris = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
+  console.log(`Union result: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+  console.log('Union bounding box:', {
+    min: { x: bb.min.x.toFixed(1), y: bb.min.y.toFixed(1), z: bb.min.z.toFixed(1) },
+    max: { x: bb.max.x.toFixed(1), y: bb.max.y.toFixed(1), z: bb.max.z.toFixed(1) },
+  });
+
+  // Swap: hide the two separate halves, show the union
+  step2_top.visible = false;
+  step2_bot.visible = false;
+  step2_union.visible = true;
+
+  console.log('--- Union complete ---');
+}
+
 // ─── Render loop: 2 viewports ──────────────────────────────────────
 
 const axesSize = 100; // pixel size of axes gizmo
@@ -346,12 +403,15 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Animate the top half sliding along Z
+  // Animate the top half sliding along Z, then union when done
   if (!animDone) {
     const t = Math.min((performance.now() / 1000 - animStart) / animDuration, 1);
     const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
     step2_top.position.z = ease * zTarget;
-    if (t >= 1) animDone = true;
+    if (t >= 1) {
+      animDone = true;
+      performUnion();
+    }
   }
 
   const W = window.innerWidth, H = window.innerHeight;
@@ -365,6 +425,7 @@ function animate() {
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
   step2.visible = false;
+  step2_union.visible = false;
 
   renderer.setViewport(0, 0, halfW, H);
   renderer.setScissor(0, 0, halfW, H);
@@ -379,10 +440,11 @@ function animate() {
   renderer.clearDepth();
   renderer.render(axesScene, axesCamera);
 
-  // ── Right: Step 2 (combined, no separation) ──
+  // ── Right: Step 2 (combined / union) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
   step2.visible = true;
+  step2_union.visible = animDone; // show union result after animation
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
