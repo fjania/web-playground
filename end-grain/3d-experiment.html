@@ -547,7 +547,105 @@ function updateJoinButton() {
 const speciesMaterials = { maple: mapleMats[0], walnut: walnutMats[0] };
 
 let Manifold;
-let initialPanel; // array of { manifold, species }
+let initialPanel; // Panel
+
+// ─── Panel: domain object owning manifold geometry ────────────────
+//
+// A Panel is an assembly of segments, each with its own manifold handle
+// and a species label. All geometry operations live on Panel — cut,
+// transform, translate, rotateAbout, concat, boundingBox, dispose.
+// Panels are immutable: every operation returns a new Panel with freshly
+// baked manifold handles. The source Panel is never mutated.
+//
+// Manifold is the single source of truth for geometry. The Three.js view
+// layer (renderPanel) only ever reads a Panel to build meshes — it never
+// holds transforms that need to be baked back. The cut-view separation is
+// a display-only group.position offset that never feeds back into Panel
+// state.
+class Panel {
+  constructor(segments) {
+    this.segments = segments; // Array<{ manifold, species }>
+  }
+
+  static fromStripes(w, h, d, count, speciesAt) {
+    const half = (count * w) / 2;
+    const segs = [];
+    for (let i = 0; i < count; i++) {
+      const x = i * w - half + w / 2;
+      const mf = Manifold.cube([w, h, d], true).translate([x, 0, 0]);
+      segs.push({ manifold: mf, species: speciesAt(i) });
+    }
+    return new Panel(segs);
+  }
+
+  get size() { return this.segments.length; }
+
+  cut(normal, offset) {
+    const above = [], below = [];
+    for (const s of this.segments) {
+      const [a, b] = s.manifold.splitByPlane(normal, offset);
+      if (a.numVert() > 0) above.push({ manifold: a, species: s.species });
+      else a.delete();
+      if (b.numVert() > 0) below.push({ manifold: b, species: s.species });
+      else b.delete();
+    }
+    return { above: new Panel(above), below: new Panel(below) };
+  }
+
+  // Apply a Three.js Matrix4 to every segment, baking it into new manifold
+  // handles. Returns a new Panel; source is not modified.
+  transform(matrix4) {
+    const m = matrix4.elements; // column-major
+    const mat3x4 = [
+      m[0], m[4], m[8],  m[12],
+      m[1], m[5], m[9],  m[13],
+      m[2], m[6], m[10], m[14],
+    ];
+    return new Panel(this.segments.map(s => ({
+      manifold: s.manifold.transform(mat3x4),
+      species: s.species,
+    })));
+  }
+
+  translate(tx, ty, tz) {
+    return new Panel(this.segments.map(s => ({
+      manifold: s.manifold.translate([tx, ty, tz]),
+      species: s.species,
+    })));
+  }
+
+  rotateAbout(axis, angle, pivot) {
+    if (Math.abs(angle) < 1e-6) return this.clone();
+    const T1 = new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
+    const R = new THREE.Matrix4().makeRotationAxis(axis.clone().normalize(), angle);
+    const T2 = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
+    return this.transform(T2.multiply(R).multiply(T1));
+  }
+
+  // Clone via identity transform (produces independent manifold handles).
+  clone() {
+    return this.transform(new THREE.Matrix4());
+  }
+
+  concat(other) {
+    return new Panel([...this.segments, ...other.segments]);
+  }
+
+  boundingBox() {
+    const box = new THREE.Box3();
+    for (const s of this.segments) {
+      const bb = s.manifold.boundingBox();
+      box.expandByPoint(new THREE.Vector3(bb.min[0], bb.min[1], bb.min[2]));
+      box.expandByPoint(new THREE.Vector3(bb.max[0], bb.max[1], bb.max[2]));
+    }
+    return box;
+  }
+
+  dispose() {
+    for (const s of this.segments) s.manifold.delete();
+    this.segments = [];
+  }
+}
 
 async function init() {
   console.log('Loading manifold-3d WASM...');
@@ -556,13 +654,8 @@ async function init() {
   Manifold = wasm.Manifold;
   console.log('Manifold ready.');
 
-  // Build initial panel as an assembly of individual segments
-  initialPanel = [];
-  for (let i = 0; i < cubeCount; i++) {
-    const x = i * segW - halfLen + segW / 2;
-    const mf = Manifold.cube([segW, segH, segD], true).translate([x, 0, 0]);
-    initialPanel.push({ manifold: mf, species: i % 2 === 0 ? 'maple' : 'walnut' });
-  }
+  initialPanel = Panel.fromStripes(segW, segH, segD, cubeCount,
+    i => i % 2 === 0 ? 'maple' : 'walnut');
   console.log(`Initial panel: ${cubeCount} segments, ${panelLen}×${segH}×${segD}mm`);
 
   rebuild(7);
@@ -600,93 +693,27 @@ function manifoldToThree(mf, material) {
   return obj;
 }
 
-// Cut a panel (assembly) with a plane. Returns { above: [...], below: [...] }
-function cutPanel(panel, normal, offset) {
-  const above = [], below = [];
-  for (const seg of panel) {
-    const [a, b] = seg.manifold.splitByPlane(normal, offset);
-    // splitByPlane may return empty manifolds for segments entirely on one side
-    if (a.numVert() > 0) above.push({ manifold: a, species: seg.species });
-    else a.delete();
-    if (b.numVert() > 0) below.push({ manifold: b, species: seg.species });
-    else b.delete();
-  }
-  return { above, below };
-}
-
-// Render a panel assembly into a Three.js Group
+// Render a Panel into a Three.js group. Idempotent — clears the group
+// (disposing geometry) and rebuilds meshes from the Panel's current
+// manifold state. The group's position/rotation are untouched: this is
+// purely a geometry write.
 function renderPanel(panel, group) {
-  group.clear();
-  for (const seg of panel) {
+  while (group.children.length) {
+    const c = group.children[0];
+    group.remove(c);
+    if (c.geometry) c.geometry.dispose();
+  }
+  for (const seg of panel.segments) {
     const mat = speciesMaterials[seg.species];
-    const mesh = manifoldToThree(seg.manifold, mat);
-    group.add(mesh);
+    group.add(manifoldToThree(seg.manifold, mat));
   }
 }
 
-// Compute the bounding box of a panel assembly by sampling manifold bounds
-function panelBoundingBox(panel) {
-  const bb = new THREE.Box3();
-  for (const seg of panel) {
-    const mbb = seg.manifold.boundingBox();
-    bb.expandByPoint(new THREE.Vector3(mbb.min[0], mbb.min[1], mbb.min[2]));
-    bb.expandByPoint(new THREE.Vector3(mbb.max[0], mbb.max[1], mbb.max[2]));
-  }
-  return bb;
-}
-
-// Apply a 4x4 transform (as 16-element row-major array) to a manifold assembly
-function transformPanel(panel, matrix4) {
-  // manifold-3d .transform() takes a 3x4 matrix (12 elements, row-major, no perspective)
-  const m = matrix4.elements; // Three.js is column-major!
-  // Convert column-major to 3x4 row-major
-  const mat3x4 = [
-    m[0], m[4], m[8],  m[12],
-    m[1], m[5], m[9],  m[13],
-    m[2], m[6], m[10], m[14],
-  ];
-  return panel.map(seg => ({
-    manifold: seg.manifold.transform(mat3x4),
-    species: seg.species,
-  }));
-}
-
-// Rotate a panel assembly 180° about the axis parallel to the given face's normal,
-// through the panel's bounding box center.
-// Translate a panel assembly
-function translatePanel(panel, tx, ty, tz) {
-  return panel.map(seg => ({
-    manifold: seg.manifold.translate([tx, ty, tz]),
-    species: seg.species,
-  }));
-}
-
-// Apply a Three.js Matrix4 transform to a panel assembly.
-// Returns new assembly; caller is responsible for freeing the originals.
-function transformAssembly(panel, matrix4) {
-  return transformPanel(panel, matrix4);
-}
-
-// Rotate a panel assembly about an arbitrary axis and point, returning new assembly.
-function rotatePanelAboutAxis(panel, axis, angle, point) {
-  if (Math.abs(angle) < 1e-6) {
-    // Identity — just clone via zero translation
-    return translatePanel(panel, 0, 0, 0);
-  }
-  const m = new THREE.Matrix4().makeTranslation(-point.x, -point.y, -point.z);
-  const rot = new THREE.Matrix4().makeRotationAxis(axis.clone().normalize(), angle);
-  const back = new THREE.Matrix4().makeTranslation(point.x, point.y, point.z);
-  const full = back.multiply(rot).multiply(m);
-  return transformPanel(panel, full);
-}
-
-// Compute the ordered list of stages needed to join two faces. Each stage is
-// a rotation or translation applied to one of the strip groups ('A', 'B', or
-// 'BOTH'). Used by the animated join. Stages in world space.
-//
-// stripA / stripB are needed so we can simulate the transforms on their
-// manifold bounding boxes and compute the final centering offset upfront.
-function computeJoinStages(stripA, stripB, selA, selB, flipAxis) {
+// Build the ordered list of join stages. Each stage is a rotation or
+// translation applied to 'A', 'B', or 'BOTH'. The final centering stage
+// is computed by simulating all prior stages on each panel's bounding
+// box so the joined panel ends at the origin.
+function buildJoinStages(panelA, panelB, selA, selB, flipAxis) {
   const stages = [];
 
   if (selA.rotate) {
@@ -696,7 +723,6 @@ function computeJoinStages(stripA, stripB, selA, selB, flipAxis) {
       label: 'pre-rotating A 180° about face normal',
     });
   }
-
   if (selB.rotate) {
     stages.push({
       group: 'B', type: 'rotation',
@@ -728,15 +754,12 @@ function computeJoinStages(stripA, stripB, selA, selB, flipAxis) {
   const delta = new THREE.Vector3().subVectors(selA.centroid, selB.centroid);
   if (delta.length() > 1e-6) {
     stages.push({
-      group: 'B', type: 'translation',
-      delta,
+      group: 'B', type: 'translation', delta,
       label: 'translating B to align centroids',
     });
   }
 
-  // Final stage: center the joined panel at origin by translating BOTH strips.
-  // Compute the centering offset by simulating all prior stages on each
-  // strip's bounding box corners.
+  // Final centering stage — simulate prior stages against both panels' BBs.
   const matA = new THREE.Matrix4();
   const matB = new THREE.Matrix4();
   for (const s of stages) {
@@ -745,8 +768,8 @@ function computeJoinStages(stripA, stripB, selA, selB, flipAxis) {
     else if (s.group === 'B') matB.premultiply(m);
   }
   const finalBB = new THREE.Box3();
-  expandBoxByTransformedPanel(finalBB, stripA, matA);
-  expandBoxByTransformedPanel(finalBB, stripB, matB);
+  expandBoxByTransformedPanel(finalBB, panelA, matA);
+  expandBoxByTransformedPanel(finalBB, panelB, matB);
   const center = new THREE.Vector3(); finalBB.getCenter(center);
   if (center.length() > 1e-6) {
     stages.push({
@@ -762,7 +785,7 @@ function computeJoinStages(stripA, stripB, selA, selB, flipAxis) {
 // Expand a Box3 by the 8 transformed corners of each segment's bounding box.
 function expandBoxByTransformedPanel(box, panel, matrix) {
   const v = new THREE.Vector3();
-  for (const seg of panel) {
+  for (const seg of panel.segments) {
     const bb = seg.manifold.boundingBox();
     for (let i = 0; i < 8; i++) {
       v.set(
@@ -786,10 +809,9 @@ function rotationMatrixAboutPoint(axis, angle, pivot) {
 function stageMatrixAtProgress(stage, progress) {
   if (stage.type === 'rotation') {
     return rotationMatrixAboutPoint(stage.axis, stage.angle * progress, stage.pivot);
-  } else { // translation
-    const d = stage.delta.clone().multiplyScalar(progress);
-    return new THREE.Matrix4().makeTranslation(d.x, d.y, d.z);
   }
+  const d = stage.delta.clone().multiplyScalar(progress);
+  return new THREE.Matrix4().makeTranslation(d.x, d.y, d.z);
 }
 
 function fmtAxis(v) {
@@ -804,74 +826,14 @@ function stageStatus(stage, progress) {
   if (stage.type === 'rotation') {
     const deg = stage.angle * progress * 180 / Math.PI;
     return `${stage.label}: ${deg.toFixed(1)}° about ${fmtAxis(stage.axis)} axis`;
-  } else {
-    const d = stage.delta.clone().multiplyScalar(progress);
-    return `${stage.label}: Δ=(${d.x.toFixed(1)}, ${d.y.toFixed(1)}, ${d.z.toFixed(1)}) mm`;
   }
-}
-
-// Join two strip assemblies at the selected faces using arbitrary-orientation geometry.
-// selA/selB: face objects with { normal, centroid, u, v, width, height, rotate, ... }
-// flipAxis: 'x'/'y'/'z' or null. Required when normals are parallel.
-function joinStrips(stripA, stripB, selA, selB, flipAxis) {
-  // Step 1: in-plane rotation of stripA if selA.rotate
-  let workA;
-  if (selA.rotate) {
-    workA = rotatePanelAboutAxis(stripA, selA.normal, Math.PI, selA.centroid);
-  } else {
-    workA = translatePanel(stripA, 0, 0, 0); // clone
-  }
-  const faceA = selA; // unchanged by rotation about its own normal through its centroid
-
-  // Step 2: in-plane rotation of stripB if selB.rotate
-  let workB;
-  if (selB.rotate) {
-    workB = rotatePanelAboutAxis(stripB, selB.normal, Math.PI, selB.centroid);
-  } else {
-    workB = translatePanel(stripB, 0, 0, 0);
-  }
-  const faceB = selB;
-
-  // Step 3: rotate workB so its face normal becomes antiparallel to workA's face normal.
-  const targetNormal = faceA.normal.clone().negate();
-  const currentNormal = faceB.normal.clone();
-  const dot = currentNormal.dot(targetNormal);
-
-  let rotated2 = workB;
-  if (dot < 0.9999) {
-    let axis, angle;
-    if (dot < -0.9999) {
-      // Parallel normals (since target = -faceA.normal and current = faceB.normal,
-      // dot < -0.9999 means faceA.normal ≈ faceB.normal — both point the same way).
-      // Need to flip 180° about the user-chosen axis (must be perpendicular to normal).
-      if (!flipAxis) {
-        throw new Error('parallel normals require a flip axis');
-      }
-      axis = new THREE.Vector3(
-        flipAxis === 'x' ? 1 : 0,
-        flipAxis === 'y' ? 1 : 0,
-        flipAxis === 'z' ? 1 : 0
-      );
-      angle = Math.PI;
-    } else {
-      axis = new THREE.Vector3().crossVectors(currentNormal, targetNormal).normalize();
-      angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-    }
-    rotated2 = rotatePanelAboutAxis(workB, axis, angle, faceB.centroid);
-    workB.forEach(s => s.manifold.delete());
-  }
-
-  // Step 4: translate rotated2 so its face centroid matches workA's face centroid
-  const delta = new THREE.Vector3().subVectors(faceA.centroid, faceB.centroid);
-  const finalB = translatePanel(rotated2, delta.x, delta.y, delta.z);
-  rotated2.forEach(s => s.manifold.delete());
-
-  return [...workA, ...finalB];
+  const d = stage.delta.clone().multiplyScalar(progress);
+  return `${stage.label}: Δ=(${d.x.toFixed(1)}, ${d.y.toFixed(1)}, ${d.z.toFixed(1)}) mm`;
 }
 
 // ─── Build pipeline from angle ────────────────────────────────────
 
-// Track current cut results for cleanup
+// Track current cut results for cleanup. Each is a Panel (or null).
 let currentStripAbove = null, currentStripBelow = null;
 
 function rebuild(angleDeg) {
@@ -880,42 +842,40 @@ function rebuild(angleDeg) {
   const rad = angleDeg * Math.PI / 180;
   const nx = Math.sin(rad), nz = -Math.cos(rad);
 
-  // Clean up previous cut manifolds
-  if (currentStripAbove) currentStripAbove.forEach(s => s.manifold.delete());
-  if (currentStripBelow) currentStripBelow.forEach(s => s.manifold.delete());
+  // Dispose previous cut manifolds
+  if (currentStripAbove) currentStripAbove.dispose();
+  if (currentStripBelow) currentStripBelow.dispose();
 
   step1_top.clear();
   step1_bot.clear();
   step2_panel.clear();
 
-  // ── Step 1: Cut each segment with the plane ──
-  const { above, below } = cutPanel(initialPanel, [nx, 0, nz], 0);
+  // ── Step 1: Cut initial panel with the plane ──
+  const { above, below } = initialPanel.cut([nx, 0, nz], 0);
   currentStripAbove = above;
   currentStripBelow = below;
 
   renderPanel(above, step1_top);
   renderPanel(below, step1_bot);
 
-  // Push strips apart by a fixed amount along the cut normal
+  // Display-only separation — pushes strips apart along the cut normal in
+  // the cut view. Never baked into manifold state.
   const planeN = new THREE.Vector3(nx, 0, nz);
   const sep = 150;
   step1_top.position.copy(planeN.clone().multiplyScalar(sep));
   step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
 
-  // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // Update bounding boxes
   bbStripA.box.setFromObject(step1_top);
   bbStripB.box.setFromObject(step1_bot);
 
-  // Reset face selections for strips A/B since geometry changed
   setStripSelection('A', null);
   setStripSelection('B', null);
   flipAxis1 = null;
   updateJoinButton();
 
-  console.log(`Cut at ${angleDeg}°: strip A = ${above.length} segs, strip B = ${below.length} segs`);
+  console.log(`Cut at ${angleDeg}°: strip A = ${above.size} segs, strip B = ${below.size} segs`);
 }
 
 // ─── Slider ───────────────────────────────────────────────────────
@@ -955,15 +915,14 @@ document.querySelectorAll('.flip-btn').forEach(btn => {
 });
 
 document.getElementById('join2-btn').addEventListener('click', () => {
-  if (selectionC === null || selectionD === null) return;
-  if (!currentStripC || !currentStripD) return;
+  if (!selectionC || !selectionD || !currentStripC || !currentStripD) return;
 
-  startJoinAnimation(2, currentStripC, currentStripD, selectionC, selectionD, flipAxis2, (finalAssembly) => {
-    if (panel4) panel4.forEach(s => s.manifold.delete());
-    panel4 = finalAssembly;
+  playJoinAnimation(2, currentStripC, currentStripD, selectionC, selectionD, flipAxis2, (finalPanel) => {
+    if (panel4) panel4.dispose();
+    panel4 = finalPanel;
     bbPanel4.box.setFromObject(step4_panel);
     const sz = new THREE.Vector3(); bbPanel4.box.getSize(sz);
-    console.log(`Joined panel4: ${panel4.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+    console.log(`Joined panel4: ${panel4.size} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
   });
 });
 
@@ -1204,9 +1163,9 @@ let currentAngleB = 7;
 function rebuildCut2() {
   if (!panel2) return;
 
-  // Clean up previous cut strips
-  if (currentStripC) currentStripC.forEach(s => s.manifold.delete());
-  if (currentStripD) currentStripD.forEach(s => s.manifold.delete());
+  // Dispose previous cut strips
+  if (currentStripC) currentStripC.dispose();
+  if (currentStripD) currentStripD.dispose();
 
   step3_top.clear();
   step3_bot.clear();
@@ -1216,32 +1175,27 @@ function rebuildCut2() {
   const nx = Math.sin(rad), nz = -Math.cos(rad);
   const planeN = new THREE.Vector3(nx, 0, nz);
 
-  // Cut panel2 with the second plane
-  const { above, below } = cutPanel(panel2, [nx, 0, nz], 0);
+  const { above, below } = panel2.cut([nx, 0, nz], 0);
   currentStripC = above;
   currentStripD = below;
 
-  // Render strips with offset for visual separation
   renderPanel(above, step3_top);
   renderPanel(below, step3_bot);
   const sep = 150;
   step3_top.position.copy(planeN.clone().multiplyScalar(sep));
   step3_bot.position.copy(planeN.clone().multiplyScalar(-sep));
 
-  // Update plane B viz position/rotation
   pvB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // Update bounding boxes
   bbStripC.box.setFromObject(step3_top);
   bbStripD.box.setFromObject(step3_bot);
 
-  // Reset face selections for strips C/D since geometry changed
   setStripSelection('C', null);
   setStripSelection('D', null);
   flipAxis2 = null;
   updateJoin2Button();
 
-  console.log(`Cut 2 at ${currentAngleB}°: strip C = ${above.length} segs, strip D = ${below.length} segs`);
+  console.log(`Cut 2 at ${currentAngleB}°: strip C = ${above.size} segs, strip D = ${below.size} segs`);
 }
 
 function updateJoin2Button() {
@@ -1256,117 +1210,137 @@ function updateJoin2Button() {
 
 // ─── Join animation ───────────────────────────────────────────────
 //
-// Animates the join stages in series instead of applying the full transform
-// instantly. The user sees each rotation/translation play out, with a status
-// footer on the join's tile showing what's currently happening.
+// The animation is a series of keyframes. At each frame we bake the
+// current transform into a fresh Panel via manifold.transform and render
+// that Panel. The manifold is the source of truth on every frame — there
+// is no Three.js matrix state that needs to be baked back at the end.
+// Consequence: the final frame's Panel IS the final state of the join,
+// and handing it off to the caller cannot disagree with what was on
+// screen.
 
 let joinAnim = null;
 const STAGE_DURATION_MS = 2000;
 
-function startJoinAnimation(which, stripAbove, stripBelow, selA, selB, flipAxis, onComplete) {
-  const stages = computeJoinStages(stripAbove, stripBelow, selA, selB, flipAxis);
+function cancelJoinAnim() {
+  if (!joinAnim) return;
+  if (joinAnim.rafId) cancelAnimationFrame(joinAnim.rafId);
+  if (joinAnim.currentA) joinAnim.currentA.dispose();
+  if (joinAnim.currentB) joinAnim.currentB.dispose();
+  joinAnim = null;
+}
 
-  // Cancel any running animation
-  if (joinAnim) joinAnim = null;
+function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) {
+  cancelJoinAnim();
 
-  // Build Three.js groups for the two strips in the target tile. These will
-  // get their matrix updated each frame.
+  const stages = buildJoinStages(srcA, srcB, selA, selB, flipAxis);
+
   const panelGroup = which === 1 ? step2_panel : step4_panel;
   panelGroup.clear();
-  const animA = new THREE.Group();
-  const animB = new THREE.Group();
-  renderPanel(stripAbove, animA);
-  renderPanel(stripBelow, animB);
-  animA.matrixAutoUpdate = false;
-  animB.matrixAutoUpdate = false;
-  panelGroup.add(animA);
-  panelGroup.add(animB);
+  const gA = new THREE.Group();
+  const gB = new THREE.Group();
+  panelGroup.add(gA);
+  panelGroup.add(gB);
 
   const statusEl = document.getElementById(which === 1 ? 'join1-status' : 'join2-status');
   statusEl.style.display = 'block';
 
-  joinAnim = {
-    which,
-    stages,
-    stripAbove, stripBelow,
-    animA, animB,
-    stageIdx: 0,
-    stageStartTime: performance.now(),
-    accA: new THREE.Matrix4(),
-    accB: new THREE.Matrix4(),
-    statusEl,
-    onComplete,
-  };
-
-  // If no stages (degenerate: identical faces), finalize immediately
-  if (stages.length === 0) finalizeJoinAnimation();
-}
-
-function updateJoinAnimation(now) {
-  if (!joinAnim) return;
-
-  const stage = joinAnim.stages[joinAnim.stageIdx];
-  if (!stage) {
-    finalizeJoinAnimation();
+  // Degenerate: no stages (identical faces). Clone and hand off.
+  if (stages.length === 0) {
+    const a = srcA.clone(), b = srcB.clone();
+    renderPanel(a, gA);
+    renderPanel(b, gB);
+    statusEl.textContent = `join complete (${a.size + b.size} segments)`;
+    setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+    onComplete(a.concat(b));
     return;
   }
 
-  const elapsed = now - joinAnim.stageStartTime;
+  // Pre-compute accumulated matrices at the START of each stage for A and B.
+  // preAcc[i] = composition of all stages j < i that affect that group.
+  const preAccA = [new THREE.Matrix4()];
+  const preAccB = [new THREE.Matrix4()];
+  for (let i = 0; i < stages.length; i++) {
+    const s = stages[i];
+    const a = preAccA[i].clone();
+    const b = preAccB[i].clone();
+    const m = stageMatrixAtProgress(s, 1);
+    if (s.group === 'A' || s.group === 'BOTH') a.premultiply(m);
+    if (s.group === 'B' || s.group === 'BOTH') b.premultiply(m);
+    preAccA.push(a);
+    preAccB.push(b);
+  }
+
+  joinAnim = {
+    which, srcA, srcB, stages, preAccA, preAccB,
+    gA, gB, statusEl,
+    stageIdx: 0, stageStart: performance.now(),
+    currentA: null, currentB: null, // Panels rendered last frame (to dispose)
+    onComplete, rafId: null,
+  };
+
+  joinAnim.rafId = requestAnimationFrame(joinAnimFrame);
+}
+
+function joinAnimFrame(now) {
+  if (!joinAnim) return;
+  const { srcA, srcB, stages, preAccA, preAccB, gA, gB, statusEl } = joinAnim;
+
+  // Finished all stages — currentA/B hold the final geometry. Hand it off.
+  if (joinAnim.stageIdx >= stages.length) {
+    const finalPanel = joinAnim.currentA.concat(joinAnim.currentB);
+    // Ownership of segment manifolds transfers to finalPanel; don't dispose.
+    joinAnim.currentA = null;
+    joinAnim.currentB = null;
+    statusEl.textContent = `join complete (${finalPanel.size} segments)`;
+    setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+    const cb = joinAnim.onComplete;
+    joinAnim = null;
+    cb(finalPanel);
+    return;
+  }
+
+  const stage = stages[joinAnim.stageIdx];
+  const elapsed = now - joinAnim.stageStart;
   const progress = Math.min(elapsed / STAGE_DURATION_MS, 1);
 
   const stageMat = stageMatrixAtProgress(stage, progress);
+  const matA = preAccA[joinAnim.stageIdx].clone();
+  const matB = preAccB[joinAnim.stageIdx].clone();
+  if (stage.group === 'A' || stage.group === 'BOTH') matA.premultiply(stageMat);
+  if (stage.group === 'B' || stage.group === 'BOTH') matB.premultiply(stageMat);
 
-  // Apply the current stage matrix to the affected group(s)
-  if (stage.group === 'A' || stage.group === 'BOTH') {
-    const fullA = new THREE.Matrix4().multiplyMatrices(stageMat, joinAnim.accA);
-    joinAnim.animA.matrix.copy(fullA);
-  }
-  if (stage.group === 'B' || stage.group === 'BOTH') {
-    const fullB = new THREE.Matrix4().multiplyMatrices(stageMat, joinAnim.accB);
-    joinAnim.animB.matrix.copy(fullB);
-  }
+  // Bake this frame's transforms into fresh Panels — the rendered mesh IS
+  // the manifold geometry at this progress.
+  const newA = srcA.transform(matA);
+  const newB = srcB.transform(matB);
 
-  joinAnim.statusEl.textContent = stageStatus(stage, progress);
+  renderPanel(newA, gA);
+  renderPanel(newB, gB);
+
+  if (joinAnim.currentA) joinAnim.currentA.dispose();
+  if (joinAnim.currentB) joinAnim.currentB.dispose();
+  joinAnim.currentA = newA;
+  joinAnim.currentB = newB;
+
+  statusEl.textContent = stageStatus(stage, progress);
 
   if (progress >= 1) {
-    const finalMat = stageMatrixAtProgress(stage, 1);
-    if (stage.group === 'A' || stage.group === 'BOTH') joinAnim.accA.premultiply(finalMat);
-    if (stage.group === 'B' || stage.group === 'BOTH') joinAnim.accB.premultiply(finalMat);
     joinAnim.stageIdx++;
-    joinAnim.stageStartTime = now;
+    joinAnim.stageStart = now;
   }
-}
 
-function finalizeJoinAnimation() {
-  const { which, stripAbove, stripBelow, accA, accB, onComplete, statusEl } = joinAnim;
-
-  // Apply the final accumulated matrices (centering already baked into accA/accB).
-  const finalA = transformPanel(stripAbove, accA);
-  const finalB = transformPanel(stripBelow, accB);
-  const joined = [...finalA, ...finalB];
-
-  statusEl.textContent = `join complete (${joined.length} segments)`;
-  setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
-
-  const panelGroup = which === 1 ? step2_panel : step4_panel;
-  panelGroup.clear();
-  renderPanel(joined, panelGroup);
-
-  onComplete(joined);
-
-  joinAnim = null;
+  joinAnim.rafId = requestAnimationFrame(joinAnimFrame);
 }
 
 document.getElementById('join-btn').addEventListener('click', () => {
-  if (selectionA === null || selectionB === null) return;
-  if (!currentStripAbove || !currentStripBelow) return;
+  if (!selectionA || !selectionB || !currentStripAbove || !currentStripBelow) return;
 
-  startJoinAnimation(1, currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1, (finalAssembly) => {
-    if (panel2) panel2.forEach(s => s.manifold.delete());
-    panel2 = finalAssembly;
+  playJoinAnimation(1, currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1, (finalPanel) => {
+    if (panel2) panel2.dispose();
+    panel2 = finalPanel;
     bbPanel2.box.setFromObject(step2_panel);
     const sz = new THREE.Vector3(); bbPanel2.box.getSize(sz);
-    console.log(`Joined panel2: ${panel2.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+    console.log(`Joined panel2: ${panel2.size} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
     rebuildCut2();
   });
 });
@@ -1449,7 +1423,6 @@ function renderViewport(x, y, w, h, viewName, bg) {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-  updateJoinAnimation(performance.now());
 
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
