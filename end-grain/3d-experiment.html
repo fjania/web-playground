@@ -89,6 +89,15 @@
     cursor: pointer; text-transform: uppercase;
   }
   .view-quick-btns button:hover { background: #3d3835; color: #e4cc8f; }
+  button.mode-btn {
+    flex: 1; padding: 3px; background: #2d3a4a; color: #a8a29e;
+    border: 1px solid #3d4a5a; border-radius: 3px;
+    font-family: inherit; font-size: 9px; cursor: pointer;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  button.mode-btn.selected { background: #2d5a8a; color: #e4cc8f; border-color: #4d7aaa; }
+  button.mode-btn:not(.selected):hover { background: #3d4a5a; }
+  .ctrl-panel .shift-val { color: #e4cc8f; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -108,17 +117,38 @@
   <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
     <input type="checkbox" id="offcuts-cb" checked> show offcuts
   </label>
-  <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
-  <button id="join-btn" class="join-btn" disabled>join selected faces</button>
-  <div id="flip-axis-row" style="display:none; margin-top:6px;">
-    <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
-    <div style="display:flex; gap:4px;">
-      <button class="flip-btn" data-pair="1" data-axis="x">X</button>
-      <button class="flip-btn" data-pair="1" data-axis="y">Y</button>
-      <button class="flip-btn" data-pair="1" data-axis="z">Z</button>
+  <div style="margin-top:10px; padding-top:8px; border-top:1px solid #3d3835; font-size:9px; color:#a8a29e;">arrangement</div>
+  <div class="mode-switch" style="display:flex; gap:4px; margin-top:4px;">
+    <button class="mode-btn selected" data-view="1" data-mode="pattern">pattern</button>
+    <button class="mode-btn" data-view="1" data-mode="custom">custom</button>
+  </div>
+  <div class="pattern-ctrls" data-view="1" style="margin-top:6px;">
+    <select class="pattern-select" data-view="1"
+            style="width:100%; background:#2a2622; color:#e4cc8f; border:1px solid #3d3835; border-radius:3px; padding:3px; font-family:inherit; font-size:10px;">
+      <option value="identity">identity (reassemble)</option>
+      <option value="flipAlternate" selected>flipAlternate (checker)</option>
+      <option value="rotateAlternate">rotateAlternate</option>
+      <option value="shiftAlternate">shiftAlternate (running bond)</option>
+      <option value="mirrorAlternate">mirrorAlternate (chevron)</option>
+    </select>
+    <div class="shift-row" data-view="1" style="display:none; margin-top:6px;">
+      <label>shift: <span class="shift-val" data-view="1" class="angle-val">25mm</span></label>
+      <input type="range" class="shift-slider" data-view="1" min="-200" max="200" step="5" value="25">
     </div>
   </div>
-  <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
+  <div class="custom-ctrls" data-view="1" style="display:none; margin-top:6px;">
+    <div style="font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
+    <button id="join-btn" class="join-btn" disabled>join selected faces</button>
+    <div id="flip-axis-row" style="display:none; margin-top:6px;">
+      <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
+      <div style="display:flex; gap:4px;">
+        <button class="flip-btn" data-pair="1" data-axis="x">X</button>
+        <button class="flip-btn" data-pair="1" data-axis="y">Y</button>
+        <button class="flip-btn" data-pair="1" data-axis="z">Z</button>
+      </div>
+    </div>
+    <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
+  </div>
 </div>
 <div id="controls2" class="ctrl-panel">
   <label>cut B &mdash; rip: <span id="rip-b-val" class="angle-val">0°</span></label>
@@ -1133,9 +1163,29 @@ function applyOffcutVisibility() {
 // ─── Sliders ───────────────────────────────────────────────────────
 
 let currentRipA = 0, currentBevelA = 90, currentCountA = 8, currentPitchA = 50;
+// Arrangement state for view 1.
+let modeA = 'pattern'; // 'pattern' | 'custom'
+let patternA = 'flipAlternate';
+let shiftA = 25;
 
 function rebuildA() {
   rebuild(currentRipA, currentBevelA, currentCountA, currentPitchA);
+  if (modeA === 'pattern') applyPatternA();
+}
+
+// Apply the current arrangement pattern to slicesA, rendering the result
+// into step2_panel and updating the downstream panel2.
+function applyPatternA() {
+  if (!slicesA.length) return;
+  if (panel2) { panel2.dispose(); panel2 = null; }
+  step2_panel.clear();
+  const planeN = planeNormal(currentRipA, currentBevelA);
+  const result = applyArrangement(slicesA, patternA, planeN, currentPitchA, { shift: shiftA });
+  if (!result) return;
+  panel2 = result;
+  renderPanel(panel2, step2_panel);
+  bbPanel2.box.setFromObject(step2_panel);
+  if (typeof rebuildCut2 === 'function') rebuildCut2();
 }
 
 const ripSlider = document.getElementById('rip-slider');
@@ -1171,6 +1221,50 @@ pitchSlider.addEventListener('input', () => {
 });
 
 document.getElementById('offcuts-cb').addEventListener('change', applyOffcutVisibility);
+
+// Mode switch: pattern vs custom (view 1).
+function setModeA(mode) {
+  modeA = mode;
+  document.querySelectorAll('.mode-btn[data-view="1"]').forEach(b => {
+    b.classList.toggle('selected', b.dataset.mode === mode);
+  });
+  document.querySelector('.pattern-ctrls[data-view="1"]').style.display = (mode === 'pattern') ? 'block' : 'none';
+  document.querySelector('.custom-ctrls[data-view="1"]').style.display = (mode === 'custom') ? 'block' : 'none';
+  if (mode === 'pattern') {
+    applyPatternA();
+  } else {
+    // In custom mode, clear the pattern-generated panel2 so user starts fresh.
+    if (panel2) { panel2.dispose(); panel2 = null; }
+    step2_panel.clear();
+    if (typeof rebuildCut2 === 'function') rebuildCut2();
+  }
+}
+document.querySelectorAll('.mode-btn[data-view="1"]').forEach(btn => {
+  btn.addEventListener('click', () => setModeA(btn.dataset.mode));
+});
+
+// Pattern select + shift slider (view 1).
+const patternSelectA = document.querySelector('.pattern-select[data-view="1"]');
+const shiftRowA = document.querySelector('.shift-row[data-view="1"]');
+const shiftSliderA = document.querySelector('.shift-slider[data-view="1"]');
+const shiftValA = document.querySelector('.shift-val[data-view="1"]');
+
+function updateShiftVisibility() {
+  shiftRowA.style.display = (patternA === 'shiftAlternate') ? 'block' : 'none';
+}
+
+patternSelectA.value = patternA;
+patternSelectA.addEventListener('change', () => {
+  patternA = patternSelectA.value;
+  updateShiftVisibility();
+  applyPatternA();
+});
+shiftSliderA.addEventListener('input', () => {
+  shiftA = parseInt(shiftSliderA.value, 10);
+  shiftValA.textContent = `${shiftA}mm`;
+  if (patternA === 'shiftAlternate') applyPatternA();
+});
+updateShiftVisibility();
 
 let currentRipB = 0, currentBevelB = 90;
 
