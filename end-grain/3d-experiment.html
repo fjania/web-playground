@@ -139,21 +139,48 @@ function makeHalfSpace(normal, constant, mat) {
   return b;
 }
 
+// ─── Build initial panel (one-time union of all segments) ─────────
+
+console.log('Building initial panel...');
+let panel;
+{
+  let acc = null;
+  for (let i = 0; i < cubeCount; i++) {
+    const x = i * segW - halfLen + segW / 2;
+    const y = segH / 2;
+    const isMaple = i % 2 === 0;
+    const mats = isMaple ? mapleMats : walnutMats;
+    const seg = new Brush(new THREE.BoxGeometry(segW, segH, segD), mats);
+    seg.position.set(x, y, 0);
+    seg.updateMatrixWorld();
+    if (!acc) {
+      acc = seg;
+    } else {
+      acc = evaluator.evaluate(acc, seg, ADDITION);
+      acc.updateMatrixWorld();
+    }
+  }
+  panel = acc;
+  const bb = new THREE.Box3().setFromObject(panel);
+  const sz = new THREE.Vector3(); bb.getSize(sz);
+  console.log(`Initial panel: ${panel.geometry.index.count / 3} tris, bounds: ${sz.x.toFixed(0)} × ${sz.y.toFixed(0)} × ${sz.z.toFixed(0)}`);
+}
+
 // ─── Groups (persistent across rebuilds) ──────────────────────────
 
-const step1_top = new THREE.Group();
-const step1_bot = new THREE.Group();
+const step1_top = new THREE.Group(); // strip A (above cut plane)
+const step1_bot = new THREE.Group(); // strip B (below cut plane)
 scene.add(step1_top);
 scene.add(step1_bot);
 
 const pvA = new THREE.Mesh(
-  new THREE.PlaneGeometry(520, 150),
+  new THREE.PlaneGeometry(2000, 600),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvA);
 
-const step2_union = new THREE.Group();
-scene.add(step2_union);
+const step2_panel = new THREE.Group(); // rejoined panel
+scene.add(step2_panel);
 
 // ─── Build pipeline from angle ────────────────────────────────────
 
@@ -165,29 +192,25 @@ function rebuild(angleDeg) {
   // Clear previous geometry
   step1_top.clear();
   step1_bot.clear();
-  step2_union.clear();
+  step2_panel.clear();
 
-  // ── Step 1: Cut each cube with the plane ──
-  for (let i = 0; i < cubeCount; i++) {
-    const x = i * segW - halfLen + segW / 2;
-    const y = segH / 2;
-    const isMaple = i % 2 === 0;
-    const mats = isMaple ? mapleMats : walnutMats;
-    const cutMat = isMaple ? mapleCut : walnutCut;
-    const hs = makeHalfSpace(planeN, planeD, cutMat);
+  // ── Step 1: Cut the panel into two strips ──
+  const cutMat = new THREE.MeshStandardMaterial({ color: 0xaa8855, roughness: 0.7 });
+  const hs = makeHalfSpace(planeN, planeD, cutMat);
 
-    const c1 = new Brush(new THREE.BoxGeometry(segW, segH, segD), mats);
-    c1.position.set(x, y, 0); c1.updateMatrixWorld();
-    const top = evaluator.evaluate(c1, hs, SUBTRACTION);
-    top.castShadow = true; step1_top.add(top);
+  const panelBrush1 = new Brush(panel.geometry.clone(), panel.material);
+  panelBrush1.updateMatrixWorld();
+  const stripA = evaluator.evaluate(panelBrush1, hs, SUBTRACTION);
+  stripA.castShadow = true;
+  step1_top.add(stripA);
 
-    const c2 = new Brush(new THREE.BoxGeometry(segW, segH, segD), mats);
-    c2.position.set(x, y, 0); c2.updateMatrixWorld();
-    const bot = evaluator.evaluate(c2, hs, INTERSECTION);
-    bot.castShadow = true; step1_bot.add(bot);
-  }
+  const panelBrush2 = new Brush(panel.geometry.clone(), panel.material);
+  panelBrush2.updateMatrixWorld();
+  const stripB = evaluator.evaluate(panelBrush2, hs, INTERSECTION);
+  stripB.castShadow = true;
+  step1_bot.add(stripB);
 
-  // Separate halves along the cut normal for left viewport
+  // Separate strips along the cut normal for left viewport
   const sep = 20;
   step1_top.position.copy(planeN.clone().multiplyScalar(sep));
   step1_bot.position.copy(planeN.clone().multiplyScalar(-sep));
@@ -195,64 +218,50 @@ function rebuild(angleDeg) {
   // Update plane viz
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
 
-  // ── Step 2: Combine — slide top half along Z, then union ──
-  // Collect all meshes with world transforms baked in, applying the Z offset
-  // so uncut faces touch.
-  const allMeshes = [];
-
-  // Top half: offset in +Z so its min-Z face meets bot's max-Z face
-  step1_top.updateMatrixWorld(true);
-  const bbTopTemp = new THREE.Box3().setFromObject(step1_top);
-  const bbBotTemp = new THREE.Box3().setFromObject(step1_bot);
-  // Remove separation offset for the combine calculation
-  const topMinZ = bbTopTemp.min.z - sep * planeN.z;
-  const botMaxZ = bbBotTemp.max.z + sep * planeN.z;
-  const zOffset = botMaxZ - topMinZ;
-
-  // Collect top half meshes with Z offset
-  step1_top.children.forEach(mesh => {
+  // ── Step 2: Rejoin strips into a new panel ──
+  // Use the same Z-offset approach: slide strip A so its uncut face
+  // meets strip B's uncut face.
+  function cloneBaked(mesh) {
     const geo = mesh.geometry.clone();
     const m4 = new THREE.Matrix4();
     m4.compose(mesh.position, mesh.quaternion, mesh.scale);
     geo.applyMatrix4(m4);
-    // Apply Z offset
-    const pos = geo.attributes.position;
-    for (let v = 0; v < pos.count; v++) {
-      pos.setZ(v, pos.getZ(v) + zOffset);
-    }
-    pos.needsUpdate = true;
-    allMeshes.push({ geo, material: mesh.material });
-  });
-
-  // Collect bottom half meshes at original positions
-  step1_bot.children.forEach(mesh => {
-    const geo = mesh.geometry.clone();
-    const m4 = new THREE.Matrix4();
-    m4.compose(mesh.position, mesh.quaternion, mesh.scale);
-    geo.applyMatrix4(m4);
-    allMeshes.push({ geo, material: mesh.material });
-  });
-
-  // Union all meshes
-  console.log(`Rebuilding: angle=${angleDeg}°, unioning ${allMeshes.length} meshes...`);
-  let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
-  result.updateMatrixWorld();
-
-  for (let i = 1; i < allMeshes.length; i++) {
-    const b = new Brush(allMeshes[i].geo, allMeshes[i].material);
-    b.updateMatrixWorld();
-    result = evaluator.evaluate(result, b, ADDITION);
-    result.updateMatrixWorld();
+    return geo;
   }
 
+  const geoA = cloneBaked(stripA);
+  const geoB = cloneBaked(stripB);
+  geoA.computeBoundingBox();
+  geoB.computeBoundingBox();
+
+  const topMinZ = geoA.boundingBox.min.z;
+  const botMaxZ = geoB.boundingBox.max.z;
+  const zOffset = botMaxZ - topMinZ;
+
+  // Apply Z offset to strip A
+  const pos = geoA.attributes.position;
+  for (let v = 0; v < pos.count; v++) {
+    pos.setZ(v, pos.getZ(v) + zOffset);
+  }
+  pos.needsUpdate = true;
+
+  // Union the two strips into a panel
+  console.log(`Rebuilding: angle=${angleDeg}°, unioning 2 strips...`);
+  const brushA = new Brush(geoA, stripA.material);
+  brushA.updateMatrixWorld();
+  const brushB = new Brush(geoB, stripB.material);
+  brushB.updateMatrixWorld();
+  const result = evaluator.evaluate(brushA, brushB, ADDITION);
+  result.updateMatrixWorld();
+
   result.castShadow = true;
-  step2_union.add(result);
+  step2_panel.add(result);
 
   // Log result
   const bb = new THREE.Box3().setFromObject(result);
   const sz = new THREE.Vector3(); bb.getSize(sz);
   const tris = result.geometry.index ? result.geometry.index.count / 3 : 0;
-  console.log(`Union: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
+  console.log(`Panel 2: ${tris} tris, bounds: ${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)}`);
 }
 
 // Initial build
@@ -308,7 +317,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups = inLeft ? [step1_top, step1_bot] : [step2_union];
+  const groups = inLeft ? [step1_top, step1_bot] : [step2_panel];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -394,7 +403,7 @@ function animate() {
   // ── Left: Step 1 (cut halves separated + plane viz) ──
   step1_top.visible = true; step1_bot.visible = true;
   pvA.visible = true;
-  step2_union.visible = false;
+  step2_panel.visible = false;
 
   renderer.setViewport(0, 0, halfW, H);
   renderer.setScissor(0, 0, halfW, H);
@@ -411,7 +420,7 @@ function animate() {
   // ── Right: Step 2 (union) ──
   step1_top.visible = false; step1_bot.visible = false;
   pvA.visible = false;
-  step2_union.visible = true;
+  step2_panel.visible = true;
 
   renderer.setViewport(halfW, 0, W - halfW, H);
   renderer.setScissor(halfW, 0, W - halfW, H);
