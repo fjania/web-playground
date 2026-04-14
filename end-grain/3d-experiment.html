@@ -29,19 +29,27 @@
   #statusbar .label { color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
   #statusbar .val { color: #e4cc8f; }
   #statusbar .dim { color: #555; }
-  #controls {
-    position: fixed; top: 10px; right: calc(50% + 10px); z-index: 10;
+  .ctrl-panel {
+    position: fixed; z-index: 10;
     background: rgba(28,25,23,0.92); border: 1px solid #3d3835;
     border-radius: 6px; padding: 12px 16px;
     color: #a8a29e; font-size: 10px;
   }
-  #join-btn:disabled { opacity: 0.4; cursor: default; }
-  #join-btn:not(:disabled):hover { background: #3d7a37; }
-  #controls label { display: block; margin-bottom: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
-  #controls input[type="range"] {
+  #controls { top: 10px; right: calc(50% + 10px); }
+  #controls2 { top: calc(50% + 10px); right: calc(50% + 10px); }
+  button.join-btn:disabled { opacity: 0.4; cursor: default; }
+  button.join-btn:not(:disabled):hover { background: #3d7a37; }
+  button.join-btn {
+    margin-top:6px; width:100%; padding:6px; background:#2d5a27;
+    color:#e4cc8f; border:1px solid #3d5a37; border-radius:4px;
+    font-family:inherit; font-size:10px; letter-spacing:0.5px;
+    cursor:pointer; text-transform:uppercase;
+  }
+  .ctrl-panel label { display: block; margin-bottom: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .ctrl-panel input[type="range"] {
     width: 160px; accent-color: #b45309;
   }
-  #controls .angle-val { color: #e4cc8f; font-weight: bold; }
+  .ctrl-panel .angle-val { color: #e4cc8f; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -49,12 +57,19 @@
   <strong>End Grain — Cut + Combine</strong><br>
   left: diagonal cut &middot; right: joined
 </div>
-<div id="controls">
-  <label>cut angle: <span id="angle-val" class="angle-val">7°</span></label>
+<div id="controls" class="ctrl-panel">
+  <label>cut A angle: <span id="angle-val" class="angle-val">7°</span></label>
   <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
   <div style="margin-top:8px; font-size:9px; color:#78716c;">click a face on each strip to select join faces</div>
-  <button id="join-btn" disabled style="margin-top:6px; width:100%; padding:6px; background:#2d5a27; color:#e4cc8f; border:1px solid #3d5a37; border-radius:4px; font-family:inherit; font-size:10px; letter-spacing:0.5px; cursor:pointer; text-transform:uppercase;">join selected faces</button>
+  <button id="join-btn" class="join-btn" disabled>join selected faces</button>
   <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
+</div>
+<div id="controls2" class="ctrl-panel">
+  <label>cut B angle: <span id="angle-b-val" class="angle-val">7°</span></label>
+  <input type="range" id="angle-b-slider" min="-45" max="45" step="1" value="7">
+  <div style="margin-top:8px; font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
+  <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
+  <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -242,13 +257,36 @@ scene.add(pvA);
 const step2_panel = new THREE.Group();
 scene.add(step2_panel);
 
+// View 3 (second cut) — strips C and D
+const step3_top = new THREE.Group();
+const step3_bot = new THREE.Group();
+scene.add(step3_top);
+scene.add(step3_bot);
+
+// Plane viz for the second cut
+const pvB = new THREE.Mesh(
+  new THREE.PlaneGeometry(panelLen + 200, segD + 200),
+  new THREE.MeshBasicMaterial({ color: 0x2980b9, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
+);
+scene.add(pvB);
+
+// View 4 (second join) — final panel
+const step4_panel = new THREE.Group();
+scene.add(step4_panel);
+
 // Wireframe bounding boxes
 const bbStripA = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
 const bbStripB = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
 const bbPanel2 = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
+const bbStripC = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
+const bbStripD = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
+const bbPanel4 = new THREE.Box3Helper(new THREE.Box3(), 0x4488ff);
 scene.add(bbStripA);
 scene.add(bbStripB);
 scene.add(bbPanel2);
+scene.add(bbStripC);
+scene.add(bbStripD);
+scene.add(bbPanel4);
 
 // Clickable bounding box face planes (6 per strip)
 // State: 0 = off, 1 = selected, 2 = selected with rotation
@@ -287,11 +325,16 @@ function createFacePlanes(strip) {
 
 const facePlanesA = createFacePlanes('A');
 const facePlanesB = createFacePlanes('B');
+const facePlanesC = createFacePlanes('C');
+const facePlanesD = createFacePlanes('D');
 scene.add(facePlanesA);
 scene.add(facePlanesB);
+scene.add(facePlanesC);
+scene.add(facePlanesD);
 
 // Selection state: { faceIdx, rotate } per strip (null = none selected)
 let selectionA = null, selectionB = null;
+let selectionC = null, selectionD = null;
 
 // Hover tracker: which strip/panel is being hovered ('A', 'B', 'P', or null)
 let hoveredStrip = null;
@@ -438,33 +481,100 @@ function renderPanel(panel, group) {
   }
 }
 
-// Rotate a group 180° about the axis parallel to the given face's normal,
-// passing through the group's bounding box center. Bakes the rotation into
-// each child mesh's geometry so the group's transform remains identity.
-function applyFaceRotation(group, faceDef, enabled) {
-  if (!enabled) return;
-  const bb = new THREE.Box3().setFromObject(group);
-  const center = new THREE.Vector3(); bb.getCenter(center);
+// Compute the bounding box of a panel assembly by sampling manifold bounds
+function panelBoundingBox(panel) {
+  const bb = new THREE.Box3();
+  for (const seg of panel) {
+    const mbb = seg.manifold.boundingBox();
+    bb.expandByPoint(new THREE.Vector3(mbb.min[0], mbb.min[1], mbb.min[2]));
+    bb.expandByPoint(new THREE.Vector3(mbb.max[0], mbb.max[1], mbb.max[2]));
+  }
+  return bb;
+}
 
-  // Rotation axis in world: unit vector along faceDef.axis
+// Apply a 4x4 transform (as 16-element row-major array) to a manifold assembly
+function transformPanel(panel, matrix4) {
+  // manifold-3d .transform() takes a 3x4 matrix (12 elements, row-major, no perspective)
+  const m = matrix4.elements; // Three.js is column-major!
+  // Convert column-major to 3x4 row-major
+  const mat3x4 = [
+    m[0], m[4], m[8],  m[12],
+    m[1], m[5], m[9],  m[13],
+    m[2], m[6], m[10], m[14],
+  ];
+  return panel.map(seg => ({
+    manifold: seg.manifold.transform(mat3x4),
+    species: seg.species,
+  }));
+}
+
+// Rotate a panel assembly 180° about the axis parallel to the given face's normal,
+// through the panel's bounding box center.
+function rotatePanelAboutFace(panel, faceDef) {
+  const bb = panelBoundingBox(panel);
+  const center = new THREE.Vector3(); bb.getCenter(center);
   const axis = new THREE.Vector3(
     faceDef.axis === 'x' ? 1 : 0,
     faceDef.axis === 'y' ? 1 : 0,
     faceDef.axis === 'z' ? 1 : 0
   );
-
-  // Build a matrix: translate to origin, rotate 180° about axis, translate back
   const m = new THREE.Matrix4()
     .makeTranslation(-center.x, -center.y, -center.z);
   const rot = new THREE.Matrix4().makeRotationAxis(axis, Math.PI);
   const back = new THREE.Matrix4().makeTranslation(center.x, center.y, center.z);
   const full = back.multiply(rot).multiply(m);
+  const out = transformPanel(panel, full);
+  // Free old manifolds
+  panel.forEach(s => s.manifold.delete());
+  return out;
+}
 
-  group.children.forEach(mesh => {
-    mesh.geometry.applyMatrix4(full);
-    mesh.geometry.computeVertexNormals();
-    mesh.geometry.computeBoundingBox();
-  });
+// Translate a panel assembly
+function translatePanel(panel, tx, ty, tz) {
+  return panel.map(seg => ({
+    manifold: seg.manifold.translate([tx, ty, tz]),
+    species: seg.species,
+  }));
+}
+
+// Join two strip assemblies at the selected faces.
+// Returns a new panel assembly (array of {manifold, species}).
+function joinStrips(stripA, stripB, selA, selB) {
+  const defA = FACE_DEFS[selA.faceIdx];
+  const defB = FACE_DEFS[selB.faceIdx];
+
+  // Apply rotations if enabled
+  let workA = selA.rotate ? rotatePanelAboutFace(stripA, defA) : stripA.map(s => ({
+    manifold: s.manifold.translate([0, 0, 0]), // clone
+    species: s.species,
+  }));
+  let workB = selB.rotate ? rotatePanelAboutFace(stripB, defB) : stripB.map(s => ({
+    manifold: s.manifold.translate([0, 0, 0]), // clone
+    species: s.species,
+  }));
+
+  const bbA = panelBoundingBox(workA);
+  const bbB = panelBoundingBox(workB);
+  const faceAPos = defA.sign > 0 ? bbA.max[defA.axis] : bbA.min[defA.axis];
+  const faceBPos = defB.sign > 0 ? bbB.max[defB.axis] : bbB.min[defB.axis];
+
+  // Translation for strip B so its selected face meets strip A's
+  const centerA = new THREE.Vector3(); bbA.getCenter(centerA);
+  const centerB = new THREE.Vector3(); bbB.getCenter(centerB);
+  const offset = { x: 0, y: 0, z: 0 };
+  if (defA.axis === defB.axis) {
+    offset[defA.axis] = faceAPos - faceBPos;
+  }
+  for (const ax of ['x', 'y', 'z']) {
+    if (ax !== defA.axis) {
+      offset[ax] = centerA[ax] - centerB[ax];
+    }
+  }
+
+  const translatedB = translatePanel(workB, offset.x, offset.y, offset.z);
+  workB.forEach(s => s.manifold.delete());
+
+  return [...workA, ...translatedB];
 }
 
 // ─── Build pipeline from angle ────────────────────────────────────
@@ -525,6 +635,37 @@ slider.addEventListener('input', () => {
   rebuild(v);
 });
 
+const sliderB = document.getElementById('angle-b-slider');
+const angleBVal = document.getElementById('angle-b-val');
+
+sliderB.addEventListener('input', () => {
+  const v = parseInt(sliderB.value, 10);
+  angleBVal.textContent = `${v}°`;
+  currentAngleB = v;
+  if (panel2) rebuildCut2();
+});
+
+document.getElementById('join2-btn').addEventListener('click', () => {
+  if (selectionC === null || selectionD === null) return;
+  if (!currentStripC || !currentStripD) return;
+
+  let joined = joinStrips(currentStripC, currentStripD, selectionC, selectionD);
+  const bb = panelBoundingBox(joined);
+  const c = new THREE.Vector3(); bb.getCenter(c);
+  const centered = translatePanel(joined, -c.x, -c.y, -c.z);
+  joined.forEach(s => s.manifold.delete());
+
+  if (panel4) panel4.forEach(s => s.manifold.delete());
+  panel4 = centered;
+
+  step4_panel.clear();
+  renderPanel(panel4, step4_panel);
+  bbPanel4.box.setFromObject(step4_panel);
+
+  const sz = new THREE.Vector3(); bbPanel4.box.getSize(sz);
+  console.log(`Joined panel4: ${panel4.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+});
+
 // Start async init
 init();
 
@@ -562,16 +703,21 @@ controls.target.set(0, 25, 0);
 
 // ─── Layout ────────────────────────────────────────────────────────
 
-const dv = document.createElement('div'); dv.className = 'divider';
-dv.style.cssText = 'top:0; left:50%; width:1px; height:100%';
-document.body.appendChild(dv);
+function mkDivider(css) {
+  const d = document.createElement('div'); d.className = 'divider';
+  d.style.cssText = css; document.body.appendChild(d);
+}
+mkDivider('top:0; left:50%; width:1px; height:100%');
+mkDivider('top:50%; left:0; height:1px; width:100%');
 
 function mkLabel(txt, css) {
   const el = document.createElement('div'); el.className = 'step-label';
   el.textContent = txt; el.style.cssText = css; document.body.appendChild(el);
 }
-mkLabel('step 1: diagonal cut', 'top:8px; left:calc(25% - 50px)');
-mkLabel('step 2: joined', 'top:8px; left:calc(75% - 30px)');
+mkLabel('step 1: cut A', 'top:8px; left:calc(25% - 30px)');
+mkLabel('step 2: join 1', 'top:8px; left:calc(75% - 30px)');
+mkLabel('step 3: cut B', 'top:calc(50% + 8px); left:calc(25% - 30px)');
+mkLabel('step 4: join 2', 'top:calc(50% + 8px); left:calc(75% - 30px)');
 
 // ─── Hover / raycaster ─────────────────────────────────────────────
 
@@ -580,18 +726,36 @@ const mouse = new THREE.Vector2();
 const statusbar = document.getElementById('statusbar');
 let hoveredMesh = null, hoveredOrig = null;
 
-renderer.domElement.addEventListener('mousemove', (e) => {
+// Determine which viewport a client point is in (0=TL, 1=TR, 2=BL, 3=BR)
+function viewportFor(clientX, clientY) {
   const W = window.innerWidth, H = window.innerHeight;
-  const leftW = Math.floor(W / 2);
-  const inLeft = e.clientX < leftW;
-  let nx = inLeft
-    ? (e.clientX / leftW) * 2 - 1
-    : ((e.clientX - leftW) / (W - leftW)) * 2 - 1;
-  const ny = -(e.clientY / H) * 2 + 1;
+  const inLeft = clientX < W / 2;
+  const inTop = clientY < H / 2;
+  return (inTop ? 0 : 2) + (inLeft ? 0 : 1);
+}
+
+function viewportNDC(clientX, clientY) {
+  const W = window.innerWidth, H = window.innerHeight;
+  const halfW = Math.floor(W / 2), halfH = Math.floor(H / 2);
+  const vpIdx = viewportFor(clientX, clientY);
+  const vpX = (vpIdx & 1) * halfW;
+  const vpY = (vpIdx >> 1) * halfH;
+  const vpW = (vpIdx & 1) ? W - halfW : halfW;
+  const vpH = (vpIdx >> 1) ? H - halfH : halfH;
+  const nx = ((clientX - vpX) / vpW) * 2 - 1;
+  const ny = -((clientY - vpY) / vpH) * 2 + 1;
+  return { nx, ny, vpIdx };
+}
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+  const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups = inLeft ? [step1_top, step1_bot] : [step2_panel];
+  const groups = vpIdx === 0 ? [step1_top, step1_bot]
+    : vpIdx === 1 ? [step2_panel]
+    : vpIdx === 2 ? [step3_top, step3_bot]
+    : [step4_panel];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -611,8 +775,12 @@ renderer.domElement.addEventListener('mousemove', (e) => {
     }
     // Determine which strip/panel the hovered mesh belongs to
     let p = mesh.parent;
-    while (p && p !== step1_top && p !== step1_bot && p !== step2_panel) p = p.parent;
-    hoveredStrip = p === step1_top ? 'A' : p === step1_bot ? 'B' : p === step2_panel ? 'P' : null;
+    while (p && p !== step1_top && p !== step1_bot && p !== step2_panel
+             && p !== step3_top && p !== step3_bot && p !== step4_panel) p = p.parent;
+    hoveredStrip = p === step1_top ? 'A' : p === step1_bot ? 'B'
+      : p === step2_panel ? 'P'
+      : p === step3_top ? 'C' : p === step3_bot ? 'D'
+      : p === step4_panel ? 'P4' : null;
     const geo = mesh.geometry;
     const tris = geo.index ? geo.index.count / 3 : 0;
     const pt = hit.point;
@@ -653,34 +821,28 @@ renderer.domElement.addEventListener('mousemove', (e) => {
 // ─── Click handler for face selection ──────────────────────────────
 
 renderer.domElement.addEventListener('click', (e) => {
-  const W = window.innerWidth, H = window.innerHeight;
-  const leftW = Math.floor(W / 2);
-  if (e.clientX >= leftW) return; // only left viewport
+  const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
+  // Only TL (0) and BL (2) viewports have face selection
+  if (vpIdx !== 0 && vpIdx !== 2) return;
 
-  const nx = (e.clientX / leftW) * 2 - 1;
-  const ny = -(e.clientY / H) * 2 + 1;
   const clickMouse = new THREE.Vector2(nx, ny);
   const clickRay = new THREE.Raycaster();
   clickRay.setFromCamera(clickMouse, camera);
 
-  // Test against all face plane meshes
-  const allFaces = [...facePlanesA.children, ...facePlanesB.children];
+  // Test against the appropriate face planes for this viewport
+  const allFaces = vpIdx === 0
+    ? [...facePlanesA.children, ...facePlanesB.children]
+    : [...facePlanesC.children, ...facePlanesD.children];
   const hits = clickRay.intersectObjects(allFaces, false);
   if (hits.length === 0) return;
 
   const hit = hits[0].object;
   const strip = hit.userData.strip;
   const faceIdx = hit.userData.faceIdx;
-  const faceGroup = strip === 'A' ? facePlanesA : facePlanesB;
-  const currentSel = strip === 'A' ? selectionA : selectionB;
+  const faceGroup = { A: facePlanesA, B: facePlanesB, C: facePlanesC, D: facePlanesD }[strip];
+  const getSel = () => ({ A: selectionA, B: selectionB, C: selectionC, D: selectionD }[strip]);
+  const currentSel = getSel();
 
-  // Three-state cycling logic:
-  // - Click unselected face: select it (state 1)
-  // - Click selected face (state 1): upgrade to rotation (state 2)
-  // - Click rotation face (state 2): deselect (state 0)
-  // - Click different face while one is selected: replace (new face → state 1)
-
-  // If a different face was previously selected, clear it
   if (currentSel && currentSel.faceIdx !== faceIdx) {
     faceGroup.children[currentSel.faceIdx].userData.state = 0;
   }
@@ -692,97 +854,132 @@ renderer.domElement.addEventListener('click', (e) => {
 
   const newSel = newState === 0 ? null : { faceIdx, rotate: newState === 2 };
   if (strip === 'A') selectionA = newSel;
-  else selectionB = newSel;
+  else if (strip === 'B') selectionB = newSel;
+  else if (strip === 'C') selectionC = newSel;
+  else selectionD = newSel;
 
-  updateFacePlanes(facePlanesA, bbStripA.box);
-  updateFacePlanes(facePlanesB, bbStripB.box);
+  if (vpIdx === 0) {
+    updateFacePlanes(facePlanesA, bbStripA.box);
+    updateFacePlanes(facePlanesB, bbStripB.box);
+    updateJoinButton();
+  } else {
+    updateFacePlanes(facePlanesC, bbStripC.box);
+    updateFacePlanes(facePlanesD, bbStripD.box);
+    updateJoin2Button();
+  }
 
-  updateJoinButton();
   const fmt = (sel) => sel === null ? 'none' : FACE_DEFS[sel.faceIdx].axis + (FACE_DEFS[sel.faceIdx].sign > 0 ? '+' : '-') + (sel.rotate ? ' (rot)' : '');
-  console.log(`Face selection: A=${fmt(selectionA)}, B=${fmt(selectionB)}`);
+  console.log(`Face selection: A=${fmt(selectionA)}, B=${fmt(selectionB)}, C=${fmt(selectionC)}, D=${fmt(selectionD)}`);
 });
 
 // ─── Join button handler ──────────────────────────────────────────
+
+// Panel assemblies for step 2 (joined) and step 4 (final join)
+let panel2 = null; // result of first join — input to second cut
+let panel4 = null; // result of second join
+
+// View 3 state
+let currentStripC = null, currentStripD = null;
+let currentAngleB = 7;
+
+function rebuildCut2() {
+  if (!panel2) return;
+
+  // Clean up previous cut strips
+  if (currentStripC) currentStripC.forEach(s => s.manifold.delete());
+  if (currentStripD) currentStripD.forEach(s => s.manifold.delete());
+
+  step3_top.clear();
+  step3_bot.clear();
+  step4_panel.clear();
+
+  const rad = currentAngleB * Math.PI / 180;
+  const nx = Math.sin(rad), nz = -Math.cos(rad);
+  const planeN = new THREE.Vector3(nx, 0, nz);
+
+  // Cut panel2 with the second plane
+  const { above, below } = cutPanel(panel2, [nx, 0, nz], 0);
+  currentStripC = above;
+  currentStripD = below;
+
+  // Render strips with offset for visual separation
+  renderPanel(above, step3_top);
+  renderPanel(below, step3_bot);
+  const sep = 40;
+  step3_top.position.copy(planeN.clone().multiplyScalar(sep));
+  step3_bot.position.copy(planeN.clone().multiplyScalar(-sep));
+
+  // Update plane B viz position/rotation
+  pvB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
+
+  // Update bounding boxes and face planes
+  bbStripC.box.setFromObject(step3_top);
+  bbStripD.box.setFromObject(step3_bot);
+  updateFacePlanes(facePlanesC, bbStripC.box);
+  updateFacePlanes(facePlanesD, bbStripD.box);
+
+  // Reset face selections for strips C/D since geometry changed
+  selectionC = null;
+  selectionD = null;
+  facePlanesC.children.forEach(f => f.userData.state = 0);
+  facePlanesD.children.forEach(f => f.userData.state = 0);
+  updateFacePlanes(facePlanesC, bbStripC.box);
+  updateFacePlanes(facePlanesD, bbStripD.box);
+  updateJoin2Button();
+
+  console.log(`Cut 2 at ${currentAngleB}°: strip C = ${above.length} segs, strip D = ${below.length} segs`);
+}
+
+function updateJoin2Button() {
+  const btn = document.getElementById('join2-btn');
+  const errEl = document.getElementById('join2-error');
+  if (!btn) return;
+
+  if (selectionC === null || selectionD === null) {
+    btn.disabled = true;
+    errEl.textContent = '';
+    return;
+  }
+  const dimsC = faceDims(bbStripC.box, selectionC.faceIdx);
+  const dimsD = faceDims(bbStripD.box, selectionD.faceIdx);
+  const tol = 1;
+  const match = Math.abs(dimsC[0] - dimsD[0]) < tol && Math.abs(dimsC[1] - dimsD[1]) < tol;
+  if (match) {
+    btn.disabled = false;
+    errEl.textContent = '';
+  } else {
+    btn.disabled = true;
+    errEl.textContent = `face mismatch: ${dimsC[0].toFixed(0)}×${dimsC[1].toFixed(0)} vs ${dimsD[0].toFixed(0)}×${dimsD[1].toFixed(0)}`;
+  }
+}
 
 document.getElementById('join-btn').addEventListener('click', () => {
   if (selectionA === null || selectionB === null) return;
   if (!currentStripAbove || !currentStripBelow) return;
 
-  const defA = FACE_DEFS[selectionA.faceIdx];
-  const defB = FACE_DEFS[selectionB.faceIdx];
-  console.log(`JOIN: A ${defA.axis}${defA.sign > 0 ? '+' : '-'}${selectionA.rotate ? '(rot)' : ''} ↔ B ${defB.axis}${defB.sign > 0 ? '+' : '-'}${selectionB.rotate ? '(rot)' : ''}`);
+  // Build panel2 as an assembly, then center it at the origin
+  let joined = joinStrips(currentStripAbove, currentStripBelow, selectionA, selectionB);
 
+  // Center at origin
+  const bb = panelBoundingBox(joined);
+  const c = new THREE.Vector3(); bb.getCenter(c);
+  const centered = translatePanel(joined, -c.x, -c.y, -c.z);
+  joined.forEach(s => s.manifold.delete());
+
+  // Free old panel2
+  if (panel2) panel2.forEach(s => s.manifold.delete());
+  panel2 = centered;
+
+  // Render panel2 into view 2
   step2_panel.clear();
-
-  // Render both strips into step2_panel.
-  const groupA = new THREE.Group();
-  renderPanel(currentStripAbove, groupA);
-  applyFaceRotation(groupA, defA, selectionA.rotate);
-  const bbA = new THREE.Box3().setFromObject(groupA);
-
-  const groupB = new THREE.Group();
-  renderPanel(currentStripBelow, groupB);
-  applyFaceRotation(groupB, defB, selectionB.rotate);
-  const bbB = new THREE.Box3().setFromObject(groupB);
-
-  // Face A's position along its axis (the face plane coordinate)
-  const faceAPos = defA.sign > 0 ? bbA.max[defA.axis] : bbA.min[defA.axis];
-  // Face B's position along its axis
-  const faceBPos = defB.sign > 0 ? bbB.max[defB.axis] : bbB.min[defB.axis];
-
-  // If both faces are on the same axis, just translate along that axis.
-  // If different axes, we'd need rotation — flag for now.
-  if (defA.axis !== defB.axis) {
-    console.warn('Cross-axis join not yet supported — requires rotation');
-    // For now, just place them without rotation
-  }
-
-  // Translate strip B so face B meets face A.
-  // Face A's outward normal points in defA.sign direction on defA.axis.
-  // Face B's outward normal points in defB.sign direction on defB.axis.
-  // For faces to touch, B must be translated so faceBPos lands on faceAPos.
-  // But the normals should be opposing — if both point +Z, strip B needs to
-  // be on the -Z side, which means we flip the placement.
-
-  const offset = new THREE.Vector3(0, 0, 0);
-
-  if (defA.axis === defB.axis) {
-    // Same axis. The translation on that axis = faceAPos - faceBPos.
-    // But we also need the faces to be "touching" — normals opposing.
-    // If both signs are the same (e.g., both +Z), the faces point the same way.
-    // We need to place B so its face meets A's face from the other side.
-    if (defA.sign === defB.sign) {
-      // Faces point same direction. B needs to approach from the opposite side.
-      // Place B so its face position matches A's face position.
-      // B's face at faceBPos needs to land at faceAPos.
-      offset[defA.axis] = faceAPos - faceBPos;
-    } else {
-      // Faces point opposite directions — natural mating.
-      // A's face is at faceAPos, B's face is at faceBPos.
-      // We want them to touch: B's face should be at faceAPos.
-      offset[defA.axis] = faceAPos - faceBPos;
-    }
-  }
-
-  // Also center the non-join axes (align bounding box centers)
-  const centerA = new THREE.Vector3(); bbA.getCenter(centerA);
-  const centerB = new THREE.Vector3(); bbB.getCenter(centerB);
-  for (const ax of ['x', 'y', 'z']) {
-    if (ax !== defA.axis) {
-      offset[ax] = centerA[ax] - centerB[ax];
-    }
-  }
-
-  groupB.position.copy(offset);
-
-  step2_panel.add(groupA);
-  step2_panel.add(groupB);
-
-  // Update bounding box
+  renderPanel(panel2, step2_panel);
   bbPanel2.box.setFromObject(step2_panel);
 
   const sz = new THREE.Vector3(); bbPanel2.box.getSize(sz);
-  console.log(`Joined panel: bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+  console.log(`Joined panel2: ${panel2.length} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+
+  // Rebuild view 3 (second cut) with current second slider angle
+  rebuildCut2();
 });
 
 // ─── Axes gizmo (corner reference) ─────────────────────────────────
@@ -822,9 +1019,50 @@ axesGroup.add(makeAxisLabel('Y', new THREE.Vector3(0, 1.2, 0), '#44ff44'));
 axesGroup.add(makeAxisLabel('Z', new THREE.Vector3(0, 0, 1.2), '#4488ff'));
 axesScene.add(axesGroup);
 
-// ─── Render loop: 2 viewports ──────────────────────────────────────
+// ─── Render loop: 2x2 viewports ────────────────────────────────────
 
-const axesSize = 100;
+const axesSize = 80;
+
+function setView(name) {
+  // Show/hide everything based on which viewport we're rendering
+  step1_top.visible = name === 'cut1';
+  step1_bot.visible = name === 'cut1';
+  pvA.visible = name === 'cut1';
+  facePlanesA.visible = name === 'cut1';
+  facePlanesB.visible = name === 'cut1';
+  bbStripA.visible = name === 'cut1' && hoveredStrip === 'A';
+  bbStripB.visible = name === 'cut1' && hoveredStrip === 'B';
+
+  step2_panel.visible = name === 'join1';
+  bbPanel2.visible = name === 'join1' && hoveredStrip === 'P';
+
+  step3_top.visible = name === 'cut2';
+  step3_bot.visible = name === 'cut2';
+  pvB.visible = name === 'cut2';
+  facePlanesC.visible = name === 'cut2';
+  facePlanesD.visible = name === 'cut2';
+  bbStripC.visible = name === 'cut2' && hoveredStrip === 'C';
+  bbStripD.visible = name === 'cut2' && hoveredStrip === 'D';
+
+  step4_panel.visible = name === 'join2';
+  bbPanel4.visible = name === 'join2' && hoveredStrip === 'P4';
+}
+
+function renderViewport(x, y, w, h, viewName, bg) {
+  setView(viewName);
+  renderer.setViewport(x, y, w, h);
+  renderer.setScissor(x, y, w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setClearColor(bg, 1); renderer.clear();
+  renderer.render(scene, camera);
+
+  // Axes gizmo in bottom-left of this viewport
+  renderer.setViewport(x + 8, y + 8, axesSize, axesSize);
+  renderer.setScissor(x + 8, y + 8, axesSize, axesSize);
+  renderer.clearDepth();
+  renderer.render(axesScene, axesCamera);
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -832,50 +1070,21 @@ function animate() {
 
   const W = window.innerWidth, H = window.innerHeight;
   const halfW = Math.floor(W / 2);
+  const halfH = Math.floor(H / 2);
   renderer.setScissorTest(true);
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // ── Left: Step 1 (cut strips + plane viz + face selectors) ──
-  step1_top.visible = true; step1_bot.visible = true;
-  pvA.visible = true;
-  bbStripA.visible = hoveredStrip === 'A';
-  bbStripB.visible = hoveredStrip === 'B';
-  facePlanesA.visible = true; facePlanesB.visible = true;
-  step2_panel.visible = false;
-  bbPanel2.visible = false;
-
-  renderer.setViewport(0, 0, halfW, H);
-  renderer.setScissor(0, 0, halfW, H);
-  camera.aspect = halfW / H;
-  camera.updateProjectionMatrix();
-  renderer.setClearColor(0x1c1917, 1); renderer.clear();
-  renderer.render(scene, camera);
-
-  renderer.setViewport(8, 8, axesSize, axesSize);
-  renderer.setScissor(8, 8, axesSize, axesSize);
-  renderer.clearDepth();
-  renderer.render(axesScene, axesCamera);
-
-  // ── Right: Step 2 (rejoined panel) ──
-  step1_top.visible = false; step1_bot.visible = false;
-  pvA.visible = false;
-  bbStripA.visible = false; bbStripB.visible = false;
-  facePlanesA.visible = false; facePlanesB.visible = false;
-  step2_panel.visible = true;
-  bbPanel2.visible = hoveredStrip === 'P';
-
-  renderer.setViewport(halfW, 0, W - halfW, H);
-  renderer.setScissor(halfW, 0, W - halfW, H);
-  camera.aspect = (W - halfW) / H;
-  camera.updateProjectionMatrix();
-  renderer.setClearColor(0x1a1816, 1); renderer.clear();
-  renderer.render(scene, camera);
-
-  renderer.setViewport(halfW + 8, 8, axesSize, axesSize);
-  renderer.setScissor(halfW + 8, 8, axesSize, axesSize);
-  renderer.clearDepth();
-  renderer.render(axesScene, axesCamera);
+  // Y in setViewport is measured from the bottom
+  // Top row = y = halfH, Bottom row = y = 0
+  // TL (cut 1)
+  renderViewport(0,       halfH,     halfW,       H - halfH, 'cut1',  0x1c1917);
+  // TR (join 1)
+  renderViewport(halfW,   halfH,     W - halfW,   H - halfH, 'join1', 0x1a1816);
+  // BL (cut 2)
+  renderViewport(0,       0,         halfW,       halfH,     'cut2',  0x1a1816);
+  // BR (join 2)
+  renderViewport(halfW,   0,         W - halfW,   halfH,     'join2', 0x1c1917);
 
   renderer.setScissorTest(false);
 }
