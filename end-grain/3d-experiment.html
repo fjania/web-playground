@@ -479,12 +479,24 @@ renderer.domElement.addEventListener('mousemove', (e) => {
     const species = hitSpecies(hit);
     const fn = hit.face ? hit.face.normal : null;
     const normalStr = fn ? `(${fn.x.toFixed(2)}, ${fn.y.toFixed(2)}, ${fn.z.toFixed(2)})` : '—';
+    // Compute the bounding box face area under the cursor.
+    // The face normal tells us which bbox face we're on:
+    // dominant axis of the normal determines the face plane,
+    // and the face area is the product of the other two dimensions.
+    let faceArea = 0;
+    if (fn) {
+      const ax = Math.abs(fn.x), ay = Math.abs(fn.y), az = Math.abs(fn.z);
+      if (ax >= ay && ax >= az) faceArea = sz.y * sz.z;       // X face
+      else if (ay >= ax && ay >= az) faceArea = sz.x * sz.z;  // Y face
+      else faceArea = sz.x * sz.y;                             // Z face
+    }
     statusbar.innerHTML =
       `<span class="label">species</span> <span class="val">${species}</span>  ` +
       `<span class="label">vol</span> <span class="val">${fmtVol(vol)}</span>  ` +
       `<span class="label">area</span> <span class="val">${fmtArea(area)}</span>  ` +
       `<span class="label">materials</span> <span class="val">${matCount}</span>  ` +
       `<span class="label">normal</span> <span class="val">${normalStr}</span>  ` +
+      `<span class="label">face area</span> <span class="val">${fmtArea(faceArea)}</span>  ` +
       `<span class="label">bounds</span> <span class="val">${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}</span>  ` +
       `<span class="label">tris</span> <span class="val">${tris}</span>`;
   } else {
