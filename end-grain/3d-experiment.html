@@ -1220,6 +1220,11 @@ function updateJoin2Button() {
 // and handing it off to the caller cannot disagree with what was on
 // screen.
 
+// Flip to `true` to animate joins stage-by-stage as a debugging tool.
+// Off by default — joins snap directly to final state. The animation code
+// below is intact and requires no reimplementation to turn back on.
+const ANIMATE_JOINS = false;
+
 let joinAnim = null;
 const STAGE_DURATION_MS = 2000;
 
@@ -1257,6 +1262,8 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
 
   // Pre-compute accumulated matrices at the START of each stage for A and B.
   // preAcc[i] = composition of all stages j < i that affect that group.
+  // preAcc[stages.length] is the final accumulated transform for each side —
+  // used both as animation scaffolding and as the "skip to final" target.
   const preAccA = [new THREE.Matrix4()];
   const preAccB = [new THREE.Matrix4()];
   for (let i = 0; i < stages.length; i++) {
@@ -1268,6 +1275,18 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
     if (s.group === 'B' || s.group === 'BOTH') b.premultiply(m);
     preAccA.push(a);
     preAccB.push(b);
+  }
+
+  // Non-animated path: bake the final accumulated transforms directly.
+  if (!ANIMATE_JOINS) {
+    const finalA = srcA.transform(preAccA[stages.length]);
+    const finalB = srcB.transform(preAccB[stages.length]);
+    renderPanel(finalA, gA);
+    renderPanel(finalB, gB);
+    const finalPanel = finalA.concat(finalB);
+    statusEl.textContent = `join complete (${finalPanel.size} segments)`;
+    onComplete(finalPanel);
+    return;
   }
 
   joinAnim = {
