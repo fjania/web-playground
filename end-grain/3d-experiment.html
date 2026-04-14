@@ -48,8 +48,8 @@
   left: diagonal cut &middot; right: joined
 </div>
 <div id="controls">
-  <label>cut angle: <span id="angle-val" class="angle-val">7°</span></label>
-  <input type="range" id="angle-slider" min="-45" max="45" step="1" value="7">
+  <label>cut tilt: <span id="tilt-val" class="angle-val">12mm</span></label>
+  <input type="range" id="tilt-slider" min="-25" max="25" step="1" value="12">
 </div>
 <div id="statusbar"><span class="dim">hover a piece to inspect</span></div>
 
@@ -155,11 +155,13 @@ scene.add(pvA);
 const step2_union = new THREE.Group();
 scene.add(step2_union);
 
-// ─── Build pipeline from angle ────────────────────────────────────
+// ─── Build pipeline from tilt ─────────────────────────────────────
 
-function rebuild(angleDeg) {
-  const rad = angleDeg * Math.PI / 180;
-  const planeN = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
+function rebuild(tiltMm) {
+  // tiltMm = Z displacement at strip ends. Plane passes through origin,
+  // tilting so that at x=±halfLen the plane crosses z=±tiltMm.
+  // Normal = (tiltMm/halfLen, 0, -1).normalize()
+  const planeN = new THREE.Vector3(tiltMm / halfLen, 0, -1).normalize();
   const planeD = 0;
 
   // Clear previous geometry
@@ -215,7 +217,7 @@ function rebuild(angleDeg) {
   });
 
   // Union all meshes
-  console.log(`Rebuilding: angle=${angleDeg}°, unioning ${allMeshes.length} meshes...`);
+  console.log(`Rebuilding: tilt=${tiltMm}mm, unioning ${allMeshes.length} meshes...`);
   let result = new Brush(allMeshes[0].geo, allMeshes[0].material);
   result.updateMatrixWorld();
 
@@ -237,16 +239,16 @@ function rebuild(angleDeg) {
 }
 
 // Initial build
-rebuild(7);
+rebuild(12);
 
 // ─── Slider ───────────────────────────────────────────────────────
 
-const slider = document.getElementById('angle-slider');
-const angleVal = document.getElementById('angle-val');
+const slider = document.getElementById('tilt-slider');
+const tiltVal = document.getElementById('tilt-val');
 
 slider.addEventListener('input', () => {
   const v = parseInt(slider.value, 10);
-  angleVal.textContent = `${v}°`;
+  tiltVal.textContent = `${v}mm`;
   rebuild(v);
 });
 
