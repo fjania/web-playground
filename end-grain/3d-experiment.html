@@ -681,36 +681,30 @@ function rotatePanelAboutAxis(panel, axis, angle, point) {
 }
 
 // Compute the ordered list of stages needed to join two faces. Each stage is
-// a rotation or translation applied to one of the two strip groups ('A' or 'B').
-// Used by both the instant join and the animated join. Stages in world space.
-function computeJoinStages(selA, selB, flipAxis) {
+// a rotation or translation applied to one of the strip groups ('A', 'B', or
+// 'BOTH'). Used by the animated join. Stages in world space.
+//
+// stripA / stripB are needed so we can simulate the transforms on their
+// manifold bounding boxes and compute the final centering offset upfront.
+function computeJoinStages(stripA, stripB, selA, selB, flipAxis) {
   const stages = [];
 
-  // Stage: in-plane pre-rotation of A (if flagged)
   if (selA.rotate) {
     stages.push({
-      group: 'A',
-      type: 'rotation',
-      axis: selA.normal.clone(),
-      angle: Math.PI,
-      pivot: selA.centroid.clone(),
+      group: 'A', type: 'rotation',
+      axis: selA.normal.clone(), angle: Math.PI, pivot: selA.centroid.clone(),
       label: 'pre-rotating A 180° about face normal',
     });
   }
 
-  // Stage: in-plane pre-rotation of B (if flagged)
   if (selB.rotate) {
     stages.push({
-      group: 'B',
-      type: 'rotation',
-      axis: selB.normal.clone(),
-      angle: Math.PI,
-      pivot: selB.centroid.clone(),
+      group: 'B', type: 'rotation',
+      axis: selB.normal.clone(), angle: Math.PI, pivot: selB.centroid.clone(),
       label: 'pre-rotating B 180° about face normal',
     });
   }
 
-  // Stage: main rotation of B to bring its face normal antiparallel to A's
   const targetNormal = selA.normal.clone().negate();
   const currentNormal = selB.normal.clone();
   const dot = currentNormal.dot(targetNormal);
@@ -725,27 +719,61 @@ function computeJoinStages(selA, selB, flipAxis) {
       angle = Math.acos(Math.max(-1, Math.min(1, dot)));
     }
     stages.push({
-      group: 'B',
-      type: 'rotation',
-      axis,
-      angle,
-      pivot: selB.centroid.clone(),
+      group: 'B', type: 'rotation',
+      axis, angle, pivot: selB.centroid.clone(),
       label: 'rotating B to align normals',
     });
   }
 
-  // Stage: translate B to align centroids
   const delta = new THREE.Vector3().subVectors(selA.centroid, selB.centroid);
   if (delta.length() > 1e-6) {
     stages.push({
-      group: 'B',
-      type: 'translation',
+      group: 'B', type: 'translation',
       delta,
       label: 'translating B to align centroids',
     });
   }
 
+  // Final stage: center the joined panel at origin by translating BOTH strips.
+  // Compute the centering offset by simulating all prior stages on each
+  // strip's bounding box corners.
+  const matA = new THREE.Matrix4();
+  const matB = new THREE.Matrix4();
+  for (const s of stages) {
+    const m = stageMatrixAtProgress(s, 1);
+    if (s.group === 'A') matA.premultiply(m);
+    else if (s.group === 'B') matB.premultiply(m);
+  }
+  const finalBB = new THREE.Box3();
+  expandBoxByTransformedPanel(finalBB, stripA, matA);
+  expandBoxByTransformedPanel(finalBB, stripB, matB);
+  const center = new THREE.Vector3(); finalBB.getCenter(center);
+  if (center.length() > 1e-6) {
+    stages.push({
+      group: 'BOTH', type: 'translation',
+      delta: center.clone().negate(),
+      label: 'centering joined panel at origin',
+    });
+  }
+
   return stages;
+}
+
+// Expand a Box3 by the 8 transformed corners of each segment's bounding box.
+function expandBoxByTransformedPanel(box, panel, matrix) {
+  const v = new THREE.Vector3();
+  for (const seg of panel) {
+    const bb = seg.manifold.boundingBox();
+    for (let i = 0; i < 8; i++) {
+      v.set(
+        i & 1 ? bb.max[0] : bb.min[0],
+        i & 2 ? bb.max[1] : bb.min[1],
+        i & 4 ? bb.max[2] : bb.min[2],
+      );
+      v.applyMatrix4(matrix);
+      box.expandByPoint(v);
+    }
+  }
 }
 
 function rotationMatrixAboutPoint(axis, angle, pivot) {
@@ -1236,7 +1264,7 @@ let joinAnim = null;
 const STAGE_DURATION_MS = 2000;
 
 function startJoinAnimation(which, stripAbove, stripBelow, selA, selB, flipAxis, onComplete) {
-  const stages = computeJoinStages(selA, selB, flipAxis);
+  const stages = computeJoinStages(stripAbove, stripBelow, selA, selB, flipAxis);
 
   // Cancel any running animation
   if (joinAnim) joinAnim = null;
@@ -1287,19 +1315,23 @@ function updateJoinAnimation(now) {
   const progress = Math.min(elapsed / STAGE_DURATION_MS, 1);
 
   const stageMat = stageMatrixAtProgress(stage, progress);
-  const acc = stage.group === 'A' ? joinAnim.accA : joinAnim.accB;
-  const full = new THREE.Matrix4().multiplyMatrices(stageMat, acc);
 
-  const group = stage.group === 'A' ? joinAnim.animA : joinAnim.animB;
-  group.matrix.copy(full);
+  // Apply the current stage matrix to the affected group(s)
+  if (stage.group === 'A' || stage.group === 'BOTH') {
+    const fullA = new THREE.Matrix4().multiplyMatrices(stageMat, joinAnim.accA);
+    joinAnim.animA.matrix.copy(fullA);
+  }
+  if (stage.group === 'B' || stage.group === 'BOTH') {
+    const fullB = new THREE.Matrix4().multiplyMatrices(stageMat, joinAnim.accB);
+    joinAnim.animB.matrix.copy(fullB);
+  }
 
   joinAnim.statusEl.textContent = stageStatus(stage, progress);
 
   if (progress >= 1) {
-    // Bake stage into accumulator, move to next stage
     const finalMat = stageMatrixAtProgress(stage, 1);
-    if (stage.group === 'A') joinAnim.accA.premultiply(finalMat);
-    else joinAnim.accB.premultiply(finalMat);
+    if (stage.group === 'A' || stage.group === 'BOTH') joinAnim.accA.premultiply(finalMat);
+    if (stage.group === 'B' || stage.group === 'BOTH') joinAnim.accB.premultiply(finalMat);
     joinAnim.stageIdx++;
     joinAnim.stageStartTime = now;
   }
@@ -1308,25 +1340,19 @@ function updateJoinAnimation(now) {
 function finalizeJoinAnimation() {
   const { which, stripAbove, stripBelow, accA, accB, onComplete, statusEl } = joinAnim;
 
-  // Apply the final accumulated matrices to the manifold assemblies
+  // Apply the final accumulated matrices (centering already baked into accA/accB).
   const finalA = transformPanel(stripAbove, accA);
   const finalB = transformPanel(stripBelow, accB);
-  let joined = [...finalA, ...finalB];
+  const joined = [...finalA, ...finalB];
 
-  // Center at origin
-  const bb = panelBoundingBox(joined);
-  const c = new THREE.Vector3(); bb.getCenter(c);
-  const centered = translatePanel(joined, -c.x, -c.y, -c.z);
-  joined.forEach(s => s.manifold.delete());
-
-  statusEl.textContent = `join complete (${centered.length} segments)`;
+  statusEl.textContent = `join complete (${joined.length} segments)`;
   setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
 
   const panelGroup = which === 1 ? step2_panel : step4_panel;
   panelGroup.clear();
-  renderPanel(centered, panelGroup);
+  renderPanel(joined, panelGroup);
 
-  onComplete(centered);
+  onComplete(joined);
 
   joinAnim = null;
 }
