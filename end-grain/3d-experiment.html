@@ -398,6 +398,20 @@ function fmtArea(mm2) {
 const segW = 50, segH = 50, segD = 400;
 let initialStripsA = 'maple', initialStripsB = 'walnut', initialRepeats = 8;
 
+// Ordered list of starting strips, glued edge-to-edge along X.
+// Each entry is { species, width }. Height (Y) + length (Z) are
+// uniform across all strips. Default seeds a 16× A/B maple/walnut
+// alternation identical to the prior default.
+let initialStrips = (() => {
+  const out = [];
+  for (let i = 0; i < initialRepeats * 2; i++) {
+    out.push({ species: i % 2 === 0 ? 'maple' : 'walnut', width: 50 });
+  }
+  return out;
+})();
+let initialStripHeight = 50;
+let initialStripLength = 400;
+
 // ─── Manifold init + assembly model ───────────────────────────────
 //
 // A "panel" is an array of { manifold, species } objects — an assembly
@@ -1450,15 +1464,15 @@ function rebuildA() {
 function rebuildInitialPanel() {
   if (!Manifold) return;
   if (initialPanel) initialPanel.dispose();
-  const total = initialRepeats * 2;
-  initialPanel = Panel.fromStripes(segW, segH, segD, total,
-    i => (i % 2 === 0) ? initialStripsA : initialStripsB);
+  initialPanel = Panel.fromStripList(
+    initialStrips, initialStripHeight, initialStripLength,
+  );
   step0_panel.clear();
   renderPanel(initialPanel, step0_panel);
+  const totalW = initialStrips.reduce((s, st) => s + st.width, 0);
   console.log(
-    `Initial panel: ${total} strips of ${segW}×${segH}×${segD}mm — ` +
-    `${initialStripsA}/${initialStripsB} × ${initialRepeats}, ` +
-    `total ${total * segW}×${segH}×${segD}mm`,
+    `Initial panel: ${initialStrips.length} strips, ` +
+    `total ${totalW}×${initialStripHeight}×${initialStripLength}mm`,
   );
   rebuildA();
 }
