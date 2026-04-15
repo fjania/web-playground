@@ -22,6 +22,7 @@ export default defineConfig({
         'viewmaster-large': 'viewmaster/large.html',
         'cubewise': 'cubewise/index.html',
         'end-grain': 'end-grain/index.html',
+        'end-grain-3d': 'end-grain/3d.html',
       }
     }
   }

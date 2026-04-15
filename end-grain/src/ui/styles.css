@@ -1,0 +1,121 @@
+/* Global page/app chrome — identical to the prior 3d-experiment.html. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1c1917;
+  overflow: hidden;
+  font-family: 'Geist Mono', monospace;
+}
+#info {
+  position: fixed; top: 10px; left: 10px; z-index: 10;
+  color: #a8a29e; font-size: 10px; line-height: 1.5;
+  pointer-events: none; user-select: none;
+}
+#info strong { color: #e4cc8f; }
+.step-label {
+  position: fixed; z-index: 10; pointer-events: none; user-select: none;
+  color: #b45309; font-size: 9px; letter-spacing: 0.5px;
+  background: rgba(28,25,23,0.8); padding: 3px 8px; border-radius: 3px;
+}
+.divider { position: fixed; background: #3d3835; z-index: 5; }
+#statusbar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  height: 28px; display: flex; align-items: center; gap: 16px;
+  padding: 0 12px;
+  background: rgba(28,25,23,0.92); border-top: 1px solid #3d3835;
+  font-size: 10px; color: #78716c;
+}
+#statusbar .label { color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
+#statusbar .val { color: #e4cc8f; }
+#statusbar .dim { color: #555; }
+
+.ctrl-panel {
+  position: fixed; z-index: 10;
+  background: rgba(28,25,23,0.92); border: 1px solid #3d3835;
+  border-radius: 6px; padding: 12px 16px;
+  color: #a8a29e; font-size: 10px;
+}
+.ctrl-panel label { display: block; margin-bottom: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
+.ctrl-panel input[type="range"] { width: 160px; accent-color: #b45309; }
+.ctrl-panel .angle-val { color: #e4cc8f; font-weight: bold; }
+
+/* Strip composer */
+#strip-controls {
+  top: 10px; right: calc(66.667% + 10px);
+  max-height: calc(100vh - 20px); overflow-y: auto;
+  width: 280px;
+}
+#strip-controls .row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 10px; }
+#strip-controls select {
+  background: #2a2622; color: #e4cc8f; border: 1px solid #3d3835;
+  border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 10px;
+}
+#strip-controls .swatch {
+  width: 14px; height: 14px; border: 1px solid #3d3835; border-radius: 2px;
+  display: inline-block; vertical-align: middle; flex: 0 0 auto;
+}
+#strip-controls .strip-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 0; font-size: 10px;
+}
+#strip-controls .strip-row select { flex: 1 1 auto; min-width: 0; }
+#strip-controls .strip-row input[type="number"] {
+  width: 42px; background: #2a2622; color: #e4cc8f;
+  border: 1px solid #3d3835; border-radius: 3px;
+  padding: 2px 3px; font-family: inherit; font-size: 10px;
+}
+#strip-controls .strip-row button {
+  width: 18px; height: 18px; padding: 0; line-height: 1;
+  background: #2a2622; color: #a8a29e; border: 1px solid #3d3835;
+  border-radius: 3px; font-family: inherit; font-size: 10px;
+  cursor: pointer; flex: 0 0 auto;
+}
+#strip-controls .strip-row button:disabled { opacity: 0.3; cursor: default; }
+#strip-controls .strip-row button:not(:disabled):hover { background: #3d3835; color: #e4cc8f; }
+#strip-controls .strip-list {
+  max-height: 360px; overflow-y: auto;
+  border: 1px solid #3d3835; border-radius: 4px;
+  padding: 4px; margin-bottom: 6px;
+}
+#strip-controls .action-row { display: flex; gap: 4px; margin-top: 4px; }
+#strip-controls .action-row button {
+  flex: 1; padding: 4px; background: #2d3a4a; color: #a8a29e;
+  border: 1px solid #3d4a5a; border-radius: 3px;
+  font-family: inherit; font-size: 9px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+#strip-controls .action-row button:hover { background: #3d4a5a; color: #e4cc8f; }
+#strip-controls .preset-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; }
+#strip-controls .preset-row select { flex: 1; }
+
+/* Cut controls (per-pass; positioned by its data-pass-col attribute) */
+.cut-controls { top: 10px; }
+.cut-controls[data-col="1"] { right: calc(33.333% + 10px); }
+.cut-controls[data-col="2"] { right: 10px; }
+.cut-controls .mode-switch { display: flex; gap: 4px; margin-top: 4px; }
+.cut-controls button.mode-btn {
+  flex: 1; padding: 3px; background: #2d3a4a; color: #a8a29e;
+  border: 1px solid #3d4a5a; border-radius: 3px;
+  font-family: inherit; font-size: 9px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.cut-controls button.mode-btn.selected { background: #2d5a8a; color: #e4cc8f; border-color: #4d7aaa; }
+.cut-controls button.mode-btn:not(.selected):hover { background: #3d4a5a; }
+.cut-controls select {
+  width: 100%; background: #2a2622; color: #e4cc8f; border: 1px solid #3d3835;
+  border-radius: 3px; padding: 3px; font-family: inherit; font-size: 10px;
+}
+
+/* Quick camera buttons per tile */
+.view-quick-btns {
+  position: fixed; z-index: 11;
+  display: flex; gap: 4px;
+  pointer-events: auto;
+}
+.view-quick-btns button {
+  padding: 3px 8px; font-size: 9px;
+  font-family: inherit; letter-spacing: 0.5px;
+  background: rgba(28,25,23,0.85); color: #a8a29e;
+  border: 1px solid #3d3835; border-radius: 3px;
+  cursor: pointer; text-transform: uppercase;
+}
+.view-quick-btns button:hover { background: #3d3835; color: #e4cc8f; }
