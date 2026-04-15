@@ -46,9 +46,13 @@
     border-radius: 6px; padding: 12px 16px;
     color: #a8a29e; font-size: 10px;
   }
-  #strip-controls { top: 10px; right: calc(50% + 10px); }
-  #controls { top: 105px; right: calc(50% + 10px); }
-  #controls2 { top: calc(50% + 10px); right: calc(50% + 10px); }
+  /* Starting panel tile occupies left third → strip controls dock to its
+     top-right corner. Cut A controls dock to top-right of the cut A tile
+     (middle column). Cut B controls dock to top-right of the cut B tile
+     (middle column, bottom row). */
+  #strip-controls { top: 10px; right: calc(66.667% + 10px); }
+  #controls { top: 10px; right: calc(33.333% + 10px); }
+  #controls2 { top: calc(50% + 10px); right: calc(33.333% + 10px); }
   #strip-controls .row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 10px; }
   #strip-controls select {
     background: #2a2622; color: #e4cc8f; border: 1px solid #3d3835;
@@ -87,10 +91,12 @@
     display: flex; gap: 4px;
     pointer-events: auto;
   }
-  .view-quick-btns[data-tile="tl"] { bottom: calc(50% + 32px); left: 96px; }
-  .view-quick-btns[data-tile="tr"] { bottom: calc(50% + 32px); left: calc(50% + 96px); }
-  .view-quick-btns[data-tile="bl"] { bottom: 60px; left: 96px; }
-  .view-quick-btns[data-tile="br"] { bottom: 60px; left: calc(50% + 96px); }
+  /* Five-tile layout: full-height starting panel on the left; 2x2 cuts/joins on right. */
+  .view-quick-btns[data-tile="panel"] { bottom: 60px; left: 96px; }
+  .view-quick-btns[data-tile="cutA"]  { bottom: calc(50% + 32px); left: calc(33.333% + 96px); }
+  .view-quick-btns[data-tile="join1"] { bottom: calc(50% + 32px); left: calc(66.667% + 96px); }
+  .view-quick-btns[data-tile="cutB"]  { bottom: 60px; left: calc(33.333% + 96px); }
+  .view-quick-btns[data-tile="join2"] { bottom: 60px; left: calc(66.667% + 96px); }
   .view-quick-btns button {
     padding: 3px 8px; font-size: 9px;
     font-family: inherit; letter-spacing: 0.5px;
@@ -408,6 +414,8 @@ let initialStripsA = 'maple', initialStripsB = 'walnut', initialRepeats = 8;
 // No CSG union needed — segments keep their identity and materials.
 
 // Scene groups
+const step0_panel = new THREE.Group(); // starting (assembled) panel
+scene.add(step0_panel);
 const step1_top = new THREE.Group(); // strip A
 const step1_bot = new THREE.Group(); // strip B
 scene.add(step1_top);
@@ -824,11 +832,11 @@ async function init() {
 
   rebuildInitialPanel();
 
-  // Frame the camera to show all entities with buffer
+  // Frame the camera around the starting panel — its size sets the scale
+  // of everything downstream.
   const frame = new THREE.Box3();
-  frame.expandByObject(step1_top);
-  frame.expandByObject(step1_bot);
-  frameCameraToBox(frame, 1.3);
+  frame.expandByObject(step0_panel);
+  frameCameraToBox(frame, 1.4);
 }
 
 // Convert a single Manifold to a Three.js Mesh with the given material
@@ -1395,13 +1403,16 @@ function rebuildA() {
 })();
 
 // Rebuild the starting panel from the current strip species + repeat
-// settings, then cascade-rebuild everything downstream.
+// settings, render it into the dedicated starting-panel view, and then
+// cascade-rebuild everything downstream.
 function rebuildInitialPanel() {
   if (!Manifold) return;
   if (initialPanel) initialPanel.dispose();
   const total = initialRepeats * 2;
   initialPanel = Panel.fromStripes(segW, segH, segD, total,
     i => (i % 2 === 0) ? initialStripsA : initialStripsB);
+  step0_panel.clear();
+  renderPanel(initialPanel, step0_panel);
   console.log(
     `Initial panel: ${total} strips of ${segW}×${segH}×${segD}mm — ` +
     `${initialStripsA}/${initialStripsB} × ${initialRepeats}, ` +
@@ -1660,10 +1671,10 @@ function frameCameraToBox(box, buffer = 1.3) {
   const size = new THREE.Vector3(); box.getSize(size);
   const center = new THREE.Vector3(); box.getCenter(center);
 
-  // Account for the split viewport — each half is the full scene's aspect
-  const halfAspect = (window.innerWidth / 2) / window.innerHeight;
+  // Use the starting-panel tile's aspect (width = W/3, height = full H).
+  const tileAspect = (window.innerWidth / 3) / window.innerHeight;
   const fovV = camera.fov * Math.PI / 180;
-  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * halfAspect);
+  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * tileAspect);
 
   // Radius of enclosing sphere
   const radius = size.length() / 2;
@@ -1685,17 +1696,21 @@ function mkDivider(css) {
   const d = document.createElement('div'); d.className = 'divider';
   d.style.cssText = css; document.body.appendChild(d);
 }
-mkDivider('top:0; left:50%; width:1px; height:100%');
-mkDivider('top:50%; left:0; height:1px; width:100%');
+// Layout: full-height "starting panel" view in the left third; the
+// 2x2 cut/join grid fills the right two-thirds.
+mkDivider('top:0; left:33.333%; width:1px; height:100%');
+mkDivider('top:0; left:66.667%; width:1px; height:100%');
+mkDivider('top:50%; left:33.333%; height:1px; width:66.667%');
 
 function mkLabel(txt, css) {
   const el = document.createElement('div'); el.className = 'step-label';
   el.textContent = txt; el.style.cssText = css; document.body.appendChild(el);
 }
-mkLabel('step 1: cut A', 'top:8px; left:calc(25% - 30px)');
-mkLabel('step 2: join 1', 'top:8px; left:calc(75% - 30px)');
-mkLabel('step 3: cut B', 'top:calc(50% + 8px); left:calc(25% - 30px)');
-mkLabel('step 4: join 2', 'top:calc(50% + 8px); left:calc(75% - 30px)');
+mkLabel('starting panel', 'top:8px; left:calc(16.667% - 40px)');
+mkLabel('step 1: cut A', 'top:8px; left:calc(50% - 30px)');
+mkLabel('step 2: join 1', 'top:8px; left:calc(83.333% - 30px)');
+mkLabel('step 3: cut B', 'top:calc(50% + 8px); left:calc(50% - 30px)');
+mkLabel('step 4: join 2', 'top:calc(50% + 8px); left:calc(83.333% - 30px)');
 
 // ─── Quick camera-angle buttons next to each tile's axes gizmo ────
 
@@ -1715,7 +1730,7 @@ function setCameraView(name) {
   controls.update();
 }
 
-for (const tile of ['tl', 'tr', 'bl', 'br']) {
+for (const tile of ['panel', 'cutA', 'join1', 'cutB', 'join2']) {
   const container = document.createElement('div');
   container.className = 'view-quick-btns';
   container.dataset.tile = tile;
@@ -1736,22 +1751,49 @@ const mouse = new THREE.Vector2();
 const statusbar = document.getElementById('statusbar');
 let hoveredMesh = null, hoveredOrig = null;
 
-// Determine which viewport a client point is in (0=TL, 1=TR, 2=BL, 3=BR)
-function viewportFor(clientX, clientY) {
+// Layout tiles: 5-viewport layout — full-height starting panel on the
+// left third, plus a 2x2 grid (cut A / join 1 / cut B / join 2) in the
+// right two-thirds.
+//
+//   ┌────────┬────────┬────────┐
+//   │        │ cut A  │ join 1 │
+//   │ panel  ├────────┼────────┤
+//   │        │ cut B  │ join 2 │
+//   └────────┴────────┴────────┘
+//
+// vpIdx values: 'panel' | 'cutA' | 'join1' | 'cutB' | 'join2'
+function tileBoundsCSS() {
   const W = window.innerWidth, H = window.innerHeight;
-  const inLeft = clientX < W / 2;
-  const inTop = clientY < H / 2;
-  return (inTop ? 0 : 2) + (inLeft ? 0 : 1);
+  const c1 = Math.floor(W / 3);          // start of middle column
+  const c2 = Math.floor(2 * W / 3);      // start of right column
+  const r1 = Math.floor(H / 2);          // top of bottom row in 2x2
+  return { W, H, c1, c2, r1 };
+}
+
+function viewportFor(clientX, clientY) {
+  const { c1, c2, r1 } = tileBoundsCSS();
+  if (clientX < c1) return 'panel';
+  const top = clientY < r1;
+  const right = clientX >= c2;
+  if (top && !right) return 'cutA';
+  if (top &&  right) return 'join1';
+  if (!top && !right) return 'cutB';
+  return 'join2';
 }
 
 function viewportNDC(clientX, clientY) {
-  const W = window.innerWidth, H = window.innerHeight;
-  const halfW = Math.floor(W / 2), halfH = Math.floor(H / 2);
+  const { W, H, c1, c2, r1 } = tileBoundsCSS();
   const vpIdx = viewportFor(clientX, clientY);
-  const vpX = (vpIdx & 1) * halfW;
-  const vpY = (vpIdx >> 1) * halfH;
-  const vpW = (vpIdx & 1) ? W - halfW : halfW;
-  const vpH = (vpIdx >> 1) ? H - halfH : halfH;
+  let vpX, vpY, vpW, vpH;
+  if (vpIdx === 'panel') {
+    vpX = 0; vpY = 0; vpW = c1; vpH = H;
+  } else {
+    const xLo = (vpIdx === 'cutA' || vpIdx === 'cutB') ? c1 : c2;
+    const xHi = (vpIdx === 'cutA' || vpIdx === 'cutB') ? c2 : W;
+    const yLo = (vpIdx === 'cutA' || vpIdx === 'join1') ? 0 : r1;
+    const yHi = (vpIdx === 'cutA' || vpIdx === 'join1') ? r1 : H;
+    vpX = xLo; vpY = yLo; vpW = xHi - xLo; vpH = yHi - yLo;
+  }
   const nx = ((clientX - vpX) / vpW) * 2 - 1;
   const ny = -((clientY - vpY) / vpH) * 2 + 1;
   return { nx, ny, vpIdx };
@@ -1762,10 +1804,12 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups = vpIdx === 0 ? [step1_top, step1_bot]
-    : vpIdx === 1 ? [step2_panel]
-    : vpIdx === 2 ? [step3_top, step3_bot]
-    : [step4_panel];
+  const groups =
+      vpIdx === 'panel' ? [step0_panel]
+    : vpIdx === 'cutA'  ? [step1_top, step1_bot]
+    : vpIdx === 'join1' ? [step2_panel]
+    : vpIdx === 'cutB'  ? [step3_top, step3_bot]
+    :                     [step4_panel];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -1848,14 +1892,14 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 
 function handleSelectionClick(e) {
   const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
-  // Only cut viewports have face selection: TL (0) and BL (2)
-  if (vpIdx !== 0 && vpIdx !== 2) return;
+  // Only cut viewports have face selection.
+  if (vpIdx !== 'cutA' && vpIdx !== 'cutB') return;
 
   const clickMouse = new THREE.Vector2(nx, ny);
   const clickRay = new THREE.Raycaster();
   clickRay.setFromCamera(clickMouse, camera);
 
-  const stripGroups = vpIdx === 0
+  const stripGroups = vpIdx === 'cutA'
     ? [{ strip: 'A', group: step1_top }, { strip: 'B', group: step1_bot }]
     : [{ strip: 'C', group: step3_top }, { strip: 'D', group: step3_bot }];
 
@@ -1894,7 +1938,7 @@ function handleSelectionClick(e) {
     setStripSelection(strip, face);
   }
 
-  if (vpIdx === 0) updateJoinButton(); else updateJoin2Button();
+  if (vpIdx === 'cutA') updateJoinButton(); else updateJoin2Button();
 
   const fmt = (sel) => sel ? `n=(${sel.normal.x.toFixed(2)},${sel.normal.y.toFixed(2)},${sel.normal.z.toFixed(2)}), d=${sel.planeD.toFixed(1)}${sel.rotate ? ' (rot)' : ''}` : 'none';
   console.log(`Face: A=${fmt(selectionA)} B=${fmt(selectionB)} C=${fmt(selectionC)} D=${fmt(selectionD)}`);
@@ -2201,6 +2245,8 @@ axesScene.add(axesGroup);
 const axesSize = 80;
 
 function setView(name) {
+  step0_panel.visible = name === 'panel';
+
   step1_top.visible = name === 'cut1';
   step1_bot.visible = name === 'cut1';
   pvA.visible = name === 'cut1';
@@ -2239,22 +2285,22 @@ function animate() {
   controls.update();
 
   const W = window.innerWidth, H = window.innerHeight;
-  const halfW = Math.floor(W / 2);
-  const halfH = Math.floor(H / 2);
+  // Tile bounds in WebGL coords (Y from bottom of canvas).
+  const c1 = Math.floor(W / 3);
+  const c2 = Math.floor(2 * W / 3);
+  const r1 = Math.floor(H / 2);
   renderer.setScissorTest(true);
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // Y in setViewport is measured from the bottom
-  // Top row = y = halfH, Bottom row = y = 0
-  // TL (cut 1)
-  renderViewport(0,       halfH,     halfW,       H - halfH, 'cut1',  0x1c1917);
-  // TR (join 1)
-  renderViewport(halfW,   halfH,     W - halfW,   H - halfH, 'join1', 0x1a1816);
-  // BL (cut 2)
-  renderViewport(0,       0,         halfW,       halfH,     'cut2',  0x1a1816);
-  // BR (join 2)
-  renderViewport(halfW,   0,         W - halfW,   halfH,     'join2', 0x1c1917);
+  // Full-height starting-panel view (left third).
+  renderViewport(0, 0, c1, H, 'panel', 0x1c1917);
+  // Top row of right area: cut A | join 1
+  renderViewport(c1,    r1, c2 - c1,   H - r1, 'cut1',  0x1a1816);
+  renderViewport(c2,    r1, W - c2,    H - r1, 'join1', 0x1c1917);
+  // Bottom row of right area: cut B | join 2
+  renderViewport(c1,    0,  c2 - c1,   r1,     'cut2',  0x1c1917);
+  renderViewport(c2,    0,  W - c2,    r1,     'join2', 0x1a1816);
 
   renderer.setScissorTest(false);
 }
