@@ -14,6 +14,7 @@ export function attachAppStateEffect(onChange: () => void): () => void {
       appState.strips;
       appState.stripHeight;
       appState.stripLength;
+      appState.passes.length; // track insertions/removals
       for (const p of appState.passes) {
         p.id;
         if (p.kind === 'cut') {

@@ -6,13 +6,13 @@
     /** Pass object (mutated via Svelte reactivity — the app.svelte.ts state
      *  is runes-backed, so direct mutation propagates). */
     pass: CutPass;
-    /** Column index in the layout (1 = middle, 2 = right). Controls
-     *  position via CSS data-col attribute. */
-    col: number;
+    /** Inline style string for positioning the control panel. Caller
+     *  computes CSS `right`/`top` based on tile layout math. */
+    style: string;
     /** Short label like "cut A" shown in the first slider label. */
     label: string;
   };
-  let { pass, col, label }: Props = $props();
+  let { pass, style, label }: Props = $props();
 
   const PATTERNS: { value: PatternName; label: string }[] = [
     { value: 'identity',        label: 'identity (reassemble)' },
@@ -25,7 +25,7 @@
   const showShift = $derived(pass.mode === 'pattern' && pass.pattern === 'shiftAlternate');
 </script>
 
-<div class="ctrl-panel cut-controls" data-col={col}>
+<div class="ctrl-panel cut-controls" {style}>
   <label>{label} — rip: <span class="angle-val">{pass.rip}°</span></label>
   <input type="range" min="-90" max="90" step="1" bind:value={pass.rip} />
 

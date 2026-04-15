@@ -105,74 +105,146 @@ function setCameraView(name: 'top' | 'front'): void {
   controls.update();
 }
 
-// ─── Scene groups + tiles ────────────────────────────────────────
+// ─── Tile layout ─────────────────────────────────────────────────
+//
+// Simple horizontal column layout: 1 starting-panel column plus 2 columns
+// per pass (cut + join). totalCols = 1 + 2 × passCount, each full height.
+// Per-pass controls + quick buttons derive their positions from the same
+// column math (see App.svelte + CutControls.svelte).
+
+function totalColumns(): number {
+  return 1 + 2 * appState.passes.length;
+}
+
+function columnRect(col: number) {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const n = totalColumns();
+  const w = Math.floor(W / n);
+  return { x: col * w, y: 0, w: col === n - 1 ? W - col * w : w, h: H };
+}
+
+// ─── Starting-panel scene node ────────────────────────────────────
 
 const panelGroup = new Group();
 scene.add(panelGroup);
-
-// One (cut, join) group pair per pass. PR 6 generalizes this to a list.
-const cutTopGroup = new Group();
-const cutBotGroup = new Group();
-scene.add(cutTopGroup);
-scene.add(cutBotGroup);
-
-const planeViz = new Mesh(
-  new PlaneGeometry(1, 1),
-  new MeshBasicMaterial({
-    color: 0xc0392b,
-    transparent: true,
-    opacity: 0.07,
-    side: DoubleSide,
-    depthWrite: false,
-  }),
-);
-scene.add(planeViz);
-
-const joinGroup = new Group();
-scene.add(joinGroup);
-
-function tileRect(col: number) {
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const c1 = Math.floor(W / 3);
-  const c2 = Math.floor(2 * W / 3);
-  if (col === 0) return { x: 0, y: 0, w: c1, h: H };
-  if (col === 1) return { x: c1, y: 0, w: c2 - c1, h: H };
-  return { x: c2, y: 0, w: W - c2, h: H };
-}
-
 const panelTile = new Tile({
   id: 'panel',
   bg: 0x1c1917,
   root: panelGroup,
-  rect: () => tileRect(0),
+  rect: () => columnRect(0),
 });
-const cutTile = new Tile({
-  id: 'cut-0',
-  bg: 0x1a1816,
-  root: cutTopGroup,
-  overlays: [cutBotGroup, planeViz],
-  pickableGroups: [cutTopGroup, cutBotGroup],
-  rect: () => tileRect(1),
-});
-const joinTile = new Tile({
-  id: 'join-0',
-  bg: 0x1c1917,
-  root: joinGroup,
-  rect: () => tileRect(2),
-});
-const tiles = [panelTile, cutTile, joinTile];
+
+// ─── Per-pass scene nodes ────────────────────────────────────────
+//
+// Keyed by pass id. buildTileForPass() creates the THREE objects + Tile;
+// disposePass() tears them down. syncScenePassesToState() diffs against
+// appState.passes and adds/removes nodes as needed, preserving existing
+// groups when the underlying pass id hasn't changed.
+
+interface PassSceneNode {
+  id: string;
+  cutTop: Group;
+  cutBot: Group;
+  planeViz: Mesh;
+  joinGroup: Group;
+  cutTile: Tile;
+  joinTile: Tile;
+}
+
+const passNodes: PassSceneNode[] = [];
+
+function buildPassNode(id: string, indexRef: { current: number }): PassSceneNode {
+  const cutTop = new Group();
+  const cutBot = new Group();
+  const joinGroup = new Group();
+  const planeViz = new Mesh(
+    new PlaneGeometry(1, 1),
+    new MeshBasicMaterial({
+      color: 0xc0392b,
+      transparent: true,
+      opacity: 0.07,
+      side: DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  scene.add(cutTop, cutBot, planeViz, joinGroup);
+
+  // Capture indexRef in the rect() closures so tile positions track the
+  // pass's current index in appState.passes — when a pass is inserted at
+  // the front, existing passes shift right without rebuilding geometry.
+  const cutTile = new Tile({
+    id: `cut-${id}`,
+    bg: 0x1a1816,
+    root: cutTop,
+    overlays: [cutBot, planeViz],
+    pickableGroups: [cutTop, cutBot],
+    rect: () => columnRect(1 + indexRef.current * 2),
+  });
+  const joinTile = new Tile({
+    id: `join-${id}`,
+    bg: 0x1c1917,
+    root: joinGroup,
+    rect: () => columnRect(2 + indexRef.current * 2),
+  });
+
+  return { id, cutTop, cutBot, planeViz, joinGroup, cutTile, joinTile };
+}
+
+/** Keep these across syncs so each pass's rect() tracks its live index. */
+const indexRefs = new Map<string, { current: number }>();
+
+function disposePassNode(node: PassSceneNode): void {
+  scene.remove(node.cutTop, node.cutBot, node.planeViz, node.joinGroup);
+  node.planeViz.geometry.dispose();
+  (node.planeViz.material as MeshBasicMaterial).dispose();
+  indexRefs.delete(node.id);
+}
+
+function syncScenePassesToState(): void {
+  const currentIds = new Set(appState.passes.map((p) => p.id));
+  // Remove nodes whose passes were deleted.
+  for (let i = passNodes.length - 1; i >= 0; i--) {
+    if (!currentIds.has(passNodes[i].id)) {
+      disposePassNode(passNodes[i]);
+      passNodes.splice(i, 1);
+    }
+  }
+  // Add/update per state pass order.
+  for (let i = 0; i < appState.passes.length; i++) {
+    const pass = appState.passes[i];
+    let node = passNodes.find((n) => n.id === pass.id);
+    if (!node) {
+      const ref = { current: i };
+      indexRefs.set(pass.id, ref);
+      node = buildPassNode(pass.id, ref);
+      passNodes.splice(i, 0, node);
+    } else {
+      indexRefs.get(pass.id)!.current = i;
+    }
+  }
+}
+
+// Start with the single default pass.
+syncScenePassesToState();
 
 const axesOverlay = createAxesOverlay();
+
+/** Live tile list driven by passNodes. */
+function activeTiles(): Tile[] {
+  const out: Tile[] = [panelTile];
+  for (const n of passNodes) out.push(n.cutTile, n.joinTile);
+  return out;
+}
 
 // ─── Pipeline + rebuild ──────────────────────────────────────────
 
 const pipeline = new Pipeline();
 let manifoldReady = false;
 
-function renderCutPass(result: CutPassResult): void {
-  cutTopGroup.clear();
-  cutBotGroup.clear();
+function renderCutPass(result: CutPassResult, node: PassSceneNode): void {
+  node.cutTop.clear();
+  node.cutBot.clear();
   const { pass, cutNormal, slices, offcuts, arranged } = result;
   const count = slices.length;
   const SLICE_SPACING = Math.max(pass.pitch * 1.5, 80);
@@ -182,7 +254,7 @@ function renderCutPass(result: CutPassResult): void {
     const g = new Group();
     renderPanel(slice, g);
     g.position.copy(cutNormal.clone().multiplyScalar((i - center) * SLICE_SPACING));
-    cutTopGroup.add(g);
+    node.cutTop.add(g);
   });
 
   const offcutOffset = (count / 2 + 1) * SLICE_SPACING;
@@ -192,7 +264,7 @@ function renderCutPass(result: CutPassResult): void {
     g.position.copy(cutNormal.clone().multiplyScalar(-offcutOffset));
     (g.userData as any).isOffcut = true;
     g.visible = pass.showOffcuts;
-    cutTopGroup.add(g);
+    node.cutTop.add(g);
   }
   if (offcuts[1] && offcuts[1].size > 0) {
     const g = new Group();
@@ -200,24 +272,28 @@ function renderCutPass(result: CutPassResult): void {
     g.position.copy(cutNormal.clone().multiplyScalar(offcutOffset));
     (g.userData as any).isOffcut = true;
     g.visible = pass.showOffcuts;
-    cutTopGroup.add(g);
+    node.cutTop.add(g);
   }
 
-  planeViz.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), cutNormal);
-  sizePlaneViz(planeViz, result.input);
+  node.planeViz.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), cutNormal);
+  sizePlaneViz(node.planeViz, result.input);
 
-  joinGroup.clear();
-  if (arranged) renderPanel(arranged, joinGroup);
+  node.joinGroup.clear();
+  if (arranged) renderPanel(arranged, node.joinGroup);
 }
 
 function rebuildAll(): void {
   if (!manifoldReady) return;
+  syncScenePassesToState();
   pipeline.rebuild(appState);
   if (pipeline.startingPanel) {
     panelGroup.clear();
     renderPanel(pipeline.startingPanel, panelGroup);
   }
-  pipeline.results.forEach((r) => renderCutPass(r));
+  pipeline.results.forEach((r, i) => {
+    const node = passNodes[i];
+    if (node) renderCutPass(r, node);
+  });
 }
 
 // ─── Hover / raycasting ──────────────────────────────────────────
@@ -238,6 +314,7 @@ function clearHoverHighlight(): void {
 }
 
 renderer.domElement.addEventListener('mousemove', (e) => {
+  const tiles = activeTiles();
   const tile = tileAt(tiles, e.clientX, e.clientY);
   if (!tile) {
     hoverState.info = null;
@@ -309,7 +386,7 @@ function updateHover(hit: Intersection | undefined): void {
 function animate(): void {
   requestAnimationFrame(animate);
   controls.update();
-  renderTiles(tiles, { renderer, scene, camera, axes: axesOverlay });
+  renderTiles(activeTiles(), { renderer, scene, camera, axes: axesOverlay });
 }
 
 window.addEventListener('resize', () =>
@@ -335,9 +412,6 @@ async function boot(): Promise<void> {
   frame.expandByObject(panelGroup);
   frameCameraToBox(frame, 1.4);
 
-  // After manifold is ready, subscribe to state changes. The effect fires
-  // once immediately (harmless — rebuildAll is idempotent), and then on
-  // every subsequent mutation of strips/stripHeight/stripLength/passes[].
   attachAppStateEffect(rebuildAll);
 }
 boot();
