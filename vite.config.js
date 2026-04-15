@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite'
+import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig({
   base: './',
   server: {
     open: true
   },
+  plugins: [svelte()],
   esbuild: {
     jsxImportSource: 'preact',
     jsx: 'automatic',
@@ -20,6 +22,7 @@ export default defineConfig({
         'viewmaster-large': 'viewmaster/large.html',
         'cubewise': 'cubewise/index.html',
         'end-grain': 'end-grain/index.html',
+        'end-grain-3d': 'end-grain/3d.html',
       }
     }
   }

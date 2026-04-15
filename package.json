@@ -10,6 +10,11 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tsconfig/svelte": "^5.0.8",
+    "svelte": "^5.55.4",
+    "svelte-check": "^4.4.6",
+    "typescript": "^6.0.2",
     "vite": "^6.0.0",
     "vitest": "^4.1.4"
   },
