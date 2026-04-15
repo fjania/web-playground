@@ -27,3 +27,4 @@ export {
 export { createAxesOverlay, type AxesOverlay } from './axes';
 export { Tile, type Rect, type TileInit } from './Tile';
 export { tileAt, renderTiles, type RenderContext } from './viewports';
+export { attachStripDragger, attachStripRemover } from './stripDragger';

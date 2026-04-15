@@ -32,6 +32,8 @@ import {
   sizePlaneViz,
   Tile,
   tileAt,
+  attachStripDragger,
+  attachStripRemover,
 } from './scene';
 import { appState, hoverState, Pipeline } from './state';
 import type { CutPassResult } from './state';
@@ -302,6 +304,7 @@ const raycaster = new Raycaster();
 const mouse = new Vector2();
 let hoveredMesh: Mesh | null = null;
 let hoveredEmissive: Color[] | null = null;
+let stripDragActive = false;
 
 function clearHoverHighlight(): void {
   if (!hoveredMesh) return;
@@ -314,6 +317,7 @@ function clearHoverHighlight(): void {
 }
 
 renderer.domElement.addEventListener('mousemove', (e) => {
+  if (stripDragActive) return;
   const tiles = activeTiles();
   const tile = tileAt(tiles, e.clientX, e.clientY);
   if (!tile) {
@@ -413,5 +417,38 @@ async function boot(): Promise<void> {
   frameCameraToBox(frame, 1.4);
 
   attachAppStateEffect(rebuildAll);
+
+  // Drag-to-reorder + right-click-to-remove on the starting-panel tile.
+  // Both mutate appState.strips; the attached effect rebuilds the pipeline
+  // and re-renders the panel from the new order.
+  attachStripDragger({
+    tile: panelTile,
+    renderer,
+    camera,
+    controls,
+    panelGroup,
+    getStrips: () => appState.strips,
+    setStrips: (next) => {
+      appState.strips = next;
+    },
+    onDragStart: () => {
+      stripDragActive = true;
+      clearHoverHighlight();
+      hoverState.info = null;
+    },
+    onDragEnd: () => {
+      stripDragActive = false;
+    },
+  });
+  attachStripRemover({
+    tile: panelTile,
+    renderer,
+    camera,
+    panelGroup,
+    getStrips: () => appState.strips,
+    setStrips: (next) => {
+      appState.strips = next;
+    },
+  });
 }
 boot();

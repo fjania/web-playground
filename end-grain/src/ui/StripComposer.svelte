@@ -1,77 +1,22 @@
 <script lang="ts">
   import { appState } from '../state';
-  import { SPECIES_LIST, SPECIES_HEX } from '../scene';
-  import type { StripDef } from '../domain/types';
+  import { SPECIES_HEX, SPECIES_LIST } from '../scene';
 
-  // Named presets for quick seeds.
-  const presets: Record<string, () => StripDef[]> = {
-    ab8: () => {
-      const out: StripDef[] = [];
-      for (let i = 0; i < 16; i++) out.push({ species: i % 2 === 0 ? 'maple' : 'walnut', width: 50 });
-      return out;
-    },
-    abc4: () => {
-      const out: StripDef[] = [];
-      const seq = ['maple', 'walnut', 'cherry'];
-      for (let i = 0; i < 12; i++) out.push({ species: seq[i % 3], width: 50 });
-      return out;
-    },
-    bookmatch: () => {
-      const half = ['maple', 'walnut', 'maple', 'walnut', 'maple'];
-      return [...half, ...half.slice().reverse()].map((sp) => ({ species: sp, width: 50 }));
-    },
-    single: () => [{ species: 'maple', width: 400 }],
-    rainbow: () => SPECIES_LIST.map((sp) => ({ species: sp, width: 60 })),
-  };
+  // Per-species width input, shared across sessions within a page load.
+  // Initialized to 50mm to match the prior default strip width.
+  const speciesWidths: Record<string, number> = $state(
+    Object.fromEntries(SPECIES_LIST.map((sp) => [sp, 50])),
+  );
 
-  let presetSelection = $state('');
-
-  function onPresetChange() {
-    if (presetSelection && presets[presetSelection]) {
-      appState.strips = presets[presetSelection]();
-    }
-    presetSelection = '';
-  }
-
-  function moveUp(i: number) {
-    if (i <= 0) return;
-    const next = appState.strips.slice();
-    [next[i - 1], next[i]] = [next[i], next[i - 1]];
-    appState.strips = next;
-  }
-  function moveDown(i: number) {
-    if (i >= appState.strips.length - 1) return;
-    const next = appState.strips.slice();
-    [next[i + 1], next[i]] = [next[i], next[i + 1]];
-    appState.strips = next;
-  }
-  function remove(i: number) {
-    if (appState.strips.length <= 1) return;
-    const next = appState.strips.slice();
-    next.splice(i, 1);
-    appState.strips = next;
-  }
-  function add() {
-    const last = appState.strips[appState.strips.length - 1];
-    const seed = last ? { ...last } : { species: 'maple', width: 50 };
-    appState.strips = [...appState.strips, seed];
-  }
-  function duplicateLast() {
-    const last = appState.strips[appState.strips.length - 1];
-    if (!last) return;
-    appState.strips = [...appState.strips, { ...last }];
-  }
-
-  function setWidth(i: number, w: number) {
+  function addStrip(sp: string) {
+    const w = speciesWidths[sp];
     if (!Number.isFinite(w) || w < 5) return;
-    const next = appState.strips.slice();
-    next[i] = { ...next[i], width: Math.min(w, 200) };
-    appState.strips = next;
+    appState.strips = [...appState.strips, { species: sp, width: Math.min(w, 200) }];
   }
-  function setSpecies(i: number, sp: string) {
-    const next = appState.strips.slice();
-    next[i] = { ...next[i], species: sp };
-    appState.strips = next;
+
+  function clearAll() {
+    if (appState.strips.length <= 1) return;
+    appState.strips = appState.strips.slice(0, 1);
   }
 </script>
 
@@ -79,53 +24,87 @@
   <label>starting strips</label>
 
   <label style="margin-top:6px;">height: <span class="angle-val">{appState.stripHeight}mm</span></label>
-  <input
-    type="range" min="10" max="120" step="1"
-    bind:value={appState.stripHeight}
-  />
+  <input type="range" min="10" max="120" step="1" bind:value={appState.stripHeight} />
 
   <label style="margin-top:6px;">length: <span class="angle-val">{appState.stripLength}mm</span></label>
-  <input
-    type="range" min="100" max="800" step="10"
-    bind:value={appState.stripLength}
-  />
+  <input type="range" min="100" max="800" step="10" bind:value={appState.stripLength} />
 
-  <label style="margin-top:8px;">strips (left → right)</label>
-  <div class="strip-list">
-    {#each appState.strips as strip, i (i)}
-      <div class="strip-row">
-        <span class="swatch" style="background: {SPECIES_HEX[strip.species]}"></span>
-        <select value={strip.species} onchange={(e) => setSpecies(i, (e.target as HTMLSelectElement).value)}>
-          {#each SPECIES_LIST as sp}
-            <option value={sp}>{sp}</option>
-          {/each}
-        </select>
+  <label style="margin-top:8px;">species</label>
+  <div class="species-list">
+    {#each SPECIES_LIST as sp}
+      <div class="species-row">
+        <span class="swatch" style="background: {SPECIES_HEX[sp]}"></span>
+        <span class="name">{sp}</span>
         <input
           type="number" min="5" max="200" step="1"
-          value={strip.width}
-          onchange={(e) => setWidth(i, parseInt((e.target as HTMLInputElement).value, 10))}
+          bind:value={speciesWidths[sp]}
+          title="width in mm"
         />
-        <button type="button" title="move up" disabled={i === 0} onclick={() => moveUp(i)}>↑</button>
-        <button type="button" title="move down" disabled={i === appState.strips.length - 1} onclick={() => moveDown(i)}>↓</button>
-        <button type="button" title="remove" disabled={appState.strips.length <= 1} onclick={() => remove(i)}>×</button>
+        <button type="button" onclick={() => addStrip(sp)} title="append strip">+</button>
       </div>
     {/each}
   </div>
 
-  <div class="action-row">
-    <button type="button" onclick={add}>+ add</button>
-    <button type="button" onclick={duplicateLast}>duplicate last</button>
+  <div class="hint">
+    drag a strip in the panel to reorder · right-click to remove
   </div>
 
-  <div class="preset-row">
-    <label style="margin:0;">preset:</label>
-    <select bind:value={presetSelection} onchange={onPresetChange}>
-      <option value="">(choose…)</option>
-      <option value="ab8">A/B ×8 (maple/walnut)</option>
-      <option value="abc4">A/B/C ×4 (maple/walnut/cherry)</option>
-      <option value="bookmatch">bookmatch maple/walnut</option>
-      <option value="single">single maple slab</option>
-      <option value="rainbow">rainbow (all 5)</option>
-    </select>
+  <div class="action-row">
+    <button type="button" onclick={clearAll} disabled={appState.strips.length <= 1}>
+      clear all but one
+    </button>
   </div>
 </div>
+
+<style>
+  .species-list {
+    border: 1px solid #3d3835;
+    border-radius: 4px;
+    padding: 4px;
+    margin-bottom: 6px;
+  }
+  .species-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 10px;
+  }
+  .species-row .name {
+    flex: 1;
+    color: #e4cc8f;
+  }
+  .species-row input[type="number"] {
+    width: 48px;
+    background: #2a2622;
+    color: #e4cc8f;
+    border: 1px solid #3d3835;
+    border-radius: 3px;
+    padding: 2px 3px;
+    font-family: inherit;
+    font-size: 10px;
+  }
+  .species-row button {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    line-height: 1;
+    background: #2d5a27;
+    color: #e4cc8f;
+    border: 1px solid #3d5a37;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .species-row button:hover {
+    background: #3d7a37;
+  }
+  .hint {
+    font-size: 9px;
+    color: #78716c;
+    margin: 4px 0 6px;
+    line-height: 1.4;
+  }
+</style>

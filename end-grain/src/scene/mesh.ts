@@ -35,34 +35,52 @@ export function manifoldToThree(mf: any, material: Material): Mesh {
   return obj;
 }
 
-/** Clear a group of its children, disposing child geometry. */
+/** Clear a group of its children, disposing descendant geometry. */
 function clearGroup(group: { children: any[]; remove: (c: any) => void }): void {
   while (group.children.length) {
     const c = group.children[0];
     group.remove(c);
-    if (c.geometry) c.geometry.dispose();
+    (c as any).traverse?.((o: any) => {
+      if (o.geometry) o.geometry.dispose();
+    });
   }
 }
 
 /**
  * Render a Panel into a THREE.Group. Idempotent — clears and rebuilds meshes.
- * The group's position/rotation are untouched; this is purely a geometry write.
+ *
+ * Each segment is wrapped in its own sub-Group tagged with
+ * `userData.segIdx` + `userData.species`, so callers can reposition or
+ * highlight individual strips without rebuilding manifold geometry. The
+ * manifold handle already encodes the segment's absolute world position;
+ * the sub-Group starts at local (0,0,0) and any offset applied to it
+ * stacks on top.
  */
+import { Group } from 'three';
+
 export function renderPanel(panel: Panel, group: any): void {
   clearGroup(group);
-  for (const seg of panel.segments) {
+  panel.segments.forEach((seg, i) => {
     const mat = speciesMaterials[seg.species];
-    group.add(manifoldToThree(seg.manifold, mat));
-  }
+    const sub = new Group();
+    sub.userData.segIdx = i;
+    sub.userData.species = seg.species;
+    sub.add(manifoldToThree(seg.manifold, mat));
+    group.add(sub);
+  });
 }
 
 /** Render a Panel with offcut (dimmed, semi-transparent) materials. */
 export function renderPanelDim(panel: Panel, group: any): void {
   clearGroup(group);
-  for (const seg of panel.segments) {
+  panel.segments.forEach((seg, i) => {
     const mat = offcutMats[seg.species] ?? offcutMats.maple;
-    group.add(manifoldToThree(seg.manifold, mat));
-  }
+    const sub = new Group();
+    sub.userData.segIdx = i;
+    sub.userData.species = seg.species;
+    sub.add(manifoldToThree(seg.manifold, mat));
+    group.add(sub);
+  });
 }
 
 /**
