@@ -761,17 +761,6 @@ class Panel {
     this.segments = segments; // Array<{ manifold, species }>
   }
 
-  static fromStripes(w, h, d, count, speciesAt) {
-    const half = (count * w) / 2;
-    const segs = [];
-    for (let i = 0; i < count; i++) {
-      const x = i * w - half + w / 2;
-      const mf = Manifold.cube([w, h, d], true).translate([x, 0, 0]);
-      segs.push({ manifold: mf, species: speciesAt(i) });
-    }
-    return new Panel(segs);
-  }
-
   static fromStripList(strips, height, length) {
     const total = strips.reduce((s, st) => s + st.width, 0);
     let x = -total / 2;
