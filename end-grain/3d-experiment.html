@@ -137,9 +137,7 @@
   <input type="range" id="rip-slider" min="-90" max="90" step="1" value="0">
   <label style="margin-top:6px;">bevel: <span id="bevel-val" class="angle-val">90°</span></label>
   <input type="range" id="bevel-slider" min="45" max="90" step="1" value="90">
-  <label style="margin-top:6px;">slices: <span id="count-val" class="angle-val">8</span></label>
-  <input type="range" id="count-slider" min="1" max="30" step="1" value="8">
-  <label style="margin-top:6px;">thickness: <span id="pitch-val" class="angle-val">50mm</span></label>
+  <label style="margin-top:6px;">slice thickness: <span id="pitch-val" class="angle-val">50mm</span></label>
   <input type="range" id="pitch-slider" min="5" max="200" step="5" value="50">
   <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
     <input type="checkbox" id="offcuts-cb" checked> show offcuts
@@ -182,9 +180,7 @@
   <input type="range" id="rip-b-slider" min="-90" max="90" step="1" value="0">
   <label style="margin-top:6px;">bevel: <span id="bevel-b-val" class="angle-val">90°</span></label>
   <input type="range" id="bevel-b-slider" min="45" max="90" step="1" value="90">
-  <label style="margin-top:6px;">slices: <span id="count-b-val" class="angle-val">8</span></label>
-  <input type="range" id="count-b-slider" min="1" max="30" step="1" value="8">
-  <label style="margin-top:6px;">thickness: <span id="pitch-b-val" class="angle-val">50mm</span></label>
+  <label style="margin-top:6px;">slice thickness: <span id="pitch-b-val" class="angle-val">50mm</span></label>
   <input type="range" id="pitch-b-slider" min="5" max="200" step="5" value="50">
   <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
     <input type="checkbox" id="offcuts-b-cb" checked> show offcuts
@@ -395,15 +391,11 @@ function fmtArea(mm2) {
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-// Strip dimensions: cutting boards start as glued-up strips, not cubes.
-// Each strip is segW × segH × segD (50 × 50 × 400 mm by default).
-// The number of strips and their species mix is user-controlled via the
-// "starting strips" panel; SPECIES_A / SPECIES_B / REPEATS define the
-// alternating pattern (SPECIES_A then SPECIES_B repeated REPEATS times).
+// Default starting-strip dimensions. Used ONLY when constructing the
+// initial panel from the strip controls — nothing downstream may assume
+// these values; instead, downstream code must read the panel's actual
+// bounding box. The user wants per-strip sizing eventually.
 const segW = 50, segH = 50, segD = 400;
-// Generous static plane viz size (sized for the maximum panel length we
-// could end up with). Avoids resizing on every panel rebuild.
-const PLANE_VIZ_LEN = 50 * 2 * 30;
 let initialStripsA = 'maple', initialStripsB = 'walnut', initialRepeats = 8;
 
 // ─── Manifold init + assembly model ───────────────────────────────
@@ -421,8 +413,11 @@ const step1_bot = new THREE.Group(); // strip B
 scene.add(step1_top);
 scene.add(step1_bot);
 
+// Plane viz: starts as a unit-size placeholder; resized on each rebuild
+// to safely cover whatever panel is being cut (the panel's diagonal
+// guarantees full coverage at any blade angle).
 const pvA = new THREE.Mesh(
-  new THREE.PlaneGeometry(PLANE_VIZ_LEN + 200, segD + 200),
+  new THREE.PlaneGeometry(1, 1),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvA);
@@ -436,9 +431,9 @@ const step3_bot = new THREE.Group();
 scene.add(step3_top);
 scene.add(step3_bot);
 
-// Plane viz for the second cut
+// Plane viz for the second cut (also resized per-rebuild).
 const pvB = new THREE.Mesh(
-  new THREE.PlaneGeometry(PLANE_VIZ_LEN + 200, segD + 200),
+  new THREE.PlaneGeometry(1, 1),
   new THREE.MeshBasicMaterial({ color: 0x2980b9, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvB);
@@ -1258,11 +1253,45 @@ function renderPanelDim(panel, group) {
   }
 }
 
-function rebuild(rip, bevel, count, pitch) {
+// Resize a plane-viz mesh to safely cover the given panel at any blade
+// angle (uses the panel's bounding-box diagonal as the side length, so
+// the plane is square and big enough no matter how it's oriented).
+function sizePlaneViz(plane, panel) {
+  const sz = new THREE.Vector3();
+  panel.boundingBox().getSize(sz);
+  const diag = sz.length() + 200;
+  plane.geometry.dispose();
+  plane.geometry = new THREE.PlaneGeometry(diag, diag);
+}
+
+// Project a panel's bounding-box corners onto a unit normal and return
+// the (signed) extent along that normal. Used to derive how many slices
+// of a given pitch fit across the panel.
+function panelExtentAlongNormal(panel, normal) {
+  const bb = panel.boundingBox();
+  let lo = Infinity, hi = -Infinity;
+  for (let ix = 0; ix < 2; ix++)
+    for (let iy = 0; iy < 2; iy++)
+      for (let iz = 0; iz < 2; iz++) {
+        const x = ix ? bb.max.x : bb.min.x;
+        const y = iy ? bb.max.y : bb.min.y;
+        const z = iz ? bb.max.z : bb.min.z;
+        const d = x * normal.x + y * normal.y + z * normal.z;
+        if (d < lo) lo = d;
+        if (d > hi) hi = d;
+      }
+  return hi - lo;
+}
+
+function rebuild(rip, bevel, pitch) {
   if (!Manifold) return;
 
   const planeN = planeNormal(rip, bevel);
   const planeNArr = [planeN.x, planeN.y, planeN.z];
+  // Slice count is a consequence of panel extent and pitch — the panel
+  // sets the upper bound, the pitch sets the spacing.
+  const extent = panelExtentAlongNormal(initialPanel, planeN);
+  const count = Math.max(1, Math.floor(extent / pitch));
 
   // Dispose previous slices + offcuts + legacy custom-mode halves.
   for (const s of slicesA) s.dispose();
@@ -1310,6 +1339,7 @@ function rebuild(rip, bevel, count, pitch) {
   }
 
   pvA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
+  sizePlaneViz(pvA, initialPanel);
 
   bbStripA.box.setFromObject(step1_top);
 
@@ -1320,7 +1350,7 @@ function rebuild(rip, bevel, count, pitch) {
 
   applyOffcutVisibility();
 
-  console.log(`Cut A: rip=${rip}° bevel=${bevel}° count=${count} pitch=${pitch} — ${slices.length} slices, ${offcuts.filter(o => o.size > 0).length} offcuts`);
+  console.log(`Cut A: rip=${rip}° bevel=${bevel}° pitch=${pitch}mm → ${slices.length} slices (extent ${extent.toFixed(0)}mm), ${offcuts.filter(o => o.size > 0).length} offcuts`);
 }
 
 // Toggle visibility of offcut groups in cut views based on checkbox state.
@@ -1337,14 +1367,14 @@ function applyOffcutVisibility() {
 
 // ─── Sliders ───────────────────────────────────────────────────────
 
-let currentRipA = 0, currentBevelA = 90, currentCountA = 8, currentPitchA = 50;
+let currentRipA = 0, currentBevelA = 90, currentPitchA = 50;
 // Arrangement state for view 1.
 let modeA = 'pattern'; // 'pattern' | 'custom'
 let patternA = 'flipAlternate';
 let shiftA = 25;
 
 function rebuildA() {
-  rebuild(currentRipA, currentBevelA, currentCountA, currentPitchA);
+  rebuild(currentRipA, currentBevelA, currentPitchA);
   if (modeA === 'pattern') applyPatternA();
 }
 
@@ -1461,14 +1491,6 @@ bevelSlider.addEventListener('input', () => {
   rebuildA();
 });
 
-const countSlider = document.getElementById('count-slider');
-const countVal = document.getElementById('count-val');
-countSlider.addEventListener('input', () => {
-  currentCountA = parseInt(countSlider.value, 10);
-  countVal.textContent = `${currentCountA}`;
-  rebuildA();
-});
-
 const pitchSlider = document.getElementById('pitch-slider');
 const pitchVal = document.getElementById('pitch-val');
 pitchSlider.addEventListener('input', () => {
@@ -1523,7 +1545,7 @@ shiftSliderA.addEventListener('input', () => {
 });
 updateShiftVisibility();
 
-let currentRipB = 0, currentBevelB = 90, currentCountB = 8, currentPitchB = 50;
+let currentRipB = 0, currentBevelB = 90, currentPitchB = 50;
 let modeB = 'pattern';
 let patternB = 'flipAlternate';
 let shiftB = 25;
@@ -1566,14 +1588,6 @@ const bevelBVal = document.getElementById('bevel-b-val');
 bevelBSlider.addEventListener('input', () => {
   currentBevelB = parseInt(bevelBSlider.value, 10);
   bevelBVal.textContent = `${currentBevelB}°`;
-  rebuildB();
-});
-
-const countBSlider = document.getElementById('count-b-slider');
-const countBVal = document.getElementById('count-b-val');
-countBSlider.addEventListener('input', () => {
-  currentCountB = parseInt(countBSlider.value, 10);
-  countBVal.textContent = `${currentCountB}`;
   rebuildB();
 });
 
@@ -1980,13 +1994,15 @@ function rebuildCut2() {
 
   const planeN = planeNormal(currentRipB, currentBevelB);
   const planeNArr = [planeN.x, planeN.y, planeN.z];
+  const extent = panelExtentAlongNormal(panel2, planeN);
+  const count = Math.max(1, Math.floor(extent / currentPitchB));
 
-  const { slices, offcuts } = panel2.cutRepeated(planeNArr, currentPitchB, currentCountB, 0);
+  const { slices, offcuts } = panel2.cutRepeated(planeNArr, currentPitchB, count, 0);
   slicesB = slices;
   offcutsB = offcuts;
 
   const SLICE_SPACING = Math.max(currentPitchB * 1.5, 80);
-  const center = (currentCountB - 1) / 2;
+  const center = (count - 1) / 2;
   slices.forEach((slice, i) => {
     const g = new THREE.Group();
     g.userData.sliceIdx = i;
@@ -1995,7 +2011,7 @@ function rebuildCut2() {
     step3_top.add(g);
   });
 
-  const offcutOffset = (currentCountB / 2 + 1) * SLICE_SPACING;
+  const offcutOffset = (count / 2 + 1) * SLICE_SPACING;
   if (offcuts[0] && offcuts[0].size > 0) {
     const g = new THREE.Group();
     renderPanelDim(offcuts[0], g);
@@ -2012,6 +2028,7 @@ function rebuildCut2() {
   }
 
   pvB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
+  sizePlaneViz(pvB, panel2);
 
   bbStripC.box.setFromObject(step3_top);
 
@@ -2022,7 +2039,7 @@ function rebuildCut2() {
 
   applyOffcutVisibility();
 
-  console.log(`Cut B: rip=${currentRipB}° bevel=${currentBevelB}° count=${currentCountB} pitch=${currentPitchB} — ${slices.length} slices, ${offcuts.filter(o => o.size > 0).length} offcuts`);
+  console.log(`Cut B: rip=${currentRipB}° bevel=${currentBevelB}° pitch=${currentPitchB}mm → ${slices.length} slices (extent ${extent.toFixed(0)}mm), ${offcuts.filter(o => o.size > 0).length} offcuts`);
 }
 
 function updateJoin2Button() {
