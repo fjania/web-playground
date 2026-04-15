@@ -713,6 +713,18 @@ class Panel {
     return new Panel(segs);
   }
 
+  static fromStripList(strips, height, length) {
+    const total = strips.reduce((s, st) => s + st.width, 0);
+    let x = -total / 2;
+    const segs = strips.map(({ species, width }) => {
+      const cx = x + width / 2;
+      x += width;
+      const mf = Manifold.cube([width, height, length], true).translate([cx, 0, 0]);
+      return { manifold: mf, species };
+    });
+    return new Panel(segs);
+  }
+
   get size() { return this.segments.length; }
 
   cut(normal, offset) {
