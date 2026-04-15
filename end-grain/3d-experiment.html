@@ -46,8 +46,18 @@
     border-radius: 6px; padding: 12px 16px;
     color: #a8a29e; font-size: 10px;
   }
-  #controls { top: 10px; right: calc(50% + 10px); }
+  #strip-controls { top: 10px; right: calc(50% + 10px); }
+  #controls { top: 105px; right: calc(50% + 10px); }
   #controls2 { top: calc(50% + 10px); right: calc(50% + 10px); }
+  #strip-controls .row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 10px; }
+  #strip-controls select {
+    background: #2a2622; color: #e4cc8f; border: 1px solid #3d3835;
+    border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 10px;
+  }
+  #strip-controls .swatch {
+    width: 14px; height: 14px; border: 1px solid #3d3835; border-radius: 2px;
+    display: inline-block; vertical-align: middle;
+  }
   button.join-btn:disabled { opacity: 0.4; cursor: default; }
   button.join-btn:not(:disabled):hover { background: #3d7a37; }
   button.flip-btn {
@@ -104,6 +114,17 @@
 <div id="info">
   <strong>End Grain — Cut + Combine</strong><br>
   left: diagonal cut &middot; right: joined
+</div>
+<div id="strip-controls" class="ctrl-panel">
+  <label>starting strips</label>
+  <div class="row">
+    <span class="swatch" id="swatch-a"></span>
+    <select id="species-a"></select>
+    <span class="swatch" id="swatch-b"></span>
+    <select id="species-b"></select>
+  </div>
+  <label style="margin-top:4px;">repeats: <span id="repeats-val" class="angle-val">8</span></label>
+  <input type="range" id="repeats-slider" min="1" max="20" step="1" value="8">
 </div>
 <div id="controls" class="ctrl-panel">
   <label>cut A &mdash; rip: <span id="rip-val" class="angle-val">0°</span></label>
@@ -262,17 +283,28 @@ function makeWoodMats(base, ring, grain) {
   const s = makeSideMat(base, grain);
   return [s, s, e, e, s, s];
 }
-const mapleMats = makeWoodMats('#e4cc8f', '#b5a06a', '#c4aa70');
-const walnutMats = makeWoodMats('#3d2416', '#2a1a0e', '#4a2e1a');
-const mapleCut = new THREE.MeshStandardMaterial({ color: 0xe4cc8f, roughness: 0.75 });
-const walnutCut = new THREE.MeshStandardMaterial({ color: 0x3d2416, roughness: 0.75 });
+const mapleMats      = makeWoodMats('#e4cc8f', '#b5a06a', '#c4aa70');
+const walnutMats     = makeWoodMats('#3d2416', '#2a1a0e', '#4a2e1a');
+const cherryMats     = makeWoodMats('#c97050', '#8a3018', '#a8503a');
+const padaukMats     = makeWoodMats('#c84020', '#8a2010', '#a83018');
+const purpleheartMats= makeWoodMats('#5a2a6a', '#3a1545', '#4a2055');
+
+// Available species (label → side material). speciesMaterials below is
+// derived from this list.
+const SPECIES_DEFS = {
+  maple:       mapleMats,
+  walnut:      walnutMats,
+  cherry:      cherryMats,
+  padauk:      padaukMats,
+  purpleheart: purpleheartMats,
+};
+const SPECIES_LIST = Object.keys(SPECIES_DEFS);
 
 // Map every material to a species name for status bar lookup
 const matSpecies = new Map();
-mapleMats.forEach(m => matSpecies.set(m, 'maple'));
-walnutMats.forEach(m => matSpecies.set(m, 'walnut'));
-matSpecies.set(mapleCut, 'maple');
-matSpecies.set(walnutCut, 'walnut');
+for (const [name, mats] of Object.entries(SPECIES_DEFS)) {
+  mats.forEach(m => matSpecies.set(m, name));
+}
 
 // ─── Geometry stats helpers ───────────────────────────────────────
 
@@ -357,9 +389,16 @@ function fmtArea(mm2) {
 
 // ─── Dimensions ────────────────────────────────────────────────────
 
-const segW = 50, segH = 50, segD = 500, cubeCount = 32;
-const halfLen = (cubeCount * segW) / 2;
-const panelLen = cubeCount * segW;
+// Strip dimensions: cutting boards start as glued-up strips, not cubes.
+// Each strip is segW × segH × segD (50 × 50 × 400 mm by default).
+// The number of strips and their species mix is user-controlled via the
+// "starting strips" panel; SPECIES_A / SPECIES_B / REPEATS define the
+// alternating pattern (SPECIES_A then SPECIES_B repeated REPEATS times).
+const segW = 50, segH = 50, segD = 400;
+// Generous static plane viz size (sized for the maximum panel length we
+// could end up with). Avoids resizing on every panel rebuild.
+const PLANE_VIZ_LEN = 50 * 2 * 30;
+let initialStripsA = 'maple', initialStripsB = 'walnut', initialRepeats = 8;
 
 // ─── Manifold init + assembly model ───────────────────────────────
 //
@@ -375,7 +414,7 @@ scene.add(step1_top);
 scene.add(step1_bot);
 
 const pvA = new THREE.Mesh(
-  new THREE.PlaneGeometry(panelLen + 200, segD + 200),
+  new THREE.PlaneGeometry(PLANE_VIZ_LEN + 200, segD + 200),
   new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvA);
@@ -391,7 +430,7 @@ scene.add(step3_bot);
 
 // Plane viz for the second cut
 const pvB = new THREE.Mesh(
-  new THREE.PlaneGeometry(panelLen + 200, segD + 200),
+  new THREE.PlaneGeometry(PLANE_VIZ_LEN + 200, segD + 200),
   new THREE.MeshBasicMaterial({ color: 0x2980b9, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
 );
 scene.add(pvB);
@@ -635,7 +674,9 @@ function updateJoinButton() {
 }
 
 // Material per species: index 0 = maple, index 1 = walnut
-const speciesMaterials = { maple: mapleMats[0], walnut: walnutMats[0] };
+const speciesMaterials = Object.fromEntries(
+  SPECIES_LIST.map(name => [name, SPECIES_DEFS[name][0]]),
+);
 
 let Manifold;
 let initialPanel; // Panel
@@ -781,11 +822,7 @@ async function init() {
   Manifold = wasm.Manifold;
   console.log('Manifold ready.');
 
-  initialPanel = Panel.fromStripes(segW, segH, segD, cubeCount,
-    i => i % 2 === 0 ? 'maple' : 'walnut');
-  console.log(`Initial panel: ${cubeCount} segments, ${panelLen}×${segH}×${segD}mm`);
-
-  rebuildA();
+  rebuildInitialPanel();
 
   // Frame the camera to show all entities with buffer
   const frame = new THREE.Box3();
@@ -1191,7 +1228,7 @@ function planeNormal(rip, bevel) {
 
 // Build a semi-transparent material per species for rendering offcuts.
 const offcutMats = {};
-for (const sp of ['maple', 'walnut']) {
+for (const sp of SPECIES_LIST) {
   const m = speciesMaterials[sp].clone();
   m.transparent = true;
   m.opacity = 0.25;
@@ -1301,6 +1338,76 @@ let shiftA = 25;
 function rebuildA() {
   rebuild(currentRipA, currentBevelA, currentCountA, currentPitchA);
   if (modeA === 'pattern') applyPatternA();
+}
+
+// Wire up the strip-controls panel: populate species selects, set
+// initial swatches, attach listeners. Done once at module load.
+(function initStripControls() {
+  const selA = document.getElementById('species-a');
+  const selB = document.getElementById('species-b');
+  const swA  = document.getElementById('swatch-a');
+  const swB  = document.getElementById('swatch-b');
+  const slider = document.getElementById('repeats-slider');
+  const repeatsVal = document.getElementById('repeats-val');
+
+  const swatchColor = (sp) => {
+    // Use the side material's map color if available, otherwise fall back.
+    const m = SPECIES_DEFS[sp]?.[0];
+    return m?.map?.image
+      ? m.map.image.getContext('2d').fillStyle  // canvas fill color
+      : null;
+  };
+  // Hard-coded species swatch colors (matches makeWoodMats base color).
+  const SPECIES_HEX = {
+    maple: '#e4cc8f', walnut: '#3d2416', cherry: '#c97050',
+    padauk: '#c84020', purpleheart: '#5a2a6a',
+  };
+
+  for (const name of SPECIES_LIST) {
+    for (const sel of [selA, selB]) {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  }
+  selA.value = initialStripsA;
+  selB.value = initialStripsB;
+  swA.style.background = SPECIES_HEX[initialStripsA];
+  swB.style.background = SPECIES_HEX[initialStripsB];
+  slider.value = initialRepeats;
+  repeatsVal.textContent = initialRepeats;
+
+  selA.addEventListener('change', () => {
+    initialStripsA = selA.value;
+    swA.style.background = SPECIES_HEX[initialStripsA];
+    rebuildInitialPanel();
+  });
+  selB.addEventListener('change', () => {
+    initialStripsB = selB.value;
+    swB.style.background = SPECIES_HEX[initialStripsB];
+    rebuildInitialPanel();
+  });
+  slider.addEventListener('input', () => {
+    initialRepeats = parseInt(slider.value, 10);
+    repeatsVal.textContent = initialRepeats;
+    rebuildInitialPanel();
+  });
+})();
+
+// Rebuild the starting panel from the current strip species + repeat
+// settings, then cascade-rebuild everything downstream.
+function rebuildInitialPanel() {
+  if (!Manifold) return;
+  if (initialPanel) initialPanel.dispose();
+  const total = initialRepeats * 2;
+  initialPanel = Panel.fromStripes(segW, segH, segD, total,
+    i => (i % 2 === 0) ? initialStripsA : initialStripsB);
+  console.log(
+    `Initial panel: ${total} strips of ${segW}×${segH}×${segD}mm — ` +
+    `${initialStripsA}/${initialStripsB} × ${initialRepeats}, ` +
+    `total ${total * segW}×${segH}×${segD}mm`,
+  );
+  rebuildA();
 }
 
 // Apply the current arrangement pattern to slicesA, rendering the result
