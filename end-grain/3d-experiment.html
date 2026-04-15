@@ -50,7 +50,11 @@
      top-right corner. Cut A controls dock to top-right of the cut A tile
      (middle column). Cut B controls dock to top-right of the cut B tile
      (middle column, bottom row). */
-  #strip-controls { top: 10px; right: calc(66.667% + 10px); }
+  #strip-controls {
+    top: 10px; right: calc(66.667% + 10px);
+    max-height: calc(100vh - 20px); overflow-y: auto;
+    width: 280px;
+  }
   #controls { top: 10px; right: calc(33.333% + 10px); }
   #controls2 { top: calc(50% + 10px); right: calc(33.333% + 10px); }
   #strip-controls .row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 10px; }
@@ -60,8 +64,43 @@
   }
   #strip-controls .swatch {
     width: 14px; height: 14px; border: 1px solid #3d3835; border-radius: 2px;
-    display: inline-block; vertical-align: middle;
+    display: inline-block; vertical-align: middle; flex: 0 0 auto;
   }
+  #strip-controls .strip-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 0; font-size: 10px;
+  }
+  #strip-controls .strip-row select { flex: 1 1 auto; min-width: 0; }
+  #strip-controls .strip-row input[type="number"] {
+    width: 42px; background: #2a2622; color: #e4cc8f;
+    border: 1px solid #3d3835; border-radius: 3px;
+    padding: 2px 3px; font-family: inherit; font-size: 10px;
+  }
+  #strip-controls .strip-row button {
+    width: 18px; height: 18px; padding: 0; line-height: 1;
+    background: #2a2622; color: #a8a29e; border: 1px solid #3d3835;
+    border-radius: 3px; font-family: inherit; font-size: 10px;
+    cursor: pointer; flex: 0 0 auto;
+  }
+  #strip-controls .strip-row button:disabled { opacity: 0.3; cursor: default; }
+  #strip-controls .strip-row button:not(:disabled):hover { background: #3d3835; color: #e4cc8f; }
+  #strip-controls .strip-list {
+    max-height: 360px; overflow-y: auto;
+    border: 1px solid #3d3835; border-radius: 4px;
+    padding: 4px; margin-bottom: 6px;
+  }
+  #strip-controls .action-row {
+    display: flex; gap: 4px; margin-top: 4px;
+  }
+  #strip-controls .action-row button {
+    flex: 1; padding: 4px; background: #2d3a4a; color: #a8a29e;
+    border: 1px solid #3d4a5a; border-radius: 3px;
+    font-family: inherit; font-size: 9px; cursor: pointer;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  #strip-controls .action-row button:hover { background: #3d4a5a; color: #e4cc8f; }
+  #strip-controls .preset-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; }
+  #strip-controls .preset-row select { flex: 1; }
   button.join-btn:disabled { opacity: 0.4; cursor: default; }
   button.join-btn:not(:disabled):hover { background: #3d7a37; }
   button.flip-btn {
@@ -123,14 +162,27 @@
 </div>
 <div id="strip-controls" class="ctrl-panel">
   <label>starting strips</label>
-  <div class="row">
-    <span class="swatch" id="swatch-a"></span>
-    <select id="species-a"></select>
-    <span class="swatch" id="swatch-b"></span>
-    <select id="species-b"></select>
+  <label style="margin-top:6px;">height: <span id="strip-h-val" class="angle-val">50mm</span></label>
+  <input type="range" id="strip-h-slider" min="10" max="120" step="1" value="50">
+  <label style="margin-top:6px;">length: <span id="strip-l-val" class="angle-val">400mm</span></label>
+  <input type="range" id="strip-l-slider" min="100" max="800" step="10" value="400">
+  <label style="margin-top:8px;">strips (left &rarr; right)</label>
+  <div id="strip-list" class="strip-list"></div>
+  <div class="action-row">
+    <button id="strip-add" type="button">+ add</button>
+    <button id="strip-dup" type="button">duplicate last</button>
   </div>
-  <label style="margin-top:4px;">repeats: <span id="repeats-val" class="angle-val">8</span></label>
-  <input type="range" id="repeats-slider" min="1" max="20" step="1" value="8">
+  <div class="preset-row">
+    <label style="margin:0;">preset:</label>
+    <select id="strip-preset">
+      <option value="">(choose&hellip;)</option>
+      <option value="ab8">A/B &times;8 (maple/walnut)</option>
+      <option value="abc4">A/B/C &times;4 (maple/walnut/cherry)</option>
+      <option value="bookmatch">bookmatch maple/walnut</option>
+      <option value="single">single maple slab</option>
+      <option value="rainbow">rainbow (all 5)</option>
+    </select>
+  </div>
 </div>
 <div id="controls" class="ctrl-panel">
   <label>cut A &mdash; rip: <span id="rip-val" class="angle-val">0°</span></label>
@@ -395,20 +447,13 @@ function fmtArea(mm2) {
 // initial panel from the strip controls — nothing downstream may assume
 // these values; instead, downstream code must read the panel's actual
 // bounding box. The user wants per-strip sizing eventually.
-const segW = 50, segH = 50, segD = 400;
-let initialStripsA = 'maple', initialStripsB = 'walnut', initialRepeats = 8;
-
 // Ordered list of starting strips, glued edge-to-edge along X.
 // Each entry is { species, width }. Height (Y) + length (Z) are
-// uniform across all strips. Default seeds a 16× A/B maple/walnut
-// alternation identical to the prior default.
-let initialStrips = (() => {
-  const out = [];
-  for (let i = 0; i < initialRepeats * 2; i++) {
-    out.push({ species: i % 2 === 0 ? 'maple' : 'walnut', width: 50 });
-  }
-  return out;
-})();
+// uniform across all strips.
+let initialStrips = [];
+for (let i = 0; i < 16; i++) {
+  initialStrips.push({ species: i % 2 === 0 ? 'maple' : 'walnut', width: 50 });
+}
 let initialStripHeight = 50;
 let initialStripLength = 400;
 
@@ -1404,56 +1449,149 @@ function rebuildA() {
   if (modeA === 'pattern') applyPatternA();
 }
 
-// Wire up the strip-controls panel: populate species selects, set
-// initial swatches, attach listeners. Done once at module load.
+// Hard-coded species swatch colors (matches makeWoodMats base color).
+const SPECIES_HEX = {
+  maple: '#e4cc8f', walnut: '#3d2416', cherry: '#c97050',
+  padauk: '#c84020', purpleheart: '#5a2a6a',
+};
+
+// Build the <option>s HTML for a species <select>, with `current` selected.
+function speciesOptionsHTML(current) {
+  return SPECIES_LIST.map(
+    (name) => `<option value="${name}"${name === current ? ' selected' : ''}>${name}</option>`,
+  ).join('');
+}
+
+// Render the strip list UI from the current initialStrips state.
+function renderStripList() {
+  const list = document.getElementById('strip-list');
+  const n = initialStrips.length;
+  const rowsHTML = initialStrips.map((strip, i) => `
+    <div class="strip-row" data-idx="${i}">
+      <span class="swatch" style="background:${SPECIES_HEX[strip.species]}"></span>
+      <select data-role="species">${speciesOptionsHTML(strip.species)}</select>
+      <input type="number" data-role="width" min="5" max="200" step="1" value="${strip.width}">
+      <button type="button" data-role="up" title="move up"${i === 0 ? ' disabled' : ''}>&uarr;</button>
+      <button type="button" data-role="down" title="move down"${i === n - 1 ? ' disabled' : ''}>&darr;</button>
+      <button type="button" data-role="remove" title="remove"${n <= 1 ? ' disabled' : ''}>&times;</button>
+    </div>
+  `).join('');
+  list.innerHTML = rowsHTML;
+}
+
+// Preset seed generators. Each returns a fresh initialStrips array.
+const STRIP_PRESETS = {
+  ab8: () => {
+    const out = [];
+    for (let i = 0; i < 16; i++) out.push({ species: i % 2 === 0 ? 'maple' : 'walnut', width: 50 });
+    return out;
+  },
+  abc4: () => {
+    const out = [];
+    const seq = ['maple', 'walnut', 'cherry'];
+    for (let i = 0; i < 12; i++) out.push({ species: seq[i % 3], width: 50 });
+    return out;
+  },
+  bookmatch: () => {
+    const half = ['maple', 'walnut', 'maple', 'walnut', 'maple'];
+    return [...half, ...half.slice().reverse()].map((sp) => ({ species: sp, width: 50 }));
+  },
+  single: () => [{ species: 'maple', width: 400 }],
+  rainbow: () => SPECIES_LIST.map((sp) => ({ species: sp, width: 60 })),
+};
+
+// Wire up the strip-controls panel: render list, attach delegated
+// handlers on the list, wire top-level height/length/add/preset.
 (function initStripControls() {
-  const selA = document.getElementById('species-a');
-  const selB = document.getElementById('species-b');
-  const swA  = document.getElementById('swatch-a');
-  const swB  = document.getElementById('swatch-b');
-  const slider = document.getElementById('repeats-slider');
-  const repeatsVal = document.getElementById('repeats-val');
+  const list = document.getElementById('strip-list');
+  const hSlider = document.getElementById('strip-h-slider');
+  const lSlider = document.getElementById('strip-l-slider');
+  const hVal = document.getElementById('strip-h-val');
+  const lVal = document.getElementById('strip-l-val');
+  const addBtn = document.getElementById('strip-add');
+  const dupBtn = document.getElementById('strip-dup');
+  const preset = document.getElementById('strip-preset');
 
-  const swatchColor = (sp) => {
-    // Use the side material's map color if available, otherwise fall back.
-    const m = SPECIES_DEFS[sp]?.[0];
-    return m?.map?.image
-      ? m.map.image.getContext('2d').fillStyle  // canvas fill color
-      : null;
-  };
-  // Hard-coded species swatch colors (matches makeWoodMats base color).
-  const SPECIES_HEX = {
-    maple: '#e4cc8f', walnut: '#3d2416', cherry: '#c97050',
-    padauk: '#c84020', purpleheart: '#5a2a6a',
-  };
+  hSlider.value = initialStripHeight;
+  lSlider.value = initialStripLength;
+  hVal.textContent = `${initialStripHeight}mm`;
+  lVal.textContent = `${initialStripLength}mm`;
 
-  for (const name of SPECIES_LIST) {
-    for (const sel of [selA, selB]) {
-      const opt = document.createElement('option');
-      opt.value = name; opt.textContent = name;
-      sel.appendChild(opt);
+  renderStripList();
+
+  hSlider.addEventListener('input', () => {
+    initialStripHeight = parseInt(hSlider.value, 10);
+    hVal.textContent = `${initialStripHeight}mm`;
+    rebuildInitialPanel();
+  });
+  lSlider.addEventListener('input', () => {
+    initialStripLength = parseInt(lSlider.value, 10);
+    lVal.textContent = `${initialStripLength}mm`;
+    rebuildInitialPanel();
+  });
+
+  // Delegated change handler for species + width edits.
+  list.addEventListener('change', (e) => {
+    const row = e.target.closest('.strip-row');
+    if (!row) return;
+    const i = parseInt(row.dataset.idx, 10);
+    const role = e.target.dataset.role;
+    if (role === 'species') {
+      initialStrips[i].species = e.target.value;
+    } else if (role === 'width') {
+      const w = parseInt(e.target.value, 10);
+      if (!Number.isFinite(w) || w < 5) return;
+      initialStrips[i].width = Math.min(w, 200);
+    } else {
+      return;
     }
-  }
-  selA.value = initialStripsA;
-  selB.value = initialStripsB;
-  swA.style.background = SPECIES_HEX[initialStripsA];
-  swB.style.background = SPECIES_HEX[initialStripsB];
-  slider.value = initialRepeats;
-  repeatsVal.textContent = initialRepeats;
+    renderStripList();
+    rebuildInitialPanel();
+  });
 
-  selA.addEventListener('change', () => {
-    initialStripsA = selA.value;
-    swA.style.background = SPECIES_HEX[initialStripsA];
+  // Delegated click handler for up/down/remove.
+  list.addEventListener('click', (e) => {
+    const row = e.target.closest('.strip-row');
+    if (!row) return;
+    const i = parseInt(row.dataset.idx, 10);
+    const role = e.target.dataset.role;
+    if (role === 'up' && i > 0) {
+      const tmp = initialStrips[i - 1];
+      initialStrips[i - 1] = initialStrips[i];
+      initialStrips[i] = tmp;
+    } else if (role === 'down' && i < initialStrips.length - 1) {
+      const tmp = initialStrips[i + 1];
+      initialStrips[i + 1] = initialStrips[i];
+      initialStrips[i] = tmp;
+    } else if (role === 'remove' && initialStrips.length > 1) {
+      initialStrips.splice(i, 1);
+    } else {
+      return;
+    }
+    renderStripList();
     rebuildInitialPanel();
   });
-  selB.addEventListener('change', () => {
-    initialStripsB = selB.value;
-    swB.style.background = SPECIES_HEX[initialStripsB];
+
+  addBtn.addEventListener('click', () => {
+    const last = initialStrips[initialStrips.length - 1];
+    const seed = last ? { ...last } : { species: 'maple', width: 50 };
+    initialStrips.push(seed);
+    renderStripList();
     rebuildInitialPanel();
   });
-  slider.addEventListener('input', () => {
-    initialRepeats = parseInt(slider.value, 10);
-    repeatsVal.textContent = initialRepeats;
+  dupBtn.addEventListener('click', () => {
+    const last = initialStrips[initialStrips.length - 1];
+    if (!last) return;
+    initialStrips.push({ ...last });
+    renderStripList();
+    rebuildInitialPanel();
+  });
+  preset.addEventListener('change', () => {
+    const key = preset.value;
+    if (!key || !STRIP_PRESETS[key]) return;
+    initialStrips = STRIP_PRESETS[key]();
+    preset.value = '';
+    renderStripList();
     rebuildInitialPanel();
   });
 })();
