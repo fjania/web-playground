@@ -230,8 +230,20 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import Module from 'manifold-3d';
-import wasmUrl from 'manifold-3d/manifold.wasm?url';
+import {
+  Panel,
+  initManifold,
+  planeNormal,
+  panelExtentAlongNormal,
+  classifyNormals,
+  perpAxes,
+  checkJoinCompat,
+  buildJoinStages,
+  stageMatrixAtProgress,
+  PATTERN_RULES,
+  PATTERN_RULES_AT,
+  applyArrangement,
+} from './src/domain/index.ts';
 
 // ─── Renderer ──────────────────────────────────────────────────────
 
@@ -597,49 +609,6 @@ let hoveredStrip = null;
 // (case 3). Values: 'x', 'y', 'z', or null.
 let flipAxis1 = null;
 
-// Classify the relationship between two face normals.
-// Returns one of: 'antiparallel', 'angled', 'parallel'.
-function classifyNormals(nA, nB) {
-  const dot = nA.dot(nB);
-  if (dot < -0.999) return 'antiparallel';
-  if (dot > 0.999) return 'parallel';
-  return 'angled';
-}
-
-// Which world axes are perpendicular to a normal (within tolerance)?
-// Returns an array of axis names ('x', 'y', 'z') that are valid flip axes.
-function perpAxes(normal) {
-  const tol = 0.05; // ~3°
-  return ['x', 'y', 'z'].filter(ax => Math.abs(normal[ax]) < tol);
-}
-
-// Check if two selected faces can be joined. Returns { ok, error, needsFlipAxis, validFlipAxes }.
-function checkJoinCompat(selA, selB, flipAxis) {
-  if (!selA || !selB) return { ok: false, error: '', needsFlipAxis: false, validFlipAxes: [] };
-
-  const rel = classifyNormals(selA.normal, selB.normal);
-
-  if (rel === 'parallel') {
-    // Need a flip axis perpendicular to both normals (which are equal here)
-    const valid = perpAxes(selA.normal);
-    if (valid.length === 0) {
-      return {
-        ok: false,
-        error: 'parallel normals not aligned with any world axis — use the rotation flag on one face to make them antiparallel',
-        needsFlipAxis: false,
-        validFlipAxes: [],
-      };
-    }
-    if (!flipAxis || !valid.includes(flipAxis)) {
-      return { ok: false, error: '', needsFlipAxis: true, validFlipAxes: valid };
-    }
-    return { ok: true, error: '', needsFlipAxis: true, validFlipAxes: valid };
-  }
-
-  // Antiparallel or angled — no flip axis needed
-  return { ok: true, error: '', needsFlipAxis: false, validFlipAxes: [] };
-}
-
 function updateFlipAxisUI(pairIdx, validAxes, selectedAxis) {
   const row = document.getElementById('flip-axis-row');
   row.style.display = validAxes.length > 0 ? 'block' : 'none';
@@ -664,149 +633,13 @@ const speciesMaterials = Object.fromEntries(
   SPECIES_LIST.map(name => [name, SPECIES_DEFS[name][0]]),
 );
 
-let Manifold;
+let manifoldReady = false;
 let initialPanel; // Panel
-
-// ─── Panel: domain object owning manifold geometry ────────────────
-//
-// A Panel is an assembly of segments, each with its own manifold handle
-// and a species label. All geometry operations live on Panel — cut,
-// transform, translate, rotateAbout, concat, boundingBox, dispose.
-// Panels are immutable: every operation returns a new Panel with freshly
-// baked manifold handles. The source Panel is never mutated.
-//
-// Manifold is the single source of truth for geometry. The Three.js view
-// layer (renderPanel) only ever reads a Panel to build meshes — it never
-// holds transforms that need to be baked back. The cut-view separation is
-// a display-only group.position offset that never feeds back into Panel
-// state.
-class Panel {
-  constructor(segments) {
-    this.segments = segments; // Array<{ manifold, species }>
-  }
-
-  static fromStripList(strips, height, length) {
-    const total = strips.reduce((s, st) => s + st.width, 0);
-    let x = -total / 2;
-    const segs = strips.map(({ species, width }) => {
-      const cx = x + width / 2;
-      x += width;
-      const mf = Manifold.cube([width, height, length], true).translate([cx, 0, 0]);
-      return { manifold: mf, species };
-    });
-    return new Panel(segs);
-  }
-
-  get size() { return this.segments.length; }
-
-  cut(normal, offset) {
-    const above = [], below = [];
-    for (const s of this.segments) {
-      const [a, b] = s.manifold.splitByPlane(normal, offset);
-      if (a.numVert() > 0) above.push({ manifold: a, species: s.species });
-      else a.delete();
-      if (b.numVert() > 0) below.push({ manifold: b, species: s.species });
-      else b.delete();
-    }
-    return { above: new Panel(above), below: new Panel(below) };
-  }
-
-  // Cut with `count + 1` parallel planes perpendicular to `normal`, spaced
-  // `pitch` apart, centered on `centerOffset` along the normal. Returns the
-  // `count` inner regions (slices) plus up to 2 end regions (offcuts).
-  //
-  // Plane offsets are computed so that the `count` slices are centered on
-  // `centerOffset`. With count=8 and pitch=50, offsets are at
-  //   centerOffset ± pitch/2, centerOffset ± 3·pitch/2, … up to ±(count-1)/2·pitch
-  // and there are count+1 of them (two extras outside bounding to catch the
-  // offcut wedges).
-  cutRepeated(normal, pitch, count, centerOffset = 0) {
-    if (count < 1) return { slices: [], offcuts: [] };
-    // count+1 plane offsets bounding count slices, plus the two outermost
-    // offcut regions on either side. planeOffsets span
-    //   centerOffset ± count·pitch/2
-    const firstPlane = centerOffset - (count * pitch) / 2;
-    const planeOffsets = [];
-    for (let i = 0; i <= count; i++) planeOffsets.push(firstPlane + i * pitch);
-
-    // Walk plane offsets low → high. For each plane, cut the remaining
-    // panel; `below` becomes a region, `above` is the new remainder. After
-    // the loop, the final remainder is the last offcut. regions is
-    // count + 2 pieces: [offcut0, slice0..sliceN-1, offcut1].
-    const regions = [];
-    let remainder = this.clone();
-    for (const off of planeOffsets) {
-      const { above, below } = remainder.cut(normal, off);
-      regions.push(below);
-      remainder.dispose();
-      remainder = above;
-    }
-    regions.push(remainder);
-    return {
-      slices: regions.slice(1, regions.length - 1),
-      offcuts: [regions[0], regions[regions.length - 1]],
-    };
-  }
-
-  // Apply a Three.js Matrix4 to every segment, baking it into new manifold
-  // handles. Returns a new Panel; source is not modified.
-  //
-  // Convention: manifold.transform(m: Mat4) takes a 16-element column-
-  // major array (the "last row" — indices 3, 7, 11, 15 — is ignored).
-  // Three.js Matrix4.elements is already column-major, so pass it through.
-  transform(matrix4) {
-    const m = matrix4.elements;
-    return new Panel(this.segments.map(s => ({
-      manifold: s.manifold.transform(m),
-      species: s.species,
-    })));
-  }
-
-  translate(tx, ty, tz) {
-    return new Panel(this.segments.map(s => ({
-      manifold: s.manifold.translate([tx, ty, tz]),
-      species: s.species,
-    })));
-  }
-
-  rotateAbout(axis, angle, pivot) {
-    if (Math.abs(angle) < 1e-6) return this.clone();
-    const T1 = new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
-    const R = new THREE.Matrix4().makeRotationAxis(axis.clone().normalize(), angle);
-    const T2 = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
-    return this.transform(T2.multiply(R).multiply(T1));
-  }
-
-  // Clone via identity transform (produces independent manifold handles).
-  clone() {
-    return this.transform(new THREE.Matrix4());
-  }
-
-  concat(other) {
-    return new Panel([...this.segments, ...other.segments]);
-  }
-
-  boundingBox() {
-    const box = new THREE.Box3();
-    for (const s of this.segments) {
-      const bb = s.manifold.boundingBox();
-      box.expandByPoint(new THREE.Vector3(bb.min[0], bb.min[1], bb.min[2]));
-      box.expandByPoint(new THREE.Vector3(bb.max[0], bb.max[1], bb.max[2]));
-    }
-    return box;
-  }
-
-  dispose() {
-    for (const s of this.segments) s.manifold.delete();
-    this.segments = [];
-  }
-}
 
 async function init() {
   console.log('Loading manifold-3d WASM...');
-  const wasm = await Module({ locateFile: () => wasmUrl });
-  wasm.setup();
-  Manifold = wasm.Manifold;
+  await initManifold();
+  manifoldReady = true;
   console.log('Manifold ready.');
 
   rebuildInitialPanel();
@@ -860,111 +693,6 @@ function renderPanel(panel, group) {
   }
 }
 
-// Build the ordered list of join stages. Each stage is a rotation or
-// translation applied to 'A', 'B', or 'BOTH'. The final centering stage
-// is computed by simulating all prior stages on each panel's bounding
-// box so the joined panel ends at the origin.
-function buildJoinStages(panelA, panelB, selA, selB, flipAxis) {
-  const stages = [];
-
-  if (selA.rotate) {
-    stages.push({
-      group: 'A', type: 'rotation',
-      axis: selA.normal.clone(), angle: Math.PI, pivot: selA.centroid.clone(),
-      label: 'pre-rotating A 180° about face normal',
-    });
-  }
-  if (selB.rotate) {
-    stages.push({
-      group: 'B', type: 'rotation',
-      axis: selB.normal.clone(), angle: Math.PI, pivot: selB.centroid.clone(),
-      label: 'pre-rotating B 180° about face normal',
-    });
-  }
-
-  const targetNormal = selA.normal.clone().negate();
-  const currentNormal = selB.normal.clone();
-  const dot = currentNormal.dot(targetNormal);
-  if (dot < 0.9999) {
-    let axis, angle;
-    if (dot < -0.9999) {
-      if (!flipAxis) throw new Error('parallel normals require a flip axis');
-      axis = new THREE.Vector3(flipAxis === 'x' ? 1 : 0, flipAxis === 'y' ? 1 : 0, flipAxis === 'z' ? 1 : 0);
-      angle = Math.PI;
-    } else {
-      axis = new THREE.Vector3().crossVectors(currentNormal, targetNormal).normalize();
-      angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-    }
-    stages.push({
-      group: 'B', type: 'rotation',
-      axis, angle, pivot: selB.centroid.clone(),
-      label: 'rotating B to align normals',
-    });
-  }
-
-  const delta = new THREE.Vector3().subVectors(selA.centroid, selB.centroid);
-  if (delta.length() > 1e-6) {
-    stages.push({
-      group: 'B', type: 'translation', delta,
-      label: 'translating B to align centroids',
-    });
-  }
-
-  // Final centering stage — simulate prior stages against both panels' BBs.
-  const matA = new THREE.Matrix4();
-  const matB = new THREE.Matrix4();
-  for (const s of stages) {
-    const m = stageMatrixAtProgress(s, 1);
-    if (s.group === 'A') matA.premultiply(m);
-    else if (s.group === 'B') matB.premultiply(m);
-  }
-  const finalBB = new THREE.Box3();
-  expandBoxByTransformedPanel(finalBB, panelA, matA);
-  expandBoxByTransformedPanel(finalBB, panelB, matB);
-  const center = new THREE.Vector3(); finalBB.getCenter(center);
-  if (center.length() > 1e-6) {
-    stages.push({
-      group: 'BOTH', type: 'translation',
-      delta: center.clone().negate(),
-      label: 'centering joined panel at origin',
-    });
-  }
-
-  return stages;
-}
-
-// Expand a Box3 by the 8 transformed corners of each segment's bounding box.
-function expandBoxByTransformedPanel(box, panel, matrix) {
-  const v = new THREE.Vector3();
-  for (const seg of panel.segments) {
-    const bb = seg.manifold.boundingBox();
-    for (let i = 0; i < 8; i++) {
-      v.set(
-        i & 1 ? bb.max[0] : bb.min[0],
-        i & 2 ? bb.max[1] : bb.min[1],
-        i & 4 ? bb.max[2] : bb.min[2],
-      );
-      v.applyMatrix4(matrix);
-      box.expandByPoint(v);
-    }
-  }
-}
-
-function rotationMatrixAboutPoint(axis, angle, pivot) {
-  const m1 = new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
-  const rot = new THREE.Matrix4().makeRotationAxis(axis.clone().normalize(), angle);
-  const m2 = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
-  return m2.multiply(rot).multiply(m1);
-}
-
-function stageMatrixAtProgress(stage, progress) {
-  if (stage.type === 'rotation') {
-    return rotationMatrixAboutPoint(stage.axis, stage.angle * progress, stage.pivot);
-  }
-  const d = stage.delta.clone().multiplyScalar(progress);
-  return new THREE.Matrix4().makeTranslation(d.x, d.y, d.z);
-}
-
 function fmtAxis(v) {
   const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
   if (ax > 0.99) return (v.x > 0 ? '+' : '-') + 'X';
@@ -980,111 +708,6 @@ function stageStatus(stage, progress) {
   }
   const d = stage.delta.clone().multiplyScalar(progress);
   return `${stage.label}: Δ=(${d.x.toFixed(1)}, ${d.y.toFixed(1)}, ${d.z.toFixed(1)}) mm`;
-}
-
-// ─── Arrangement patterns ─────────────────────────────────────────
-//
-// Given a list of slices produced by cutRepeated, arrange them into a
-// single joined panel by applying a per-slice transform rule, stacking
-// them along the cut normal, and centering the union at the origin.
-//
-// Each pattern is a function (i, n, opts) → Matrix4 that runs in the
-// slice's own local frame (slice centered at origin). After the rule
-// is applied, the slice is translated to its stack position.
-
-const PATTERN_RULES = {
-  // Stack slices back in their original positions — reassembles the panel.
-  identity: () => new THREE.Matrix4(),
-
-  // Odd slices: 180° rotation about the Y (stacking-perpendicular) axis.
-  // For a striped panel crosscut perpendicular to its length, this swaps
-  // each alternate slice end-for-end — classic checkerboard effect.
-  flipAlternate: (i) =>
-    (i % 2 === 1) ? new THREE.Matrix4().makeRotationY(Math.PI) : new THREE.Matrix4(),
-
-  // Odd slices: 180° about the Z axis. Tips each alternate slice upside-
-  // down — produces a brick-like running bond when combined with a
-  // half-shift layout (or works on its own for some patterns).
-  rotateAlternate: (i) =>
-    (i % 2 === 1) ? new THREE.Matrix4().makeRotationZ(Math.PI) : new THREE.Matrix4(),
-
-  // Odd slices: translate by opts.shift along X (perpendicular to cut
-  // normal). Classic running-bond offset.
-  shiftAlternate: (i, n, opts) => {
-    if (i % 2 !== 1) return new THREE.Matrix4();
-    const s = opts.shift ?? 25;
-    return new THREE.Matrix4().makeTranslation(s, 0, 0);
-  },
-
-  // Odd slices: 180° about the X axis — mirrors stripe direction across
-  // the stacking axis. At angled cuts produces a chevron effect.
-  mirrorAlternate: (i) =>
-    (i % 2 === 1) ? new THREE.Matrix4().makeRotationX(Math.PI) : new THREE.Matrix4(),
-};
-
-// Same rule functions as PATTERN_RULES, but each accepts a progress
-// parameter t ∈ [0, 1] and scales the rule's transform by t. At t=1
-// these match PATTERN_RULES exactly; at t=0 they're identity. Used by
-// the arrangement animation so we can render intermediate frames where
-// the rule is partially applied.
-const PATTERN_RULES_AT = {
-  identity: () => new THREE.Matrix4(),
-  flipAlternate: (i, n, opts, t) =>
-    (i % 2 === 1) ? new THREE.Matrix4().makeRotationY(Math.PI * t) : new THREE.Matrix4(),
-  rotateAlternate: (i, n, opts, t) =>
-    (i % 2 === 1) ? new THREE.Matrix4().makeRotationZ(Math.PI * t) : new THREE.Matrix4(),
-  shiftAlternate: (i, n, opts, t) => {
-    if (i % 2 !== 1) return new THREE.Matrix4();
-    const s = (opts.shift ?? 25) * t;
-    return new THREE.Matrix4().makeTranslation(s, 0, 0);
-  },
-  mirrorAlternate: (i, n, opts, t) =>
-    (i % 2 === 1) ? new THREE.Matrix4().makeRotationX(Math.PI * t) : new THREE.Matrix4(),
-};
-
-// Apply an arrangement pattern to a list of slices, stacking them along
-// `cutNormal` with spacing `pitch`. Returns a single joined Panel (the
-// caller takes ownership and must dispose the result).
-function applyArrangement(slices, pattern, cutNormal, pitch, options = {}) {
-  const n = slices.length;
-  if (n === 0) return null;
-  const rule = PATTERN_RULES[pattern] ?? PATTERN_RULES.identity;
-  const center = (n - 1) / 2;
-
-  let result = null;
-  for (let i = 0; i < n; i++) {
-    const slice = slices[i];
-    const bb = slice.boundingBox();
-    const sc = new THREE.Vector3(); bb.getCenter(sc);
-
-    // 1. Center slice at origin (local frame).
-    const toLocal = new THREE.Matrix4().makeTranslation(-sc.x, -sc.y, -sc.z);
-    // 2. Apply pattern rule at origin.
-    const ruleMat = rule(i, n, options);
-    // 3. Translate to stack position along cutNormal.
-    const target = cutNormal.clone().multiplyScalar((i - center) * pitch);
-    const toStack = new THREE.Matrix4().makeTranslation(target.x, target.y, target.z);
-
-    const full = new THREE.Matrix4().multiplyMatrices(toStack, ruleMat).multiply(toLocal);
-    const transformed = slice.transform(full);
-    if (result) {
-      const merged = result.concat(transformed);
-      // merged references segments from both — don't dispose either here.
-      result = merged;
-    } else {
-      result = transformed;
-    }
-  }
-
-  // Center union at origin.
-  const bb = result.boundingBox();
-  const c = new THREE.Vector3(); bb.getCenter(c);
-  if (c.length() > 1e-6) {
-    const centered = result.translate(-c.x, -c.y, -c.z);
-    result.dispose();
-    result = centered;
-  }
-  return result;
 }
 
 // ─── Arrangement animation (debug) ────────────────────────────────
@@ -1187,32 +810,6 @@ let offcutsA = [];
 // existing face-click flow). Pattern mode uses slicesA directly.
 let currentStripAbove = null, currentStripBelow = null;
 
-// Compute the cutting-plane normal given rip and bevel angles in degrees.
-//
-//   rip    — rotation of the blade around the world Y axis. At rip=0 the
-//            blade cuts across the panel perpendicular to Z; rip=±90°
-//            rotates the blade to cut along the panel's length.
-//   bevel  — tilt of the blade off vertical, rotating around world X.
-//            At bevel=90° the blade is perpendicular to the table (no
-//            tilt). Decreasing bevel toward 45° tilts the blade.
-//
-// Starting normal at rip=0, bevel=90°: (0, 0, -1). Rip rotates this
-// around Y; bevel rotation around X tilts the already-rotated normal
-// by (90° - bevel) about X.
-function planeNormal(rip, bevel) {
-  const rRad = rip * Math.PI / 180;
-  const tiltRad = (90 - bevel) * Math.PI / 180;
-  // After rip rotation around Y: (sin rip, 0, -cos rip).
-  const nx = Math.sin(rRad);
-  const ny0 = 0;
-  const nz0 = -Math.cos(rRad);
-  // Rotation around X by tiltRad: (x, y cosθ − z sinθ, y sinθ + z cosθ).
-  const cosT = Math.cos(tiltRad), sinT = Math.sin(tiltRad);
-  const ny = ny0 * cosT - nz0 * sinT;
-  const nz = ny0 * sinT + nz0 * cosT;
-  return new THREE.Vector3(nx, ny, nz);
-}
-
 // Build a semi-transparent material per species for rendering offcuts.
 const offcutMats = {};
 for (const sp of SPECIES_LIST) {
@@ -1248,27 +845,8 @@ function sizePlaneViz(plane, panel) {
   plane.geometry = new THREE.PlaneGeometry(diag, diag);
 }
 
-// Project a panel's bounding-box corners onto a unit normal and return
-// the (signed) extent along that normal. Used to derive how many slices
-// of a given pitch fit across the panel.
-function panelExtentAlongNormal(panel, normal) {
-  const bb = panel.boundingBox();
-  let lo = Infinity, hi = -Infinity;
-  for (let ix = 0; ix < 2; ix++)
-    for (let iy = 0; iy < 2; iy++)
-      for (let iz = 0; iz < 2; iz++) {
-        const x = ix ? bb.max.x : bb.min.x;
-        const y = iy ? bb.max.y : bb.min.y;
-        const z = iz ? bb.max.z : bb.min.z;
-        const d = x * normal.x + y * normal.y + z * normal.z;
-        if (d < lo) lo = d;
-        if (d > hi) hi = d;
-      }
-  return hi - lo;
-}
-
 function rebuild(rip, bevel, pitch) {
-  if (!Manifold) return;
+  if (!manifoldReady) return;
 
   const planeN = planeNormal(rip, bevel);
   const planeNArr = [planeN.x, planeN.y, planeN.z];
@@ -1509,7 +1087,7 @@ const STRIP_PRESETS = {
 // settings, render it into the dedicated starting-panel view, and then
 // cascade-rebuild everything downstream.
 function rebuildInitialPanel() {
-  if (!Manifold) return;
+  if (!manifoldReady) return;
   if (initialPanel) initialPanel.dispose();
   initialPanel = Panel.fromStripList(
     initialStrips, initialStripHeight, initialStripLength,
