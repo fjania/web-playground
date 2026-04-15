@@ -268,6 +268,9 @@ import {
   HL_COLOR_SEL,
   HL_COLOR_ROT,
   createAxesOverlay,
+  Tile,
+  renderTiles,
+  tileAt,
 } from './src/scene/index.ts';
 
 // ─── Renderer ──────────────────────────────────────────────────────
@@ -323,7 +326,9 @@ let initialStripLength = 400;
 // Cutting a panel = cutting each segment individually with the same plane.
 // No CSG union needed — segments keep their identity and materials.
 
-// Scene groups
+// Scene groups. Each is owned by a Tile; Tiles toggle visibility during
+// their own render pass so the shared scene only shows the right geometry
+// per viewport.
 const step0_panel = new THREE.Group(); // starting (assembled) panel
 scene.add(step0_panel);
 const step1_top = new THREE.Group(); // strip A
@@ -348,6 +353,19 @@ const bbStripA = { box: new THREE.Box3() };
 const bbStripB = { box: new THREE.Box3() };
 const bbPanel2 = { box: new THREE.Box3() };
 
+// ─── Tile layout (three full-height columns) ──────────────────────
+//
+// Tiles own their root Group + per-tile overlays. The main render loop
+// iterates the tiles list; to add a pass, append a new Tile and point its
+// `root` at a new group. viewportFor/viewportNDC become tileAt(tiles, …).
+function tileRect(col) {
+  const W = window.innerWidth, H = window.innerHeight;
+  const c1 = Math.floor(W / 3), c2 = Math.floor(2 * W / 3);
+  if (col === 0) return { x: 0,  y: 0, w: c1,      h: H };
+  if (col === 1) return { x: c1, y: 0, w: c2 - c1, h: H };
+  return               { x: c2, y: 0, w: W - c2,  h: H };
+}
+
 // ─── New face selection: click any part of a face to select the whole face ──
 //
 // A "face" is the set of all coplanar triangles in a strip that share the same
@@ -362,6 +380,25 @@ let selectionA = null, selectionB = null;
 // Added as children of each strip group so they inherit the strip's offset.
 const highlightA = new THREE.Group(); scene.add(highlightA);
 const highlightB = new THREE.Group(); scene.add(highlightB);
+
+// Tiles (three full-height columns). Order drives visibility + raycast;
+// later tiles lose to earlier ones on overlap, but these tile rects don't
+// overlap.
+const panelTile = new Tile({
+  id: 'panel', bg: 0x1c1917, root: step0_panel, pickable: false,
+  rect: () => tileRect(0),
+});
+const cutATile = new Tile({
+  id: 'cutA',  bg: 0x1a1816, root: step1_top,
+  overlays: [step1_bot, pvA, highlightA, highlightB],
+  pickableGroups: [step1_top, step1_bot],
+  rect: () => tileRect(1),
+});
+const join1Tile = new Tile({
+  id: 'join1', bg: 0x1c1917, root: step2_panel, pickable: false,
+  rect: () => tileRect(2),
+});
+const tiles = [panelTile, cutATile, join1Tile];
 
 
 function setStripSelection(strip, selection) {
@@ -977,48 +1014,33 @@ const mouse = new THREE.Vector2();
 const statusbar = document.getElementById('statusbar');
 let hoveredMesh = null, hoveredOrig = null;
 
-// Layout: three full-height columns — panel | cut A | join 1.
-//
-//   ┌────────┬────────┬────────┐
-//   │ panel  │ cut A  │ join 1 │
-//   └────────┴────────┴────────┘
-//
-// vpIdx values: 'panel' | 'cutA' | 'join1'
-function tileBoundsCSS() {
-  const W = window.innerWidth, H = window.innerHeight;
-  const c1 = Math.floor(W / 3);
-  const c2 = Math.floor(2 * W / 3);
-  return { W, H, c1, c2 };
+// Resolve a CSS-pixel coordinate to the tile beneath it (or null), and to
+// NDC inside that tile. Driven entirely by the tiles[] list so adding a
+// pass = pushing another Tile.
+function viewportFor(clientX, clientY) {
+  const t = tileAt(tiles, clientX, clientY);
+  return t ? t.id : null;
 }
-
-function viewportFor(clientX) {
-  const { c1, c2 } = tileBoundsCSS();
-  if (clientX < c1) return 'panel';
-  if (clientX < c2) return 'cutA';
-  return 'join1';
-}
-
 function viewportNDC(clientX, clientY) {
-  const { W, H, c1, c2 } = tileBoundsCSS();
-  const vpIdx = viewportFor(clientX);
-  let vpX, vpW;
-  if (vpIdx === 'panel')      { vpX = 0;  vpW = c1; }
-  else if (vpIdx === 'cutA')  { vpX = c1; vpW = c2 - c1; }
-  else                        { vpX = c2; vpW = W - c2; }
-  const nx = ((clientX - vpX) / vpW) * 2 - 1;
-  const ny = -(clientY / H) * 2 + 1;
-  return { nx, ny, vpIdx };
+  const t = tileAt(tiles, clientX, clientY);
+  if (!t) return { nx: 0, ny: 0, vpIdx: null };
+  const { nx, ny } = t.ndc(clientX, clientY);
+  return { nx, ny, vpIdx: t.id };
 }
 
 renderer.domElement.addEventListener('mousemove', (e) => {
-  const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
+  const tile = tileAt(tiles, e.clientX, e.clientY);
+  const vpIdx = tile?.id ?? null;
+  if (!tile) {
+    statusbar.innerHTML = '<span class="dim">hover a piece to inspect</span>';
+    hoveredStrip = null;
+    return;
+  }
+  const { nx, ny } = tile.ndc(e.clientX, e.clientY);
   mouse.set(nx, ny);
   raycaster.setFromCamera(mouse, camera);
 
-  const groups =
-      vpIdx === 'panel' ? [step0_panel]
-    : vpIdx === 'cutA'  ? [step1_top, step1_bot]
-    :                     [step2_panel];
+  const groups = tile.pickableGroups;
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -1318,52 +1340,10 @@ const axesGroup = axesOverlay.group;
 
 // ─── Render loop: 2x2 viewports ────────────────────────────────────
 
-const axesSize = 80;
-
-function setView(name) {
-  step0_panel.visible = name === 'panel';
-
-  step1_top.visible = name === 'cut1';
-  step1_bot.visible = name === 'cut1';
-  pvA.visible = name === 'cut1';
-  highlightA.visible = name === 'cut1';
-  highlightB.visible = name === 'cut1';
-
-  step2_panel.visible = name === 'join1';
-}
-
-function renderViewport(x, y, w, h, viewName, bg) {
-  setView(viewName);
-  renderer.setViewport(x, y, w, h);
-  renderer.setScissor(x, y, w, h);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-  renderer.setClearColor(bg, 1); renderer.clear();
-  renderer.render(scene, camera);
-
-  // Axes gizmo in bottom-left of this viewport
-  renderer.setViewport(x + 8, y + 8, axesSize, axesSize);
-  renderer.setScissor(x + 8, y + 8, axesSize, axesSize);
-  renderer.clearDepth();
-  renderer.render(axesScene, axesCamera);
-}
-
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-
-  const W = window.innerWidth, H = window.innerHeight;
-  const c1 = Math.floor(W / 3);
-  const c2 = Math.floor(2 * W / 3);
-  renderer.setScissorTest(true);
-
-  axesGroup.quaternion.copy(camera.quaternion).invert();
-
-  renderViewport(0,  0, c1,      H, 'panel', 0x1c1917);
-  renderViewport(c1, 0, c2 - c1, H, 'cut1',  0x1a1816);
-  renderViewport(c2, 0, W - c2,  H, 'join1', 0x1c1917);
-
-  renderer.setScissorTest(false);
+  renderTiles(tiles, { renderer, scene, camera, axes: axesOverlay });
 }
 animate();
 
