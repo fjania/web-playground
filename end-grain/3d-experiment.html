@@ -28,8 +28,7 @@
     background: rgba(28,25,23,0.92); border-top: 1px solid #3d3835;
     font-size: 10px; color: #a8a29e;
   }
-  #join1-status { top: calc(50% - 28px); left: 50%; right: 0; }
-  #join2-status { bottom: 28px; left: 50%; right: 0; }
+  #join1-status { bottom: 28px; left: 66.667%; right: 0; }
   #statusbar {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
     height: 28px; display: flex; align-items: center; gap: 16px;
@@ -56,7 +55,6 @@
     width: 280px;
   }
   #controls { top: 10px; right: calc(33.333% + 10px); }
-  #controls2 { top: calc(50% + 10px); right: calc(33.333% + 10px); }
   #strip-controls .row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 10px; }
   #strip-controls select {
     background: #2a2622; color: #e4cc8f; border: 1px solid #3d3835;
@@ -130,12 +128,10 @@
     display: flex; gap: 4px;
     pointer-events: auto;
   }
-  /* Five-tile layout: full-height starting panel on the left; 2x2 cuts/joins on right. */
+  /* Three-tile layout: panel | cut A | join 1, each full-height. */
   .view-quick-btns[data-tile="panel"] { bottom: 60px; left: 96px; }
-  .view-quick-btns[data-tile="cutA"]  { bottom: calc(50% + 32px); left: calc(33.333% + 96px); }
-  .view-quick-btns[data-tile="join1"] { bottom: calc(50% + 32px); left: calc(66.667% + 96px); }
-  .view-quick-btns[data-tile="cutB"]  { bottom: 60px; left: calc(33.333% + 96px); }
-  .view-quick-btns[data-tile="join2"] { bottom: 60px; left: calc(66.667% + 96px); }
+  .view-quick-btns[data-tile="cutA"]  { bottom: 60px; left: calc(33.333% + 96px); }
+  .view-quick-btns[data-tile="join1"] { bottom: 60px; left: calc(66.667% + 96px); }
   .view-quick-btns button {
     padding: 3px 8px; font-size: 9px;
     font-family: inherit; letter-spacing: 0.5px;
@@ -225,49 +221,6 @@
       </div>
     </div>
     <div id="join-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
-  </div>
-</div>
-<div id="controls2" class="ctrl-panel">
-  <label>cut B &mdash; rip: <span id="rip-b-val" class="angle-val">0°</span></label>
-  <input type="range" id="rip-b-slider" min="-90" max="90" step="1" value="0">
-  <label style="margin-top:6px;">bevel: <span id="bevel-b-val" class="angle-val">90°</span></label>
-  <input type="range" id="bevel-b-slider" min="45" max="90" step="1" value="90">
-  <label style="margin-top:6px;">slice thickness: <span id="pitch-b-val" class="angle-val">50mm</span></label>
-  <input type="range" id="pitch-b-slider" min="5" max="200" step="5" value="50">
-  <label style="margin-top:6px; display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0;">
-    <input type="checkbox" id="offcuts-b-cb" checked> show offcuts
-  </label>
-  <div style="margin-top:10px; padding-top:8px; border-top:1px solid #3d3835; font-size:9px; color:#a8a29e;">arrangement</div>
-  <div class="mode-switch" style="display:flex; gap:4px; margin-top:4px;">
-    <button class="mode-btn selected" data-view="2" data-mode="pattern">pattern</button>
-    <button class="mode-btn" data-view="2" data-mode="custom">custom</button>
-  </div>
-  <div class="pattern-ctrls" data-view="2" style="margin-top:6px;">
-    <select class="pattern-select" data-view="2"
-            style="width:100%; background:#2a2622; color:#e4cc8f; border:1px solid #3d3835; border-radius:3px; padding:3px; font-family:inherit; font-size:10px;">
-      <option value="identity">identity (reassemble)</option>
-      <option value="flipAlternate" selected>flipAlternate (checker)</option>
-      <option value="rotateAlternate">rotateAlternate</option>
-      <option value="shiftAlternate">shiftAlternate (running bond)</option>
-      <option value="mirrorAlternate">mirrorAlternate (chevron)</option>
-    </select>
-    <div class="shift-row" data-view="2" style="display:none; margin-top:6px;">
-      <label>shift: <span class="shift-val" data-view="2" class="angle-val">25mm</span></label>
-      <input type="range" class="shift-slider" data-view="2" min="-200" max="200" step="5" value="25">
-    </div>
-  </div>
-  <div class="custom-ctrls" data-view="2" style="display:none; margin-top:6px;">
-    <div style="font-size:9px; color:#78716c;">select faces on strips C/D, then join</div>
-    <button id="join2-btn" class="join-btn" disabled>join selected faces</button>
-    <div id="flip-axis-row2" style="display:none; margin-top:6px;">
-      <div style="font-size:9px; color:#78716c; margin-bottom:4px;">parallel normals — pick flip axis:</div>
-      <div style="display:flex; gap:4px;">
-        <button class="flip-btn" data-pair="2" data-axis="x">X</button>
-        <button class="flip-btn" data-pair="2" data-axis="y">Y</button>
-        <button class="flip-btn" data-pair="2" data-axis="z">Z</button>
-      </div>
-    </div>
-    <div id="join2-error" style="margin-top:4px; font-size:9px; color:#c0392b;"></div>
   </div>
 </div>
 <!-- Per-view join status footers are injected by JS only when
@@ -484,30 +437,10 @@ scene.add(pvA);
 const step2_panel = new THREE.Group();
 scene.add(step2_panel);
 
-// View 3 (second cut) — strips C and D
-const step3_top = new THREE.Group();
-const step3_bot = new THREE.Group();
-scene.add(step3_top);
-scene.add(step3_bot);
-
-// Plane viz for the second cut (also resized per-rebuild).
-const pvB = new THREE.Mesh(
-  new THREE.PlaneGeometry(1, 1),
-  new THREE.MeshBasicMaterial({ color: 0x2980b9, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
-);
-scene.add(pvB);
-
-// View 4 (second join) — final panel
-const step4_panel = new THREE.Group();
-scene.add(step4_panel);
-
 // Bounding boxes (kept as data only — not added to scene; used for join logic)
 const bbStripA = { box: new THREE.Box3() };
 const bbStripB = { box: new THREE.Box3() };
 const bbPanel2 = { box: new THREE.Box3() };
-const bbStripC = { box: new THREE.Box3() };
-const bbStripD = { box: new THREE.Box3() };
-const bbPanel4 = { box: new THREE.Box3() };
 
 // ─── New face selection: click any part of a face to select the whole face ──
 //
@@ -518,14 +451,11 @@ const bbPanel4 = { box: new THREE.Box3() };
 //   { normal, centroid, u, v, minU, maxU, minV, maxV, width, height, planeD, rotate }
 
 let selectionA = null, selectionB = null;
-let selectionC = null, selectionD = null;
 
 // Highlight meshes for each strip's selected face.
 // Added as children of each strip group so they inherit the strip's offset.
 const highlightA = new THREE.Group(); scene.add(highlightA);
 const highlightB = new THREE.Group(); scene.add(highlightB);
-const highlightC = new THREE.Group(); scene.add(highlightC);
-const highlightD = new THREE.Group(); scene.add(highlightD);
 
 const HL_COLOR_SEL = 0x22cc44;      // green — selected
 const HL_COLOR_ROT = 0xff9922;      // orange — selected with rotation
@@ -637,25 +567,19 @@ function buildFaceHighlight(face, color) {
 }
 
 function setStripSelection(strip, selection) {
-  const hlGroup = { A: highlightA, B: highlightB, C: highlightC, D: highlightD }[strip];
-  const stripGroup = { A: step1_top, B: step1_bot, C: step3_top, D: step3_bot }[strip];
+  const hlGroup = { A: highlightA, B: highlightB }[strip];
+  const stripGroup = { A: step1_top, B: step1_bot }[strip];
   hlGroup.clear();
   if (!selection) {
     if (strip === 'A') selectionA = null;
-    else if (strip === 'B') selectionB = null;
-    else if (strip === 'C') selectionC = null;
-    else selectionD = null;
+    else selectionB = null;
     return;
   }
   const color = selection.rotate ? HL_COLOR_ROT : HL_COLOR_SEL;
   hlGroup.add(buildFaceHighlight(selection, color));
-  // Match the strip group's world offset so the highlight renders in the
-  // same place as the visible strip geometry.
   hlGroup.position.copy(stripGroup.position);
   if (strip === 'A') selectionA = selection;
-  else if (strip === 'B') selectionB = selection;
-  else if (strip === 'C') selectionC = selection;
-  else selectionD = selection;
+  else selectionB = selection;
 }
 
 // Check if two selection faces are "the same face" (same plane).
@@ -671,7 +595,7 @@ let hoveredStrip = null;
 
 // Per-pair flip axis selection: only used when normals are parallel
 // (case 3). Values: 'x', 'y', 'z', or null.
-let flipAxis1 = null, flipAxis2 = null;
+let flipAxis1 = null;
 
 // Classify the relationship between two face normals.
 // Returns one of: 'antiparallel', 'angled', 'parallel'.
@@ -717,7 +641,7 @@ function checkJoinCompat(selA, selB, flipAxis) {
 }
 
 function updateFlipAxisUI(pairIdx, validAxes, selectedAxis) {
-  const row = document.getElementById(pairIdx === 1 ? 'flip-axis-row' : 'flip-axis-row2');
+  const row = document.getElementById('flip-axis-row');
   row.style.display = validAxes.length > 0 ? 'block' : 'none';
   document.querySelectorAll(`.flip-btn[data-pair="${pairIdx}"]`).forEach(btn => {
     const ax = btn.dataset.axis;
@@ -1169,7 +1093,7 @@ function applyArrangement(slices, pattern, cutNormal, pitch, options = {}) {
 // that renders the arrangement step frame-by-frame: each slice's rule
 // matrix is scaled by an eased progress, baked into manifold geometry,
 // and rendered. On the final frame the slices are concat'd into a
-// single Panel and handed off as panel2/panel4. Designed as a debug
+// single Panel and handed off as panel2. Designed as a debug
 // tool to make the rule-applied transforms visible.
 const ANIMATE_ARRANGEMENT = false;
 const ARRANGEMENT_DURATION_MS = 1500;
@@ -1413,15 +1337,11 @@ function rebuild(rip, bevel, pitch) {
   console.log(`Cut A: rip=${rip}° bevel=${bevel}° pitch=${pitch}mm → ${slices.length} slices (extent ${extent.toFixed(0)}mm), ${offcuts.filter(o => o.size > 0).length} offcuts`);
 }
 
-// Toggle visibility of offcut groups in cut views based on checkbox state.
+// Toggle visibility of offcut groups in cut A based on checkbox state.
 function applyOffcutVisibility() {
   const showA = document.getElementById('offcuts-cb')?.checked ?? true;
-  const showB = document.getElementById('offcuts-b-cb')?.checked ?? true;
   step1_top.traverse(obj => {
     if (obj.userData?.isOffcut) obj.visible = showA;
-  });
-  step3_top.traverse(obj => {
-    if (obj.userData?.isOffcut) obj.visible = showB;
   });
 }
 
@@ -1617,7 +1537,6 @@ function applyPatternA() {
     if (!result) return;
     panel2 = result;
     bbPanel2.box.setFromObject(step2_panel);
-    if (typeof rebuildB === 'function') rebuildB();
   };
   if (ANIMATE_ARRANGEMENT) {
     animateArrangement(slicesA, patternA, planeN, currentPitchA, opts, step2_panel, onDone);
@@ -1668,7 +1587,6 @@ function setModeA(mode) {
     // In custom mode, clear the pattern-generated panel2 so user starts fresh.
     if (panel2) { panel2.dispose(); panel2 = null; }
     step2_panel.clear();
-    if (typeof rebuildCut2 === 'function') rebuildCut2();
   }
 }
 document.querySelectorAll('.mode-btn[data-view="1"]').forEach(btn => {
@@ -1698,127 +1616,12 @@ shiftSliderA.addEventListener('input', () => {
 });
 updateShiftVisibility();
 
-let currentRipB = 0, currentBevelB = 90, currentPitchB = 50;
-let modeB = 'pattern';
-let patternB = 'flipAlternate';
-let shiftB = 25;
-
-function rebuildB() {
-  if (panel2) rebuildCut2();
-  if (modeB === 'pattern') applyPatternB();
-}
-
-function applyPatternB() {
-  if (!slicesB.length) return;
-  if (panel4) { panel4.dispose(); panel4 = null; }
-  step4_panel.clear();
-  const planeN = planeNormal(currentRipB, currentBevelB);
-  const opts = { shift: shiftB };
-  const onDone = (result) => {
-    if (!result) return;
-    panel4 = result;
-    bbPanel4.box.setFromObject(step4_panel);
-  };
-  if (ANIMATE_ARRANGEMENT) {
-    animateArrangement(slicesB, patternB, planeN, currentPitchB, opts, step4_panel, onDone);
-  } else {
-    const result = applyArrangement(slicesB, patternB, planeN, currentPitchB, opts);
-    if (result) renderPanel(result, step4_panel);
-    onDone(result);
-  }
-}
-
-const ripBSlider = document.getElementById('rip-b-slider');
-const ripBVal = document.getElementById('rip-b-val');
-ripBSlider.addEventListener('input', () => {
-  currentRipB = parseInt(ripBSlider.value, 10);
-  ripBVal.textContent = `${currentRipB}°`;
-  rebuildB();
-});
-
-const bevelBSlider = document.getElementById('bevel-b-slider');
-const bevelBVal = document.getElementById('bevel-b-val');
-bevelBSlider.addEventListener('input', () => {
-  currentBevelB = parseInt(bevelBSlider.value, 10);
-  bevelBVal.textContent = `${currentBevelB}°`;
-  rebuildB();
-});
-
-const pitchBSlider = document.getElementById('pitch-b-slider');
-const pitchBVal = document.getElementById('pitch-b-val');
-pitchBSlider.addEventListener('input', () => {
-  currentPitchB = parseInt(pitchBSlider.value, 10);
-  pitchBVal.textContent = `${currentPitchB}mm`;
-  rebuildB();
-});
-
-document.getElementById('offcuts-b-cb').addEventListener('change', applyOffcutVisibility);
-
-// Mode switch (view 2).
-function setModeB(mode) {
-  modeB = mode;
-  document.querySelectorAll('.mode-btn[data-view="2"]').forEach(b => {
-    b.classList.toggle('selected', b.dataset.mode === mode);
-  });
-  document.querySelector('.pattern-ctrls[data-view="2"]').style.display = (mode === 'pattern') ? 'block' : 'none';
-  document.querySelector('.custom-ctrls[data-view="2"]').style.display = (mode === 'custom') ? 'block' : 'none';
-  if (mode === 'pattern') applyPatternB();
-  else {
-    if (panel4) { panel4.dispose(); panel4 = null; }
-    step4_panel.clear();
-  }
-}
-document.querySelectorAll('.mode-btn[data-view="2"]').forEach(btn => {
-  btn.addEventListener('click', () => setModeB(btn.dataset.mode));
-});
-
-// Pattern select + shift slider (view 2).
-const patternSelectB = document.querySelector('.pattern-select[data-view="2"]');
-const shiftRowB = document.querySelector('.shift-row[data-view="2"]');
-const shiftSliderB = document.querySelector('.shift-slider[data-view="2"]');
-const shiftValB = document.querySelector('.shift-val[data-view="2"]');
-
-function updateShiftVisibilityB() {
-  shiftRowB.style.display = (patternB === 'shiftAlternate') ? 'block' : 'none';
-}
-
-patternSelectB.value = patternB;
-patternSelectB.addEventListener('change', () => {
-  patternB = patternSelectB.value;
-  updateShiftVisibilityB();
-  applyPatternB();
-});
-shiftSliderB.addEventListener('input', () => {
-  shiftB = parseInt(shiftSliderB.value, 10);
-  shiftValB.textContent = `${shiftB}mm`;
-  if (patternB === 'shiftAlternate') applyPatternB();
-});
-updateShiftVisibilityB();
-
-// Flip-axis button handlers
+// Flip-axis button handlers (cut A only).
 document.querySelectorAll('.flip-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    const pair = btn.dataset.pair;
     const ax = btn.dataset.axis;
-    if (pair === '1') {
-      flipAxis1 = (flipAxis1 === ax) ? null : ax;
-      updateJoinButton();
-    } else {
-      flipAxis2 = (flipAxis2 === ax) ? null : ax;
-      updateJoin2Button();
-    }
-  });
-});
-
-document.getElementById('join2-btn').addEventListener('click', () => {
-  if (!selectionC || !selectionD || !currentStripC || !currentStripD) return;
-
-  playJoinAnimation(2, currentStripC, currentStripD, selectionC, selectionD, flipAxis2, (finalPanel) => {
-    if (panel4) panel4.dispose();
-    panel4 = finalPanel;
-    bbPanel4.box.setFromObject(step4_panel);
-    const sz = new THREE.Vector3(); bbPanel4.box.getSize(sz);
-    console.log(`Joined panel4: ${panel4.size} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
+    flipAxis1 = (flipAxis1 === ax) ? null : ax;
+    updateJoinButton();
   });
 });
 
@@ -1863,11 +1666,9 @@ function mkDivider(css) {
   const d = document.createElement('div'); d.className = 'divider';
   d.style.cssText = css; document.body.appendChild(d);
 }
-// Layout: full-height "starting panel" view in the left third; the
-// 2x2 cut/join grid fills the right two-thirds.
+// Layout: three full-height columns — panel | cut A | join 1.
 mkDivider('top:0; left:33.333%; width:1px; height:100%');
 mkDivider('top:0; left:66.667%; width:1px; height:100%');
-mkDivider('top:50%; left:33.333%; height:1px; width:66.667%');
 
 function mkLabel(txt, css) {
   const el = document.createElement('div'); el.className = 'step-label';
@@ -1876,8 +1677,6 @@ function mkLabel(txt, css) {
 mkLabel('starting panel', 'top:8px; left:calc(16.667% - 40px)');
 mkLabel('step 1: cut A', 'top:8px; left:calc(50% - 30px)');
 mkLabel('step 2: join 1', 'top:8px; left:calc(83.333% - 30px)');
-mkLabel('step 3: cut B', 'top:calc(50% + 8px); left:calc(50% - 30px)');
-mkLabel('step 4: join 2', 'top:calc(50% + 8px); left:calc(83.333% - 30px)');
 
 // ─── Quick camera-angle buttons next to each tile's axes gizmo ────
 
@@ -1897,7 +1696,7 @@ function setCameraView(name) {
   controls.update();
 }
 
-for (const tile of ['panel', 'cutA', 'join1', 'cutB', 'join2']) {
+for (const tile of ['panel', 'cutA', 'join1']) {
   const container = document.createElement('div');
   container.className = 'view-quick-btns';
   container.dataset.tile = tile;
@@ -1918,51 +1717,36 @@ const mouse = new THREE.Vector2();
 const statusbar = document.getElementById('statusbar');
 let hoveredMesh = null, hoveredOrig = null;
 
-// Layout tiles: 5-viewport layout — full-height starting panel on the
-// left third, plus a 2x2 grid (cut A / join 1 / cut B / join 2) in the
-// right two-thirds.
+// Layout: three full-height columns — panel | cut A | join 1.
 //
 //   ┌────────┬────────┬────────┐
-//   │        │ cut A  │ join 1 │
-//   │ panel  ├────────┼────────┤
-//   │        │ cut B  │ join 2 │
+//   │ panel  │ cut A  │ join 1 │
 //   └────────┴────────┴────────┘
 //
-// vpIdx values: 'panel' | 'cutA' | 'join1' | 'cutB' | 'join2'
+// vpIdx values: 'panel' | 'cutA' | 'join1'
 function tileBoundsCSS() {
   const W = window.innerWidth, H = window.innerHeight;
-  const c1 = Math.floor(W / 3);          // start of middle column
-  const c2 = Math.floor(2 * W / 3);      // start of right column
-  const r1 = Math.floor(H / 2);          // top of bottom row in 2x2
-  return { W, H, c1, c2, r1 };
+  const c1 = Math.floor(W / 3);
+  const c2 = Math.floor(2 * W / 3);
+  return { W, H, c1, c2 };
 }
 
-function viewportFor(clientX, clientY) {
-  const { c1, c2, r1 } = tileBoundsCSS();
+function viewportFor(clientX) {
+  const { c1, c2 } = tileBoundsCSS();
   if (clientX < c1) return 'panel';
-  const top = clientY < r1;
-  const right = clientX >= c2;
-  if (top && !right) return 'cutA';
-  if (top &&  right) return 'join1';
-  if (!top && !right) return 'cutB';
-  return 'join2';
+  if (clientX < c2) return 'cutA';
+  return 'join1';
 }
 
 function viewportNDC(clientX, clientY) {
-  const { W, H, c1, c2, r1 } = tileBoundsCSS();
-  const vpIdx = viewportFor(clientX, clientY);
-  let vpX, vpY, vpW, vpH;
-  if (vpIdx === 'panel') {
-    vpX = 0; vpY = 0; vpW = c1; vpH = H;
-  } else {
-    const xLo = (vpIdx === 'cutA' || vpIdx === 'cutB') ? c1 : c2;
-    const xHi = (vpIdx === 'cutA' || vpIdx === 'cutB') ? c2 : W;
-    const yLo = (vpIdx === 'cutA' || vpIdx === 'join1') ? 0 : r1;
-    const yHi = (vpIdx === 'cutA' || vpIdx === 'join1') ? r1 : H;
-    vpX = xLo; vpY = yLo; vpW = xHi - xLo; vpH = yHi - yLo;
-  }
+  const { W, H, c1, c2 } = tileBoundsCSS();
+  const vpIdx = viewportFor(clientX);
+  let vpX, vpW;
+  if (vpIdx === 'panel')      { vpX = 0;  vpW = c1; }
+  else if (vpIdx === 'cutA')  { vpX = c1; vpW = c2 - c1; }
+  else                        { vpX = c2; vpW = W - c2; }
   const nx = ((clientX - vpX) / vpW) * 2 - 1;
-  const ny = -((clientY - vpY) / vpH) * 2 + 1;
+  const ny = -(clientY / H) * 2 + 1;
   return { nx, ny, vpIdx };
 }
 
@@ -1974,9 +1758,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   const groups =
       vpIdx === 'panel' ? [step0_panel]
     : vpIdx === 'cutA'  ? [step1_top, step1_bot]
-    : vpIdx === 'join1' ? [step2_panel]
-    : vpIdx === 'cutB'  ? [step3_top, step3_bot]
-    :                     [step4_panel];
+    :                     [step2_panel];
   const meshes = [];
   groups.forEach(g => g.traverse(m => { if (m.isMesh) meshes.push(m); }));
   const hits = raycaster.intersectObjects(meshes, false);
@@ -1994,14 +1776,10 @@ renderer.domElement.addEventListener('mousemove', (e) => {
       hoveredOrig = mats.map(m => m.emissive ? m.emissive.clone() : new THREE.Color(0));
       mats.forEach(m => { if (m.emissive) m.emissive.set(0x333333); });
     }
-    // Determine which strip/panel the hovered mesh belongs to
     let p = mesh.parent;
-    while (p && p !== step1_top && p !== step1_bot && p !== step2_panel
-             && p !== step3_top && p !== step3_bot && p !== step4_panel) p = p.parent;
+    while (p && p !== step1_top && p !== step1_bot && p !== step2_panel) p = p.parent;
     hoveredStrip = p === step1_top ? 'A' : p === step1_bot ? 'B'
-      : p === step2_panel ? 'P'
-      : p === step3_top ? 'C' : p === step3_bot ? 'D'
-      : p === step4_panel ? 'P4' : null;
+      : p === step2_panel ? 'P' : null;
     const geo = mesh.geometry;
     const tris = geo.index ? geo.index.count / 3 : 0;
     const pt = hit.point;
@@ -2059,16 +1837,16 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 
 function handleSelectionClick(e) {
   const { nx, ny, vpIdx } = viewportNDC(e.clientX, e.clientY);
-  // Only cut viewports have face selection.
-  if (vpIdx !== 'cutA' && vpIdx !== 'cutB') return;
+  if (vpIdx !== 'cutA') return;
 
   const clickMouse = new THREE.Vector2(nx, ny);
   const clickRay = new THREE.Raycaster();
   clickRay.setFromCamera(clickMouse, camera);
 
-  const stripGroups = vpIdx === 'cutA'
-    ? [{ strip: 'A', group: step1_top }, { strip: 'B', group: step1_bot }]
-    : [{ strip: 'C', group: step3_top }, { strip: 'D', group: step3_bot }];
+  const stripGroups = [
+    { strip: 'A', group: step1_top },
+    { strip: 'B', group: step1_bot },
+  ];
 
   const meshes = [];
   stripGroups.forEach(({ group }) => group.traverse(m => { if (m.isMesh) meshes.push(m); }));
@@ -2076,7 +1854,6 @@ function handleSelectionClick(e) {
   if (hits.length === 0) return;
 
   const hit = hits[0];
-  // Determine which strip the hit mesh belongs to
   let parent = hit.object.parent;
   while (parent && !stripGroups.some(sg => sg.group === parent)) parent = parent.parent;
   if (!parent) return;
@@ -2085,125 +1862,28 @@ function handleSelectionClick(e) {
   const face = findFaceAtHit(hit, parent);
   if (!face) return;
 
-  const curSel = { A: selectionA, B: selectionB, C: selectionC, D: selectionD }[strip];
+  const curSel = { A: selectionA, B: selectionB }[strip];
 
-  // Three-state cycling on the same face:
-  // - Click while nothing selected on this strip → state 1 (select)
-  // - Click on same face in state 1 → state 2 (rotate)
-  // - Click on same face in state 2 → state 0 (deselect)
-  // - Click on different face → state 1 on new face
   if (sameFace(curSel, face)) {
     if (!curSel.rotate) {
-      // Upgrade to rotation
       setStripSelection(strip, { ...curSel, rotate: true });
     } else {
-      // Deselect
       setStripSelection(strip, null);
     }
   } else {
-    // New face → state 1
     setStripSelection(strip, face);
   }
 
-  if (vpIdx === 'cutA') updateJoinButton(); else updateJoin2Button();
+  updateJoinButton();
 
   const fmt = (sel) => sel ? `n=(${sel.normal.x.toFixed(2)},${sel.normal.y.toFixed(2)},${sel.normal.z.toFixed(2)}), d=${sel.planeD.toFixed(1)}${sel.rotate ? ' (rot)' : ''}` : 'none';
-  console.log(`Face: A=${fmt(selectionA)} B=${fmt(selectionB)} C=${fmt(selectionC)} D=${fmt(selectionD)}`);
+  console.log(`Face: A=${fmt(selectionA)} B=${fmt(selectionB)}`);
 }
 
 // ─── Join button handler ──────────────────────────────────────────
 
-// Panel assemblies for step 2 (joined) and step 4 (final join)
-let panel2 = null; // result of first join — input to second cut
-let panel4 = null; // result of second join
-
-// View 3 state — N slices + offcuts from cutting panel2.
-let slicesB = [];
-let offcutsB = [];
-let currentStripC = null, currentStripD = null; // legacy (custom mode)
-
-function rebuildCut2() {
-  if (!panel2) {
-    // No input to cut. Clear any stale slice geometry.
-    for (const s of slicesB) s.dispose();
-    for (const o of offcutsB) o.dispose();
-    slicesB = []; offcutsB = [];
-    step3_top.clear();
-    step3_bot.clear();
-    step4_panel.clear();
-    return;
-  }
-
-  // Dispose previous results.
-  for (const s of slicesB) s.dispose();
-  for (const o of offcutsB) o.dispose();
-  slicesB = []; offcutsB = [];
-  if (currentStripC) { currentStripC.dispose(); currentStripC = null; }
-  if (currentStripD) { currentStripD.dispose(); currentStripD = null; }
-
-  step3_top.clear();
-  step3_bot.clear();
-  step4_panel.clear();
-
-  const planeN = planeNormal(currentRipB, currentBevelB);
-  const planeNArr = [planeN.x, planeN.y, planeN.z];
-  const extent = panelExtentAlongNormal(panel2, planeN);
-  const count = Math.max(1, Math.floor(extent / currentPitchB));
-
-  const { slices, offcuts } = panel2.cutRepeated(planeNArr, currentPitchB, count, 0);
-  slicesB = slices;
-  offcutsB = offcuts;
-
-  const SLICE_SPACING = Math.max(currentPitchB * 1.5, 80);
-  const center = (count - 1) / 2;
-  slices.forEach((slice, i) => {
-    const g = new THREE.Group();
-    g.userData.sliceIdx = i;
-    renderPanel(slice, g);
-    g.position.copy(planeN.clone().multiplyScalar((i - center) * SLICE_SPACING));
-    step3_top.add(g);
-  });
-
-  const offcutOffset = (count / 2 + 1) * SLICE_SPACING;
-  if (offcuts[0] && offcuts[0].size > 0) {
-    const g = new THREE.Group();
-    renderPanelDim(offcuts[0], g);
-    g.position.copy(planeN.clone().multiplyScalar(-offcutOffset));
-    g.userData.isOffcut = true;
-    step3_top.add(g);
-  }
-  if (offcuts[1] && offcuts[1].size > 0) {
-    const g = new THREE.Group();
-    renderPanelDim(offcuts[1], g);
-    g.position.copy(planeN.clone().multiplyScalar(offcutOffset));
-    g.userData.isOffcut = true;
-    step3_top.add(g);
-  }
-
-  pvB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), planeN);
-  sizePlaneViz(pvB, panel2);
-
-  bbStripC.box.setFromObject(step3_top);
-
-  setStripSelection('C', null);
-  setStripSelection('D', null);
-  flipAxis2 = null;
-  updateJoin2Button();
-
-  applyOffcutVisibility();
-
-  console.log(`Cut B: rip=${currentRipB}° bevel=${currentBevelB}° pitch=${currentPitchB}mm → ${slices.length} slices (extent ${extent.toFixed(0)}mm), ${offcuts.filter(o => o.size > 0).length} offcuts`);
-}
-
-function updateJoin2Button() {
-  const btn = document.getElementById('join2-btn');
-  const errEl = document.getElementById('join2-error');
-  if (!btn) return;
-  const result = checkJoinCompat(selectionC, selectionD, flipAxis2);
-  btn.disabled = !result.ok;
-  errEl.textContent = result.error;
-  updateFlipAxisUI(2, result.validFlipAxes, flipAxis2);
-}
+// Result of the cut A + join 1 cascade.
+let panel2 = null;
 
 // ─── Join animation ───────────────────────────────────────────────
 //
@@ -2223,13 +1903,11 @@ function updateJoin2Button() {
 const ANIMATE_JOINS = false;
 
 if (ANIMATE_JOINS) {
-  for (const id of ['join1-status', 'join2-status']) {
-    const el = document.createElement('div');
-    el.id = id;
-    el.className = 'tile-status';
-    el.textContent = 'idle';
-    document.body.appendChild(el);
-  }
+  const el = document.createElement('div');
+  el.id = 'join1-status';
+  el.className = 'tile-status';
+  el.textContent = 'idle';
+  document.body.appendChild(el);
 }
 
 let joinAnim = null;
@@ -2243,20 +1921,19 @@ function cancelJoinAnim() {
   joinAnim = null;
 }
 
-function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) {
+function playJoinAnimation(srcA, srcB, selA, selB, flipAxis, onComplete) {
   cancelJoinAnim();
 
   const stages = buildJoinStages(srcA, srcB, selA, selB, flipAxis);
 
-  const panelGroup = which === 1 ? step2_panel : step4_panel;
+  const panelGroup = step2_panel;
   panelGroup.clear();
   const gA = new THREE.Group();
   const gB = new THREE.Group();
   panelGroup.add(gA);
   panelGroup.add(gB);
 
-  // statusEl is only present when ANIMATE_JOINS injected the footer divs.
-  const statusEl = document.getElementById(which === 1 ? 'join1-status' : 'join2-status');
+  const statusEl = document.getElementById('join1-status');
   const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt; };
 
   // Degenerate: no stages (identical faces). Clone and hand off.
@@ -2299,7 +1976,7 @@ function playJoinAnimation(which, srcA, srcB, selA, selB, flipAxis, onComplete) 
   }
 
   joinAnim = {
-    which, srcA, srcB, stages, preAccA, preAccB,
+    srcA, srcB, stages, preAccA, preAccB,
     gA, gB, statusEl,
     stageIdx: 0, stageStart: performance.now(),
     currentA: null, currentB: null, // Panels rendered last frame (to dispose)
@@ -2363,13 +2040,12 @@ function joinAnimFrame(now) {
 document.getElementById('join-btn').addEventListener('click', () => {
   if (!selectionA || !selectionB || !currentStripAbove || !currentStripBelow) return;
 
-  playJoinAnimation(1, currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1, (finalPanel) => {
+  playJoinAnimation(currentStripAbove, currentStripBelow, selectionA, selectionB, flipAxis1, (finalPanel) => {
     if (panel2) panel2.dispose();
     panel2 = finalPanel;
     bbPanel2.box.setFromObject(step2_panel);
     const sz = new THREE.Vector3(); bbPanel2.box.getSize(sz);
     console.log(`Joined panel2: ${panel2.size} segments, bounds ${sz.x.toFixed(0)}×${sz.y.toFixed(0)}×${sz.z.toFixed(0)}`);
-    rebuildCut2();
   });
 });
 
@@ -2424,14 +2100,6 @@ function setView(name) {
   highlightB.visible = name === 'cut1';
 
   step2_panel.visible = name === 'join1';
-
-  step3_top.visible = name === 'cut2';
-  step3_bot.visible = name === 'cut2';
-  pvB.visible = name === 'cut2';
-  highlightC.visible = name === 'cut2';
-  highlightD.visible = name === 'cut2';
-
-  step4_panel.visible = name === 'join2';
 }
 
 function renderViewport(x, y, w, h, viewName, bg) {
@@ -2455,22 +2123,15 @@ function animate() {
   controls.update();
 
   const W = window.innerWidth, H = window.innerHeight;
-  // Tile bounds in WebGL coords (Y from bottom of canvas).
   const c1 = Math.floor(W / 3);
   const c2 = Math.floor(2 * W / 3);
-  const r1 = Math.floor(H / 2);
   renderer.setScissorTest(true);
 
   axesGroup.quaternion.copy(camera.quaternion).invert();
 
-  // Full-height starting-panel view (left third).
-  renderViewport(0, 0, c1, H, 'panel', 0x1c1917);
-  // Top row of right area: cut A | join 1
-  renderViewport(c1,    r1, c2 - c1,   H - r1, 'cut1',  0x1a1816);
-  renderViewport(c2,    r1, W - c2,    H - r1, 'join1', 0x1c1917);
-  // Bottom row of right area: cut B | join 2
-  renderViewport(c1,    0,  c2 - c1,   r1,     'cut2',  0x1c1917);
-  renderViewport(c2,    0,  W - c2,    r1,     'join2', 0x1a1816);
+  renderViewport(0,  0, c1,      H, 'panel', 0x1c1917);
+  renderViewport(c1, 0, c2 - c1, H, 'cut1',  0x1a1816);
+  renderViewport(c2, 0, W - c2,  H, 'join1', 0x1c1917);
 
   renderer.setScissorTest(false);
 }
