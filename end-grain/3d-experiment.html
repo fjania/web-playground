@@ -998,6 +998,26 @@ const PATTERN_RULES = {
     (i % 2 === 1) ? new THREE.Matrix4().makeRotationX(Math.PI) : new THREE.Matrix4(),
 };
 
+// Same rule functions as PATTERN_RULES, but each accepts a progress
+// parameter t ∈ [0, 1] and scales the rule's transform by t. At t=1
+// these match PATTERN_RULES exactly; at t=0 they're identity. Used by
+// the arrangement animation so we can render intermediate frames where
+// the rule is partially applied.
+const PATTERN_RULES_AT = {
+  identity: () => new THREE.Matrix4(),
+  flipAlternate: (i, n, opts, t) =>
+    (i % 2 === 1) ? new THREE.Matrix4().makeRotationY(Math.PI * t) : new THREE.Matrix4(),
+  rotateAlternate: (i, n, opts, t) =>
+    (i % 2 === 1) ? new THREE.Matrix4().makeRotationZ(Math.PI * t) : new THREE.Matrix4(),
+  shiftAlternate: (i, n, opts, t) => {
+    if (i % 2 !== 1) return new THREE.Matrix4();
+    const s = (opts.shift ?? 25) * t;
+    return new THREE.Matrix4().makeTranslation(s, 0, 0);
+  },
+  mirrorAlternate: (i, n, opts, t) =>
+    (i % 2 === 1) ? new THREE.Matrix4().makeRotationX(Math.PI * t) : new THREE.Matrix4(),
+};
+
 // Apply an arrangement pattern to a list of slices, stacking them along
 // `cutNormal` with spacing `pitch`. Returns a single joined Panel (the
 // caller takes ownership and must dispose the result).
@@ -1041,6 +1061,95 @@ function applyArrangement(slices, pattern, cutNormal, pitch, options = {}) {
     result = centered;
   }
   return result;
+}
+
+// ─── Arrangement animation (debug) ────────────────────────────────
+//
+// When ANIMATE_ARRANGEMENT is true, applyPatternA/B start an animation
+// that renders the arrangement step frame-by-frame: each slice's rule
+// matrix is scaled by an eased progress, baked into manifold geometry,
+// and rendered. On the final frame the slices are concat'd into a
+// single Panel and handed off as panel2/panel4. Designed as a debug
+// tool to make the rule-applied transforms visible.
+const ANIMATE_ARRANGEMENT = true;
+const ARRANGEMENT_DURATION_MS = 1500;
+
+let arrangeAnim = null;
+
+function cancelArrangeAnim() {
+  if (!arrangeAnim) return;
+  if (arrangeAnim.rafId) cancelAnimationFrame(arrangeAnim.rafId);
+  // Per-frame baked panels — not yet handed off, safe to dispose.
+  for (const p of arrangeAnim.lastBakes) p.dispose();
+  arrangeAnim = null;
+}
+
+function animateArrangement(slices, pattern, cutNormal, pitch, options, targetGroup, onComplete) {
+  cancelArrangeAnim();
+  if (slices.length === 0) { onComplete?.(null); return; }
+
+  const ruleAt = PATTERN_RULES_AT[pattern] ?? PATTERN_RULES_AT.identity;
+  const center = (slices.length - 1) / 2;
+  const start = performance.now();
+
+  arrangeAnim = { rafId: null, lastBakes: [], targetGroup };
+
+  function frame(now) {
+    if (!arrangeAnim) return;
+    const t = Math.min((now - start) / ARRANGEMENT_DURATION_MS, 1);
+    const eased = 0.5 - Math.cos(t * Math.PI) / 2;
+
+    // Dispose previous frame's bakes, then build new ones.
+    for (const p of arrangeAnim.lastBakes) p.dispose();
+    arrangeAnim.lastBakes = [];
+    targetGroup.clear();
+
+    for (let i = 0; i < slices.length; i++) {
+      const slice = slices[i];
+      const bb = slice.boundingBox();
+      const sc = new THREE.Vector3(); bb.getCenter(sc);
+      const toLocal = new THREE.Matrix4().makeTranslation(-sc.x, -sc.y, -sc.z);
+      const ruleMat = ruleAt(i, slices.length, options, eased);
+      const target = cutNormal.clone().multiplyScalar((i - center) * pitch);
+      const toStack = new THREE.Matrix4().makeTranslation(target.x, target.y, target.z);
+      const full = new THREE.Matrix4().multiplyMatrices(toStack, ruleMat).multiply(toLocal);
+
+      const baked = slice.transform(full);
+      arrangeAnim.lastBakes.push(baked);
+
+      const g = new THREE.Group();
+      renderPanel(baked, g);
+      targetGroup.add(g);
+    }
+
+    if (t < 1) {
+      arrangeAnim.rafId = requestAnimationFrame(frame);
+      return;
+    }
+
+    // Final frame: concat all bakes into a single Panel, center, hand off.
+    // After concat, segments are shared with `final` so DON'T dispose bakes.
+    let final = null;
+    for (const baked of arrangeAnim.lastBakes) {
+      final = final ? final.concat(baked) : baked;
+    }
+    if (final) {
+      const bb2 = final.boundingBox();
+      const c = new THREE.Vector3(); bb2.getCenter(c);
+      if (c.length() > 1e-6) {
+        const centered = final.translate(-c.x, -c.y, -c.z);
+        final.dispose();
+        final = centered;
+      }
+      targetGroup.clear();
+      renderPanel(final, targetGroup);
+    }
+    arrangeAnim.lastBakes = []; // ownership transferred to `final`
+    arrangeAnim = null;
+    onComplete?.(final);
+  }
+
+  arrangeAnim.rafId = requestAnimationFrame(frame);
 }
 
 // ─── Build pipeline from rip + bevel ──────────────────────────────
@@ -1202,13 +1311,20 @@ function applyPatternA() {
   if (panel2) { panel2.dispose(); panel2 = null; }
   step2_panel.clear();
   const planeN = planeNormal(currentRipA, currentBevelA);
-  const result = applyArrangement(slicesA, patternA, planeN, currentPitchA, { shift: shiftA });
-  if (!result) return;
-  panel2 = result;
-  renderPanel(panel2, step2_panel);
-  bbPanel2.box.setFromObject(step2_panel);
-  // Propagate: re-cut B on the new panel2, then re-apply B's pattern.
-  if (typeof rebuildB === 'function') rebuildB();
+  const opts = { shift: shiftA };
+  const onDone = (result) => {
+    if (!result) return;
+    panel2 = result;
+    bbPanel2.box.setFromObject(step2_panel);
+    if (typeof rebuildB === 'function') rebuildB();
+  };
+  if (ANIMATE_ARRANGEMENT) {
+    animateArrangement(slicesA, patternA, planeN, currentPitchA, opts, step2_panel, onDone);
+  } else {
+    const result = applyArrangement(slicesA, patternA, planeN, currentPitchA, opts);
+    if (result) renderPanel(result, step2_panel);
+    onDone(result);
+  }
 }
 
 const ripSlider = document.getElementById('rip-slider');
@@ -1304,11 +1420,19 @@ function applyPatternB() {
   if (panel4) { panel4.dispose(); panel4 = null; }
   step4_panel.clear();
   const planeN = planeNormal(currentRipB, currentBevelB);
-  const result = applyArrangement(slicesB, patternB, planeN, currentPitchB, { shift: shiftB });
-  if (!result) return;
-  panel4 = result;
-  renderPanel(panel4, step4_panel);
-  bbPanel4.box.setFromObject(step4_panel);
+  const opts = { shift: shiftB };
+  const onDone = (result) => {
+    if (!result) return;
+    panel4 = result;
+    bbPanel4.box.setFromObject(step4_panel);
+  };
+  if (ANIMATE_ARRANGEMENT) {
+    animateArrangement(slicesB, patternB, planeN, currentPitchB, opts, step4_panel, onDone);
+  } else {
+    const result = applyArrangement(slicesB, patternB, planeN, currentPitchB, opts);
+    if (result) renderPanel(result, step4_panel);
+    onDone(result);
+  }
 }
 
 const ripBSlider = document.getElementById('rip-b-slider');
