@@ -28,7 +28,10 @@
  * slot into executeArrange without reshaping the envelope.
  */
 
+import { Vector3 } from 'three';
+import { getManifold } from '../../domain/manifold';
 import { Panel } from '../domain/Panel';
+import { expandPreset } from './presets';
 import type {
   Arrange,
   ArrangeResult,
@@ -40,6 +43,7 @@ import type {
   FeatureResult,
   PanelSnapshot,
   PlaceEdit,
+  PresetResult,
   Preset,
   SpacerInsert,
 } from './types';
@@ -84,11 +88,23 @@ export function runPipeline(features: Feature[]): PipelineOutput {
         ctx.record(f.id, executeArrange(f, ctx));
         break;
       case 'preset':
+        // Preset results are populated by the Arrange that consumes
+        // them (Arrange has the sliceProvenance that expansion
+        // needs). If Arrange already recorded this preset (topological
+        // order: preset executes before arrange), skip the
+        // placeholder; otherwise this Preset targets an Arrange that
+        // hasn't run yet or doesn't exist, so leave a placeholder.
+        if (!(f.id in ctx.results)) {
+          ctx.record(f.id, { featureId: f.id, status: 'ok' });
+        }
+        break;
       case 'placeEdit':
       case 'spacerInsert':
-        // Contribute to an Arrange; they produce trivial results (no
-        // geometry of their own) and are consumed via ctx indices.
-        ctx.record(f.id, { featureId: f.id, status: 'ok' });
+        // These contribute to an Arrange; they have no geometry of
+        // their own. Same topological-order caveat as Preset.
+        if (!(f.id in ctx.results)) {
+          ctx.record(f.id, { featureId: f.id, status: 'ok' });
+        }
         break;
     }
   }
@@ -248,11 +264,12 @@ function collectStripIds(panel: Panel): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Arrange (cursor-slide, identity layout — no edits yet)
+// Arrange (cursor-slide with PlaceEdits, Preset expansion, SpacerInsert)
 // ---------------------------------------------------------------------------
 
 function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   const upstreamSlices = ctx.lastSlices;
+  const upstreamProvenance = ctx.lastSliceProvenance;
   if (upstreamSlices.length === 0) {
     return {
       featureId: f.id,
@@ -266,41 +283,260 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     };
   }
 
-  // Identity arrange for this commit: slices are already baked in
-  // their post-cut positions, so concat them in place — that gives
-  // bbox(output) = bbox(input) at any rip angle. Cursor-slide
-  // (measuring each slice's thickness from manifold geometry and
-  // placing flush at a running cursor) is introduced in the next
-  // commit when PlaceEdits land — edited slices are no longer in
-  // their baked positions and must be re-placed.
-  //
-  // Rationale: AABB-based measureAlong overestimates thickness for
-  // parallelogram slices (rip != 0), so naively cursor-sliding the
-  // identity case would break the bbox invariant. Baking-in-place
-  // here is correct by construction.
-  let assembled = upstreamSlices[0].clone();
-  for (let i = 1; i < upstreamSlices.length; i++) {
-    const next = assembled.concat(upstreamSlices[i]);
+  // ---- 1. Expand Presets targeting this Arrange. ----
+  const provEntries = upstreamProvenance.map((ids, sliceIdx) => ({
+    sliceIdx,
+    contributingStripIds: ids,
+  }));
+
+  const presets = ctx.presetsByArrange(f.id);
+  const presetEdits: Array<{ edit: PlaceEdit; source: string }> = [];
+  const presetSpacers: Array<{ spacer: SpacerInsert; source: string }> = [];
+
+  for (const preset of presets) {
+    const expansion = expandPreset(preset, provEntries);
+    // Fill in the Preset's own FeatureResult with the expansion and
+    // record it in the trace topologically (before this Arrange).
+    const presetResult: PresetResult =
+      expansion.kind === 'placeEdits'
+        ? {
+            featureId: preset.id,
+            status: 'ok',
+            expandedPlaceEdits: expansion.edits,
+          }
+        : {
+            featureId: preset.id,
+            status: 'ok',
+            expandedSpacers: expansion.spacers,
+          };
+    ctx.record(preset.id, presetResult);
+
+    if (expansion.kind === 'placeEdits') {
+      for (const edit of expansion.edits) presetEdits.push({ edit, source: preset.id });
+    } else {
+      for (const spacer of expansion.spacers) presetSpacers.push({ spacer, source: preset.id });
+    }
+  }
+
+  // ---- 2. Collect user-authored PlaceEdits + SpacerInserts. ----
+  // Record them in the trace topologically (before this Arrange) so
+  // downstream tooling sees the true execution order.
+  const userEdits = ctx.placeEditsByArrange(f.id).map((e) => ({ edit: e, source: e.id }));
+  const userSpacers = ctx.spacerInsertsByArrange(f.id).map((s) => ({ spacer: s, source: s.id }));
+
+  for (const { edit } of userEdits) {
+    if (!(edit.id in ctx.results)) {
+      ctx.record(edit.id, { featureId: edit.id, status: 'ok' });
+    }
+  }
+  for (const { spacer } of userSpacers) {
+    if (!(spacer.id in ctx.results)) {
+      ctx.record(spacer.id, { featureId: spacer.id, status: 'ok' });
+    }
+  }
+
+  // ---- 3. Merge: "manual wins on same slice". ----
+  // Drop preset edits for any sliceIdx that has a user edit.
+  // Drop preset spacers for any afterSliceIdx that has a user spacer.
+  const userEditSliceIdxs = new Set(userEdits.map((e) => e.edit.target.sliceIdx));
+  const mergedEdits = [
+    ...presetEdits.filter(({ edit }) => !userEditSliceIdxs.has(edit.target.sliceIdx)),
+    ...userEdits,
+  ];
+  const userSpacerIdxs = new Set(userSpacers.map((s) => s.spacer.afterSliceIdx));
+  const mergedSpacers = [
+    ...presetSpacers.filter(({ spacer }) => !userSpacerIdxs.has(spacer.afterSliceIdx)),
+    ...userSpacers,
+  ];
+
+  // ---- 3.5 Identity fast path. ----
+  // If there are no edits and no spacers, slices are already in
+  // their baked post-cut positions — concat in place. This is
+  // correct by construction at any rip angle (AABB-based
+  // measureAlong overestimates parallelogram thickness, so naive
+  // cursor-slide would break bbox invariants here).
+  if (mergedEdits.length === 0 && mergedSpacers.length === 0) {
+    let assembled = upstreamSlices[0].clone();
+    for (let i = 1; i < upstreamSlices.length; i++) {
+      const next = assembled.concat(upstreamSlices[i]);
+      assembled.dispose();
+      assembled = next;
+    }
+    for (const s of upstreamSlices) s.dispose();
+    ctx.lastSlices = [];
+    ctx.lastSliceProvenance = [];
+    ctx.lastPanel = assembled;
+    return {
+      featureId: f.id,
+      status: 'ok',
+      panel: assembled.toSnapshot(),
+      appliedEditCount: 0,
+      appliedEditSources: [],
+      appliedSpacerCount: 0,
+      appliedSpacerSources: [],
+    };
+  }
+
+  // ---- 4. Apply PlaceEdits per slice. ----
+  // Group edits by sliceIdx. rotate and shift accumulate; reorder is
+  // collected separately and applied to the output sequence.
+  const editsBySlice = new Map<number, Array<{ edit: PlaceEdit; source: string }>>();
+  for (const e of mergedEdits) {
+    const arr = editsBySlice.get(e.edit.target.sliceIdx) ?? [];
+    arr.push(e);
+    editsBySlice.set(e.edit.target.sliceIdx, arr);
+  }
+
+  // Per-slice transforms. `sliceOrder` starts as identity 0..N-1,
+  // then reorder edits mutate it.
+  const transformedSlices: Panel[] = upstreamSlices.map((slice, i) => {
+    const edits = editsBySlice.get(i) ?? [];
+    let current = slice.clone();
+    for (const { edit } of edits) {
+      if (edit.op.kind === 'rotate') {
+        const bb = current.boundingBox();
+        const cx = (bb.min.x + bb.max.x) / 2;
+        const cz = (bb.min.z + bb.max.z) / 2;
+        const angle = (edit.op.degrees * Math.PI) / 180;
+        const rotated = current.rotateAbout(
+          new Vector3(0, 1, 0),
+          angle,
+          new Vector3(cx, 0, cz),
+        );
+        current.dispose();
+        current = rotated;
+      } else if (edit.op.kind === 'shift') {
+        const shifted = current.translate(edit.op.delta, 0, 0);
+        current.dispose();
+        current = shifted;
+      }
+      // reorder is sequence-level; handled below.
+    }
+    return current;
+  });
+
+  // Reorder: apply in edit order, last wins per slice.
+  let sliceOrder = upstreamSlices.map((_, i) => i);
+  for (const { edit } of mergedEdits) {
+    if (edit.op.kind === 'reorder') {
+      sliceOrder = reorderSequence(sliceOrder, edit.target.sliceIdx, edit.op.newIdx);
+    }
+  }
+
+  // ---- 5. Cursor-slide along +Z. ----
+  // Each slice is axis-aligned-after-edit (rotations are multiples of
+  // 90° about Y; shifts are along X; reorders don't rotate), so
+  // measureAlong([0,0,1]) is exact. For rip != 0 the upstream Cut
+  // produces parallelogram slices; this executor currently assumes
+  // rip=0 for edit-application correctness. rip != 0 with edits is
+  // a known gap tracked in #20 and will be generalised when the
+  // renderer demands it.
+  const slideAxis: [number, number, number] = [0, 0, 1];
+  // Seed cursor at first slice's min-along-Z (preserves bbox
+  // position; output panel aligns with input panel's Z range).
+  const firstSlice = transformedSlices[sliceOrder[0]];
+  let cursor = firstSlice.measureAlong(slideAxis).min;
+
+  const placedSlices: Panel[] = [];
+  // Spacer placement: at each afterSliceIdx, after placing the slice
+  // at output position matching the sliceIdx, insert a spacer slab.
+  const spacersByAfterIdx = new Map<number, Array<{ spacer: SpacerInsert; source: string }>>();
+  for (const s of mergedSpacers) {
+    const arr = spacersByAfterIdx.get(s.spacer.afterSliceIdx) ?? [];
+    arr.push(s);
+    spacersByAfterIdx.set(s.spacer.afterSliceIdx, arr);
+  }
+
+  const appliedSpacerSources: string[] = [];
+  let appliedSpacerCount = 0;
+
+  for (let outIdx = 0; outIdx < sliceOrder.length; outIdx++) {
+    const sliceIdx = sliceOrder[outIdx];
+    const slice = transformedSlices[sliceIdx];
+    const m = slice.measureAlong(slideAxis);
+    const dz = cursor - m.min;
+    placedSlices.push(slice.translate(0, 0, dz));
+    cursor += m.extent;
+
+    // After placing slice-at-sliceIdx, insert any spacers keyed on
+    // that sliceIdx (NB: afterSliceIdx is a reference to the input
+    // slice, not the output position — spacer targets are slice
+    // references just like edits).
+    const here = spacersByAfterIdx.get(sliceIdx) ?? [];
+    for (const { spacer, source } of here) {
+      const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0]);
+      const sm = spacerPanel.measureAlong(slideAxis);
+      const sdz = cursor - sm.min;
+      placedSlices.push(spacerPanel.translate(0, 0, sdz));
+      spacerPanel.dispose();
+      cursor += sm.extent;
+      appliedSpacerSources.push(source);
+      appliedSpacerCount++;
+    }
+  }
+
+  // ---- 6. Concat everything. ----
+  let assembled = placedSlices[0].clone();
+  for (let i = 1; i < placedSlices.length; i++) {
+    const next = assembled.concat(placedSlices[i]);
     assembled.dispose();
     assembled = next;
   }
+  for (const p of placedSlices) p.dispose();
+  for (const t of transformedSlices) t.dispose();
   for (const s of upstreamSlices) s.dispose();
   ctx.lastSlices = [];
   ctx.lastSliceProvenance = [];
 
-  // Promote assembled panel to lastPanel so any downstream Cut/Arrange
-  // sees it as input.
   ctx.lastPanel = assembled;
+
+  const appliedEditSources = mergedEdits.map((e) => e.source);
 
   return {
     featureId: f.id,
     status: 'ok',
     panel: assembled.toSnapshot(),
-    appliedEditCount: 0,
-    appliedEditSources: [],
-    appliedSpacerCount: 0,
-    appliedSpacerSources: [],
+    appliedEditCount: mergedEdits.length,
+    appliedEditSources,
+    appliedSpacerCount,
+    appliedSpacerSources,
   };
+}
+
+/**
+ * Move sequence[fromIdx] to position newIdx, shifting other entries.
+ * Out-of-range indices clamp to the sequence bounds. Used by the
+ * reorder op.
+ */
+function reorderSequence(seq: number[], fromIdx: number, newIdx: number): number[] {
+  if (fromIdx < 0 || fromIdx >= seq.length) return seq;
+  const clampedNew = Math.max(0, Math.min(seq.length - 1, newIdx));
+  const copy = seq.slice();
+  const [picked] = copy.splice(fromIdx, 1);
+  copy.splice(clampedNew, 0, picked);
+  return copy;
+}
+
+/**
+ * Build a spacer slab as a Panel — a single-segment panel whose
+ * species matches the SpacerInsert, Z-extent = spacer.width, and
+ * X/Y extents match the reference slice's. contributingStripIds is
+ * [spacer.id] so the resulting snapshot's volume is attributable
+ * back to the originating SpacerInsert feature.
+ */
+function makeSpacerPanel(spacer: SpacerInsert, reference: Panel): Panel {
+  const Manifold = getManifold();
+  const bb = reference.boundingBox();
+  const xExtent = bb.max.x - bb.min.x;
+  const yExtent = bb.max.y - bb.min.y;
+  const mf = Manifold.cube([xExtent, yExtent, spacer.width], true);
+  return new Panel([
+    {
+      manifold: mf,
+      species: spacer.species,
+      contributingStripIds: [spacer.id],
+    },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
