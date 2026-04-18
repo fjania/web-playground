@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>End Grain v2.1 — Design Review</title>
+<style>
+  :root {
+    --bg: #1c1917;
+    --surface: #242120;
+    --surface-2: #2d2a28;
+    --line: #3d3835;
+    --text: #d6d3d1;
+    --text-dim: #a8a29e;
+    --text-muted: #78716c;
+    --accent: #e4cc8f;
+    --accent-warm: #b45309;
+    --new: #60a5fa;
+    --new-soft: rgba(96, 165, 250, 0.12);
+    --maple: #e4cc8f;
+    --walnut: #3d2416;
+    --cherry: #c97050;
+    --padauk: #c84020;
+    --purpleheart: #5a2a6a;
+    --ok: #4ade80;
+    --warning: #fbbf24;
+    --error: #ef4444;
+    --code-bg: #141211;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    line-height: 1.55;
+    font-size: 14px;
+  }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--line); }
+  a:hover { color: #fff; border-bottom-color: var(--accent); }
+  code {
+    background: var(--code-bg);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  pre code { background: transparent; padding: 0; color: inherit; }
+  h1, h2, h3, h4 {
+    color: #fff; letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 {
+    font-size: 20px;
+    margin: 48px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  h3 { font-size: 16px; margin: 28px 0 10px; color: var(--accent); }
+  h4 { font-size: 14px; margin: 18px 0 6px; color: var(--text); text-transform: uppercase; letter-spacing: 0.08em; }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 22px; margin: 10px 0; }
+  li { margin: 4px 0; }
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 48px 32px 120px;
+  }
+  .subtitle { color: var(--text-dim); font-size: 15px; margin-bottom: 20px; }
+  .header-meta {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+  .header-meta a { color: var(--text-dim); }
+
+  .diff-banner {
+    background: var(--new-soft);
+    border: 1px solid rgba(96, 165, 250, 0.4);
+    border-left: 3px solid var(--new);
+    padding: 14px 20px;
+    border-radius: 0 4px 4px 0;
+    margin-bottom: 40px;
+    font-size: 13px;
+  }
+  .diff-banner h3 { margin: 0 0 8px; color: var(--new); font-size: 14px; }
+  .diff-banner ul { margin: 6px 0 0; padding-left: 20px; }
+  .diff-banner li { margin: 3px 0; color: var(--text); }
+  .diff-banner strong { color: var(--new); }
+
+  .new-tag {
+    display: inline-block;
+    background: var(--new-soft);
+    color: var(--new);
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    padding: 0 6px;
+    font-size: 10px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 6px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .changed-tag {
+    display: inline-block;
+    background: rgba(180, 83, 9, 0.14);
+    color: var(--accent-warm);
+    border: 1px solid rgba(180, 83, 9, 0.35);
+    padding: 0 6px;
+    font-size: 10px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 6px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 20px;
+    margin: 30px 0 40px;
+    font-size: 13px;
+  }
+  .toc ol { padding-left: 22px; }
+  .toc li { margin: 2px 0; }
+  .toc a { color: var(--text-dim); border: none; }
+  .toc a:hover { color: var(--accent); }
+  .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+  .badge-ok { background: rgba(74, 222, 128, 0.14); color: var(--ok); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .badge-warn { background: rgba(251, 191, 36, 0.14); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.3); }
+  .badge-err { background: rgba(239, 68, 68, 0.14); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); }
+  .issue {
+    display: inline-block;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--accent);
+    vertical-align: middle;
+  }
+  .issue:hover { background: var(--line); color: #fff; border-color: var(--accent); }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 14px 0;
+    font-size: 12.5px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--surface);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  td code { font-size: 11.5px; }
+  .callout {
+    background: var(--surface);
+    border-left: 3px solid var(--accent-warm);
+    padding: 12px 18px;
+    margin: 14px 0;
+    border-radius: 0 4px 4px 0;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .callout strong { color: var(--accent); }
+  .callout-note {
+    background: var(--surface);
+    border-left: 3px solid var(--new);
+    padding: 12px 18px;
+    margin: 14px 0;
+    border-radius: 0 4px 4px 0;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .callout-note strong { color: var(--new); }
+
+  .concept-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .concept {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 12px 16px;
+  }
+  .concept.new { border-color: rgba(96, 165, 250, 0.35); background: linear-gradient(to bottom, rgba(96,165,250,0.04), var(--surface)); }
+  .concept h4 { margin: 0 0 6px; color: var(--accent); text-transform: none; letter-spacing: 0; font-size: 13px; }
+  .concept p { margin: 0; font-size: 12.5px; color: var(--text-dim); }
+
+  .step-table {
+    margin: 14px 0;
+    font-size: 12.5px;
+  }
+  .step-table td:first-child {
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--accent);
+    width: 80px;
+  }
+  .step-table td:last-child {
+    white-space: nowrap;
+    width: 80px;
+    text-align: right;
+  }
+
+  .workflow {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    padding: 14px 20px;
+    margin: 14px 0;
+  }
+  .workflow h4 { margin-top: 0; color: var(--accent); text-transform: none; letter-spacing: 0; font-size: 14px; }
+  .workflow ol { margin: 10px 0 0; padding-left: 22px; font-size: 13px; }
+  .workflow li { margin: 5px 0; }
+  .workflow code { font-size: 11.5px; }
+
+  /* Pattern gallery */
+  .pattern-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin: 18px 0;
+  }
+  .pattern-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 12px 14px 14px;
+    font-size: 12px;
+  }
+  .pattern-card h4 {
+    margin: 0 0 4px;
+    color: var(--accent);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13px;
+  }
+  .pattern-card .meta {
+    color: var(--text-muted);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+  }
+  .pattern-card .recipe {
+    color: var(--text-dim);
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+  .pattern-card .recipe code {
+    font-size: 10.5px;
+  }
+  .pattern-vis {
+    display: block;
+    width: 100%;
+    height: 92px;
+    margin: 6px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: #0f0d0c;
+  }
+  .pattern-vis .seam { stroke: #1a1816; stroke-width: 0.08; fill: none; vector-effect: non-scaling-stroke; }
+
+  .status-legend {
+    display: inline-flex; gap: 10px;
+    font-size: 11px;
+    margin-top: 4px;
+    color: var(--text-muted);
+  }
+  .status-legend .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 3px; vertical-align: middle;
+  }
+
+  /* Mock strip panel (kept from v2 doc, simplified for visual references) */
+  .panel-strips {
+    display: flex; gap: 1px;
+    transform: perspective(400px) rotateX(18deg) rotateY(-12deg);
+  }
+  .panel-strip { width: 12px; height: 80px; border-radius: 1px; }
+  .panel-strip.maple { background: var(--maple); }
+  .panel-strip.walnut { background: var(--walnut); }
+  .panel-strip.cherry { background: var(--cherry); }
+  .panel-strip.padauk { background: var(--padauk); }
+  .panel-strip.purpleheart { background: var(--purpleheart); }
+
+  /* Timeline panel mock (kept for workflow illustrations) */
+  .mock-timeline {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 10px 14px;
+    margin: 10px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11.5px;
+  }
+  .tl-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 6px; border-radius: 2px;
+  }
+  .tl-row:hover { background: var(--surface-2); }
+  .tl-icon {
+    width: 14px; height: 14px; border-radius: 2px; flex: 0 0 auto;
+  }
+  .tl-icon.compose { background: var(--maple); }
+  .tl-icon.cut { background: var(--walnut); }
+  .tl-icon.arrange { background: var(--cherry); }
+  .tl-icon.placeedit { background: var(--padauk); }
+  .tl-icon.preset { background: var(--purpleheart); }
+  .tl-icon.spacer { background: var(--new); }
+  .tl-id {
+    color: var(--text-muted); font-size: 10.5px; width: 82px;
+  }
+  .tl-name { color: var(--text); flex: 1; }
+  .tl-params { color: var(--text-muted); font-size: 10.5px; }
+  .tl-status {
+    width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto;
+  }
+  .tl-status.ok { background: var(--ok); }
+  .tl-status.warning { background: var(--warning); }
+  .tl-status.error { background: var(--error); }
+
+  .fit-table th:first-child { width: 22%; }
+  .fit-table td:nth-child(2), .fit-table td:nth-child(3) { text-align: center; }
+  .fit-yes { color: var(--ok); font-weight: 600; }
+  .fit-partial { color: var(--warning); font-weight: 600; }
+  .fit-no { color: var(--error); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>End Grain v2.1 — Design Review</h1>
+<div class="subtitle">Revision of the v2 feature-timeline design, updated to cover the real-world pattern vocabulary of end-grain cutting boards.</div>
+
+<div class="header-meta">
+  <div>Supersedes: <a href="/end-grain/v2-design.html">v2-design.html</a></div>
+  <div>Parent issue: <a href="https://github.com/fjania/web-playground/issues/18">#18</a></div>
+  <div>Architectural doc: <a href="https://github.com/fjania/web-playground/issues/6">#6</a></div>
+  <div>Current app: <a href="/end-grain/3d.html">3d.html</a></div>
+</div>
+
+<div class="diff-banner">
+  <h3>What changed from v2 → v2.1</h3>
+  <ul>
+    <li><strong>Explicit pattern vocabulary.</strong> The app's purpose is to let makers experiment with named and freeform end-grain patterns. This revision enumerates the patterns it must support and names the ones it deliberately doesn't.</li>
+    <li><strong>PlaceEdit ops extended</strong> from <code>{reorder, flip, shift}</code> to <code>{reorder, rotate(90|180|270), shift}</code>. Unblocks basket weave, pinwheel, chevron. <code>flip</code> becomes UI shorthand for <code>rotate(180)</code>.</li>
+    <li><strong>New <code>SpacerInsert</code> feature</strong> for accent-strip insertion at arrange-time. Unblocks Celtic knot and similar decorative patterns.</li>
+    <li><strong>Arrange no longer owns placements.</strong> PlaceEdits live only in the timeline. Fixes a spec inconsistency in the original v2 plan.</li>
+    <li><strong>Status field added from day one</strong> in v2.1 types (not retrofitted at v2.8).</li>
+    <li><strong>Richer PlaceEdit target from day one</strong> — <code>contributingStripIds</code> captured but unused until v2.14. Removes the v2.9 → v2.14 migration.</li>
+    <li><strong>Presets pre-committed as persistent features</strong> (not immediate-mode batches). Matches "every intent is a feature" and makes upstream changes replay correctly.</li>
+    <li><strong>Axis-lock math specified</strong> for transverse drag (v2.11) — projection into <code>{cutNormal, perpInPlane}</code> basis.</li>
+    <li><strong>Two new steps appended:</strong> <a href="#plan" class="issue">v2.16</a> (rotate 90/270 verbs + basket-weave/pinwheel verification), <a href="#plan" class="issue">v2.17</a> (SpacerInsert implementation + Celtic knot verification).</li>
+    <li><strong>Explicit out-of-scope list</strong> — tapered strips (compass rose), non-uniform slice thickness, recursive strips, post-assembly inlay/shaping.</li>
+  </ul>
+</div>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#elevator">Elevator summary</a></li>
+    <li><a href="#principles">Design principles</a></li>
+    <li><a href="#patterns">Supported patterns <span class="new-tag">new</span></a></li>
+    <li><a href="#oos">Deliberately out of scope <span class="new-tag">new</span></a></li>
+    <li><a href="#layout">File layout</a></li>
+    <li><a href="#concepts">Logical concepts</a></li>
+    <li><a href="#data">Data structures</a></li>
+    <li><a href="#operations">Supported operations</a></li>
+    <li><a href="#workflows">Workflows</a></li>
+    <li><a href="#status">Error / warning taxonomy</a></li>
+    <li><a href="#plan">The 17-step delivery plan <span class="changed-tag">updated</span></a></li>
+    <li><a href="#open">Open questions</a></li>
+  </ol>
+</div>
+
+<!-- ─────────── ELEVATOR ─────────── -->
+<h2 id="elevator">1. Elevator summary</h2>
+
+<p>The app lets makers <strong>design end-grain cutting boards virtually before committing them to the shop</strong>. It must support the named pattern vocabulary the woodworking community uses (checkerboard, brick, 3D cube, herringbone, chevron, basket weave, pinwheel, chaos, Celtic knot, quilt, pixel, diamond, ripple) and must also accommodate the experimental freeform patterns makers push into when they're not working from a recipe.</p>
+
+<p>Every user intent — compose strips, cut, arrange, place a slice, insert an accent — becomes an immutable <strong>Feature</strong> in an ordered timeline. The final 3D result is the composition of every feature, evaluated top-down, regenerated on any upstream change. Each feature stores <strong>references</strong> to entities from earlier features; references are re-evaluated on every regen. A reference that can't be resolved marks its feature <span class="badge badge-warn">warning</span> (found a close match and computed) or <span class="badge badge-err">error</span> (can't compute, feature skipped).</p>
+
+<p>The user does <em>not</em> have to redo downstream work after an upstream change unless a reference genuinely breaks. When it does, the exact affected feature is surfaced with a badge and one-click reselect or delete.</p>
+
+<p>Alongside the timeline, slices are manipulated <strong>directly in 3D</strong>: drag to reorder, double-click to rotate 180° (flip), right-click to open rotate options for 90°/270°, drag transversely to shift. Each manipulation writes a <code>PlaceEdit</code> into the timeline. Presets (<code>flipAlternate</code>, <code>rotateAlternate</code>, etc.) are <em>persistent</em> features that expand into PlaceEdits at regen, so they keep applying to new slices when upstream parameters change.</p>
+
+<!-- ─────────── PRINCIPLES ─────────── -->
+<h2 id="principles">2. Design principles</h2>
+
+<ul>
+  <li><strong>Every user intent is a Feature.</strong> Parameter changes and manual edits both land in the same ordered list.</li>
+  <li><strong>Pattern vocabulary is explicit.</strong> The app names what it supports and names what it doesn't. Freeform experimentation lives inside the supported vocabulary, not outside it.</li>
+  <li><strong>References are re-evaluated each regen</strong>, not stored as opaque IDs. Each resolver is a small function.</li>
+  <li><strong>Two failure modes only.</strong> <span class="badge badge-warn">warning</span> (approximate resolution succeeded) or <span class="badge badge-err">error</span> (reference lost, feature skipped). Mirrors Fusion's yellow/red.</li>
+  <li><strong>Stable IDs, allocated at creation, never reused after deletion.</strong></li>
+  <li><strong>Cursor-slide arrangement</strong> (the craftsman's algorithm) replaces AABB-based layout. Identity becomes flush reassembly regardless of cut angle.</li>
+  <li><strong>Presets are persistent.</strong> A preset is a feature that re-generates its batch of PlaceEdits on each regen, so slice-count changes don't leave the new slices un-patterned.</li>
+  <li><strong>No auto-heal.</strong> Heuristic "nearest match" repairs are confusing bug sources. Clear warning + one-click reselect.</li>
+  <li><strong>No query language.</strong> Reference vocabulary is small enough to hand-write resolvers.</li>
+  <li><strong>Greenfield, not migration.</strong> New files under <code>src/v2/</code>; current app untouched during the build; final step archives old files.</li>
+</ul>
+
+<!-- ─────────── PATTERNS ─────────── -->
+<h2 id="patterns">3. Supported patterns <span class="new-tag">new</span></h2>
+
+<p>These are the patterns the app must be able to represent. Each is expressed as a short feature sequence. The visual tiles are stylised SVG — they show the geometric logic of each pattern, not the actual renderer output.</p>
+
+<div class="pattern-grid">
+
+  <div class="pattern-card">
+    <h4>Checkerboard</h4>
+    <div class="meta">single pass · classic</div>
+    <svg class="pattern-vis" viewBox="0 0 8 4" preserveAspectRatio="none">
+      <rect width="8" height="4" fill="var(--maple)"/>
+      <g fill="var(--walnut)">
+        <rect x="1" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="5" y="0" width="1" height="1"/><rect x="7" y="0" width="1" height="1"/>
+        <rect x="0" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/>
+        <rect x="1" y="2" width="1" height="1"/><rect x="3" y="2" width="1" height="1"/><rect x="5" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/>
+        <rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/>
+      </g>
+    </svg>
+    <div class="recipe"><code>Compose(A,B,A,B,...)</code> → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(flipAlternate)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Brick</h4>
+    <div class="meta">single pass · shift</div>
+    <svg class="pattern-vis" viewBox="0 0 8 4" preserveAspectRatio="none">
+      <rect width="8" height="4" fill="#1a1816"/>
+      <g>
+        <rect x="0.05" y="0.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="2.05" y="0.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="4.05" y="0.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="6.05" y="0.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="-0.95" y="1.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="1.05" y="1.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="3.05" y="1.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="5.05" y="1.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="7.05" y="1.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="0.05" y="2.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="2.05" y="2.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="4.05" y="2.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="6.05" y="2.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="-0.95" y="3.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="1.05" y="3.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="3.05" y="3.05" width="1.9" height="0.9" fill="var(--maple)"/>
+        <rect x="5.05" y="3.05" width="1.9" height="0.9" fill="var(--walnut)"/>
+        <rect x="7.05" y="3.05" width="1.9" height="0.9" fill="var(--maple)"/>
+      </g>
+    </svg>
+    <div class="recipe"><code>Compose(A,B,A,B,...)</code> → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(shiftAlternate, ½&nbsp;brick)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>3D cube / isometric</h4>
+    <div class="meta">multi-pass · mitred</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <g id="cube3d">
+          <polygon points="0,-1 0.866,-0.5 0,0 -0.866,-0.5" fill="var(--maple)" stroke="#1a1816" stroke-width="0.05"/>
+          <polygon points="-0.866,-0.5 0,0 0,1 -0.866,0.5" fill="var(--walnut)" stroke="#1a1816" stroke-width="0.05"/>
+          <polygon points="0.866,-0.5 0,0 0,1 0.866,0.5" fill="var(--cherry)" stroke="#1a1816" stroke-width="0.05"/>
+        </g>
+      </defs>
+      <rect width="12" height="6" fill="#0f0d0c"/>
+      <use href="#cube3d" x="1" y="1"/><use href="#cube3d" x="2.732" y="1"/><use href="#cube3d" x="4.464" y="1"/><use href="#cube3d" x="6.196" y="1"/><use href="#cube3d" x="7.928" y="1"/><use href="#cube3d" x="9.66" y="1"/><use href="#cube3d" x="11.392" y="1"/>
+      <use href="#cube3d" x="1.866" y="2.5"/><use href="#cube3d" x="3.598" y="2.5"/><use href="#cube3d" x="5.33" y="2.5"/><use href="#cube3d" x="7.062" y="2.5"/><use href="#cube3d" x="8.794" y="2.5"/><use href="#cube3d" x="10.526" y="2.5"/>
+      <use href="#cube3d" x="1" y="4"/><use href="#cube3d" x="2.732" y="4"/><use href="#cube3d" x="4.464" y="4"/><use href="#cube3d" x="6.196" y="4"/><use href="#cube3d" x="7.928" y="4"/><use href="#cube3d" x="9.66" y="4"/><use href="#cube3d" x="11.392" y="4"/>
+      <use href="#cube3d" x="1.866" y="5.5"/><use href="#cube3d" x="3.598" y="5.5"/><use href="#cube3d" x="5.33" y="5.5"/><use href="#cube3d" x="7.062" y="5.5"/><use href="#cube3d" x="8.794" y="5.5"/><use href="#cube3d" x="10.526" y="5.5"/>
+    </svg>
+    <div class="recipe">Three-species compose → <code>Cut(rip=0)</code> → <code>Arrange</code> → <code>Cut(rip=30°, bevel=60°)</code> → <code>Arrange</code>. Strip widths tuned for rhombus angles.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Herringbone</h4>
+    <div class="meta">multi-pass · mitred</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="hb-tile" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45) scale(0.7)">
+          <rect x="0" y="0" width="3" height="1" fill="var(--maple)" stroke="#1a1816" stroke-width="0.08"/>
+          <rect x="3" y="0" width="1" height="3" fill="var(--walnut)" stroke="#1a1816" stroke-width="0.08"/>
+          <rect x="0" y="1" width="1" height="3" fill="var(--walnut)" stroke="#1a1816" stroke-width="0.08"/>
+          <rect x="1" y="3" width="3" height="1" fill="var(--maple)" stroke="#1a1816" stroke-width="0.08"/>
+        </pattern>
+      </defs>
+      <rect width="12" height="6" fill="url(#hb-tile)"/>
+    </svg>
+    <div class="recipe">Striped compose → <code>Cut(rip=45°)</code> → <code>Arrange</code> + <code>Preset(flipAlternate)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Chevron</h4>
+    <div class="meta">multi-pass · mitred</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="cv-tile" patternUnits="userSpaceOnUse" width="3" height="1.5">
+          <polygon points="0,1.5 1.5,0 1.5,1.5" fill="var(--maple)"/>
+          <polygon points="1.5,0 3,1.5 1.5,1.5" fill="var(--walnut)"/>
+          <line x1="0" y1="1.5" x2="1.5" y2="0" stroke="#1a1816" stroke-width="0.05"/>
+          <line x1="1.5" y1="0" x2="3" y2="1.5" stroke="#1a1816" stroke-width="0.05"/>
+          <line x1="0" y1="1.5" x2="3" y2="1.5" stroke="#1a1816" stroke-width="0.05"/>
+        </pattern>
+      </defs>
+      <rect width="12" height="6" fill="url(#cv-tile)"/>
+    </svg>
+    <div class="recipe">Striped compose → <code>Cut(rip=45°)</code> → <code>Arrange</code> + <code>Preset(mirrorAlternate)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Basket weave</h4>
+    <div class="meta">multi-pass · rotate(90)</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="bw-tile" patternUnits="userSpaceOnUse" width="3" height="3">
+          <rect x="0" y="0" width="1.5" height="0.75" fill="var(--maple)"/>
+          <rect x="0" y="0.75" width="1.5" height="0.75" fill="var(--walnut)"/>
+          <rect x="1.5" y="0" width="0.75" height="1.5" fill="var(--maple)"/>
+          <rect x="2.25" y="0" width="0.75" height="1.5" fill="var(--walnut)"/>
+          <rect x="0" y="1.5" width="0.75" height="1.5" fill="var(--maple)"/>
+          <rect x="0.75" y="1.5" width="0.75" height="1.5" fill="var(--walnut)"/>
+          <rect x="1.5" y="1.5" width="1.5" height="0.75" fill="var(--maple)"/>
+          <rect x="1.5" y="2.25" width="1.5" height="0.75" fill="var(--walnut)"/>
+          <line x1="1.5" y1="0" x2="1.5" y2="3" stroke="#1a1816" stroke-width="0.06"/>
+          <line x1="0" y1="1.5" x2="3" y2="1.5" stroke="#1a1816" stroke-width="0.06"/>
+        </pattern>
+      </defs>
+      <rect width="12" height="6" fill="url(#bw-tile)"/>
+    </svg>
+    <div class="recipe">ABA sandwich compose → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(rotateAlternate, 90°)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Pinwheel</h4>
+    <div class="meta">multi-pass · 4-way rotate</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="pw-tile" patternUnits="userSpaceOnUse" width="3" height="3">
+          <rect width="3" height="3" fill="var(--walnut)"/>
+          <rect x="0" y="0" width="2" height="1" fill="var(--maple)" stroke="#1a1816" stroke-width="0.05"/>
+          <rect x="2" y="0" width="1" height="2" fill="var(--maple)" stroke="#1a1816" stroke-width="0.05"/>
+          <rect x="1" y="2" width="2" height="1" fill="var(--maple)" stroke="#1a1816" stroke-width="0.05"/>
+          <rect x="0" y="1" width="1" height="2" fill="var(--maple)" stroke="#1a1816" stroke-width="0.05"/>
+          <rect x="1" y="1" width="1" height="1" fill="var(--walnut)" stroke="#1a1816" stroke-width="0.05"/>
+        </pattern>
+      </defs>
+      <rect width="12" height="6" fill="url(#pw-tile)"/>
+    </svg>
+    <div class="recipe">Sub-block compose → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(rotate4way)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Quilt</h4>
+    <div class="meta">multi-pass · block-based</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="qt-tile" patternUnits="userSpaceOnUse" width="3" height="3">
+          <rect width="3" height="3" fill="var(--maple)"/>
+          <polygon points="0,0 1.5,0 0,1.5" fill="var(--walnut)"/>
+          <polygon points="1.5,0 3,0 3,1.5" fill="var(--walnut)"/>
+          <polygon points="0,1.5 0,3 1.5,3" fill="var(--walnut)"/>
+          <polygon points="3,1.5 3,3 1.5,3" fill="var(--walnut)"/>
+          <polygon points="1.5,0 3,1.5 1.5,3 0,1.5" fill="var(--cherry)"/>
+          <rect x="1.2" y="1.2" width="0.6" height="0.6" fill="var(--padauk)"/>
+          <g stroke="#1a1816" stroke-width="0.05" fill="none">
+            <polygon points="1.5,0 3,1.5 1.5,3 0,1.5"/>
+            <rect x="1.2" y="1.2" width="0.6" height="0.6"/>
+          </g>
+        </pattern>
+      </defs>
+      <rect width="12" height="6" fill="url(#qt-tile)"/>
+    </svg>
+    <div class="recipe">Multi-species compose → <code>Cut(rip=0)</code> → <code>Arrange</code> + free PlaceEdits / preset combinations for block motifs.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Pixel / mosaic</h4>
+    <div class="meta">single pass · image-like</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="none">
+      <rect width="12" height="6" fill="#1a1816"/>
+      <g>
+        <rect x="0" y="0" width="1" height="1" fill="var(--maple)"/><rect x="1" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="0" width="1" height="1" fill="var(--maple)"/><rect x="3" y="0" width="1" height="1" fill="var(--cherry)"/><rect x="4" y="0" width="1" height="1" fill="var(--maple)"/><rect x="5" y="0" width="1" height="1" fill="var(--maple)"/><rect x="6" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="0" width="1" height="1" fill="var(--cherry)"/><rect x="8" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="9" y="0" width="1" height="1" fill="var(--maple)"/><rect x="10" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="11" y="0" width="1" height="1" fill="var(--maple)"/>
+        <rect x="0" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="1" width="1" height="1" fill="var(--cherry)"/><rect x="2" y="1" width="1" height="1" fill="var(--padauk)"/><rect x="3" y="1" width="1" height="1" fill="var(--padauk)"/><rect x="4" y="1" width="1" height="1" fill="var(--cherry)"/><rect x="5" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="1" width="1" height="1" fill="var(--maple)"/><rect x="7" y="1" width="1" height="1" fill="var(--cherry)"/><rect x="8" y="1" width="1" height="1" fill="var(--padauk)"/><rect x="9" y="1" width="1" height="1" fill="var(--maple)"/><rect x="10" y="1" width="1" height="1" fill="var(--cherry)"/><rect x="11" y="1" width="1" height="1" fill="var(--walnut)"/>
+        <rect x="0" y="2" width="1" height="1" fill="var(--maple)"/><rect x="1" y="2" width="1" height="1" fill="var(--padauk)"/><rect x="2" y="2" width="1" height="1" fill="var(--purpleheart)"/><rect x="3" y="2" width="1" height="1" fill="var(--purpleheart)"/><rect x="4" y="2" width="1" height="1" fill="var(--padauk)"/><rect x="5" y="2" width="1" height="1" fill="var(--cherry)"/><rect x="6" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="2" width="1" height="1" fill="var(--padauk)"/><rect x="8" y="2" width="1" height="1" fill="var(--purpleheart)"/><rect x="9" y="2" width="1" height="1" fill="var(--cherry)"/><rect x="10" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="11" y="2" width="1" height="1" fill="var(--maple)"/>
+        <rect x="0" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="3" width="1" height="1" fill="var(--cherry)"/><rect x="2" y="3" width="1" height="1" fill="var(--padauk)"/><rect x="3" y="3" width="1" height="1" fill="var(--purpleheart)"/><rect x="4" y="3" width="1" height="1" fill="var(--padauk)"/><rect x="5" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="3" width="1" height="1" fill="var(--cherry)"/><rect x="7" y="3" width="1" height="1" fill="var(--padauk)"/><rect x="8" y="3" width="1" height="1" fill="var(--cherry)"/><rect x="9" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="10" y="3" width="1" height="1" fill="var(--maple)"/><rect x="11" y="3" width="1" height="1" fill="var(--walnut)"/>
+        <rect x="0" y="4" width="1" height="1" fill="var(--maple)"/><rect x="1" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="4" width="1" height="1" fill="var(--cherry)"/><rect x="3" y="4" width="1" height="1" fill="var(--cherry)"/><rect x="4" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="5" y="4" width="1" height="1" fill="var(--maple)"/><rect x="6" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="4" width="1" height="1" fill="var(--cherry)"/><rect x="8" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="9" y="4" width="1" height="1" fill="var(--maple)"/><rect x="10" y="4" width="1" height="1" fill="var(--cherry)"/><rect x="11" y="4" width="1" height="1" fill="var(--walnut)"/>
+        <rect x="0" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="5" width="1" height="1" fill="var(--maple)"/><rect x="2" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="3" y="5" width="1" height="1" fill="var(--maple)"/><rect x="4" y="5" width="1" height="1" fill="var(--cherry)"/><rect x="5" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="5" width="1" height="1" fill="var(--maple)"/><rect x="7" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="8" y="5" width="1" height="1" fill="var(--maple)"/><rect x="9" y="5" width="1" height="1" fill="var(--cherry)"/><rect x="10" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="11" y="5" width="1" height="1" fill="var(--maple)"/>
+      </g>
+    </svg>
+    <div class="recipe"><code>Compose</code> with per-strip species sequence designed so that after cut + identity arrange, the target image emerges.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Chaos</h4>
+    <div class="meta">single pass · non-uniform widths</div>
+    <svg class="pattern-vis" viewBox="0 0 40 10" preserveAspectRatio="none">
+      <g>
+        <rect x="0" y="0" width="3" height="10" fill="var(--maple)"/>
+        <rect x="3" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="4" y="0" width="4" height="10" fill="var(--cherry)"/>
+        <rect x="8" y="0" width="2" height="10" fill="var(--maple)"/>
+        <rect x="10" y="0" width="1" height="10" fill="var(--padauk)"/>
+        <rect x="11" y="0" width="5" height="10" fill="var(--walnut)"/>
+        <rect x="16" y="0" width="2" height="10" fill="var(--maple)"/>
+        <rect x="18" y="0" width="1" height="10" fill="var(--purpleheart)"/>
+        <rect x="19" y="0" width="3" height="10" fill="var(--cherry)"/>
+        <rect x="22" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="23" y="0" width="4" height="10" fill="var(--maple)"/>
+        <rect x="27" y="0" width="2" height="10" fill="var(--padauk)"/>
+        <rect x="29" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="30" y="0" width="3" height="10" fill="var(--maple)"/>
+        <rect x="33" y="0" width="2" height="10" fill="var(--cherry)"/>
+        <rect x="35" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="36" y="0" width="4" height="10" fill="var(--maple)"/>
+      </g>
+      <g stroke="#1a1816" stroke-width="0.1" fill="none">
+        <line x1="3" y1="0" x2="3" y2="10"/><line x1="4" y1="0" x2="4" y2="10"/><line x1="8" y1="0" x2="8" y2="10"/><line x1="10" y1="0" x2="10" y2="10"/><line x1="11" y1="0" x2="11" y2="10"/><line x1="16" y1="0" x2="16" y2="10"/><line x1="18" y1="0" x2="18" y2="10"/><line x1="19" y1="0" x2="19" y2="10"/><line x1="22" y1="0" x2="22" y2="10"/><line x1="23" y1="0" x2="23" y2="10"/><line x1="27" y1="0" x2="27" y2="10"/><line x1="29" y1="0" x2="29" y2="10"/><line x1="30" y1="0" x2="30" y2="10"/><line x1="33" y1="0" x2="33" y2="10"/><line x1="35" y1="0" x2="35" y2="10"/><line x1="36" y1="0" x2="36" y2="10"/>
+      </g>
+    </svg>
+    <div class="recipe"><code>Compose</code> with varying per-strip widths and many species → <code>Cut</code> → <code>Arrange</code> + free PlaceEdits (reorder to taste).</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Diamond</h4>
+    <div class="meta">multi-pass · mitred</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <pattern id="dm-tile" patternUnits="userSpaceOnUse" width="3" height="3">
+          <rect width="3" height="3" fill="var(--walnut)"/>
+          <polygon points="1.5,0 3,1.5 1.5,3 0,1.5" fill="var(--maple)" stroke="#1a1816" stroke-width="0.06"/>
+        </pattern>
+      </defs>
+      <rect width="12" height="6" fill="url(#dm-tile)"/>
+    </svg>
+    <div class="recipe">Striped compose → <code>Cut(rip=45°)</code> → <code>Arrange</code> + <code>Preset(rotate4way)</code>.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Ripple</h4>
+    <div class="meta">single pass · progressive widths</div>
+    <svg class="pattern-vis" viewBox="0 0 40 10" preserveAspectRatio="none">
+      <g>
+        <rect x="0" y="0" width="0.5" height="10" fill="var(--walnut)"/>
+        <rect x="0.5" y="0" width="1" height="10" fill="var(--maple)"/>
+        <rect x="1.5" y="0" width="1.5" height="10" fill="var(--walnut)"/>
+        <rect x="3" y="0" width="2" height="10" fill="var(--maple)"/>
+        <rect x="5" y="0" width="2.5" height="10" fill="var(--walnut)"/>
+        <rect x="7.5" y="0" width="2" height="10" fill="var(--maple)"/>
+        <rect x="9.5" y="0" width="1.5" height="10" fill="var(--walnut)"/>
+        <rect x="11" y="0" width="1" height="10" fill="var(--maple)"/>
+        <rect x="12" y="0" width="0.5" height="10" fill="var(--walnut)"/>
+        <rect x="12.5" y="0" width="0.5" height="10" fill="var(--maple)"/>
+        <rect x="13" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="14" y="0" width="1.5" height="10" fill="var(--maple)"/>
+        <rect x="15.5" y="0" width="2" height="10" fill="var(--walnut)"/>
+        <rect x="17.5" y="0" width="2.5" height="10" fill="var(--maple)"/>
+        <rect x="20" y="0" width="2.5" height="10" fill="var(--walnut)"/>
+        <rect x="22.5" y="0" width="2" height="10" fill="var(--maple)"/>
+        <rect x="24.5" y="0" width="1.5" height="10" fill="var(--walnut)"/>
+        <rect x="26" y="0" width="1" height="10" fill="var(--maple)"/>
+        <rect x="27" y="0" width="0.5" height="10" fill="var(--walnut)"/>
+        <rect x="27.5" y="0" width="0.5" height="10" fill="var(--maple)"/>
+        <rect x="28" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="29" y="0" width="1.5" height="10" fill="var(--maple)"/>
+        <rect x="30.5" y="0" width="2" height="10" fill="var(--walnut)"/>
+        <rect x="32.5" y="0" width="2.5" height="10" fill="var(--maple)"/>
+        <rect x="35" y="0" width="2" height="10" fill="var(--walnut)"/>
+        <rect x="37" y="0" width="1.5" height="10" fill="var(--maple)"/>
+        <rect x="38.5" y="0" width="1" height="10" fill="var(--walnut)"/>
+        <rect x="39.5" y="0" width="0.5" height="10" fill="var(--maple)"/>
+      </g>
+    </svg>
+    <div class="recipe"><code>Compose</code> with progressively-varying strip widths → <code>Cut</code> → <code>Arrange</code>. Staircase approximation; no actual curves.</div>
+  </div>
+
+  <div class="pattern-card">
+    <h4>Celtic knot <span class="new-tag">v2.17</span></h4>
+    <div class="meta">single pass · accent strips</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="none">
+      <rect width="12" height="6" fill="var(--maple)"/>
+      <!-- Background striped panel (horizontal bands = end-grain strips) -->
+      <g fill="var(--walnut)">
+        <rect x="0" y="0.5" width="12" height="0.35"/>
+        <rect x="0" y="1.8" width="12" height="0.35"/>
+        <rect x="0" y="3.85" width="12" height="0.35"/>
+        <rect x="0" y="5.15" width="12" height="0.35"/>
+      </g>
+      <!-- Interwoven 2×1 Celtic-knot: 2 horizontal bands + 2 vertical bands,
+           each crossing the other alternately over/under. Bands are thicker
+           so weaving reads clearly. -->
+      <g fill="var(--padauk)" stroke="#5a1a0a" stroke-width="0.04">
+        <!-- Horizontal band H1 (upper): goes OVER V1, UNDER V2 -->
+        <rect x="0" y="1.9" width="3.6" height="0.5"/>           <!-- left of V1 -->
+        <rect x="3.6" y="1.9" width="1.6" height="0.5"/>         <!-- over V1 -->
+        <rect x="5.2" y="1.9" width="2.6" height="0.5"/>         <!-- between V1 and V2 -->
+        <!-- gap at V2 crossing: x=7.8..9.4 -->
+        <rect x="9.4" y="1.9" width="2.6" height="0.5"/>         <!-- right of V2 -->
+
+        <!-- Horizontal band H2 (lower): goes UNDER V1, OVER V2 -->
+        <rect x="0" y="3.6" width="3.6" height="0.5"/>           <!-- left of V1 -->
+        <!-- gap at V1 crossing: x=3.6..5.2 -->
+        <rect x="5.2" y="3.6" width="2.6" height="0.5"/>         <!-- between -->
+        <rect x="7.8" y="3.6" width="1.6" height="0.5"/>         <!-- over V2 -->
+        <rect x="9.4" y="3.6" width="2.6" height="0.5"/>         <!-- right of V2 -->
+
+        <!-- Vertical band V1: goes UNDER H1, OVER H2 -->
+        <rect x="4.15" y="0" width="0.5" height="1.9"/>          <!-- above H1 -->
+        <!-- gap at H1 crossing: y=1.9..2.4 -->
+        <rect x="4.15" y="2.4" width="0.5" height="1.2"/>        <!-- between -->
+        <rect x="4.15" y="3.6" width="0.5" height="0.5"/>        <!-- over H2 -->
+        <rect x="4.15" y="4.1" width="0.5" height="1.9"/>        <!-- below H2 -->
+
+        <!-- Vertical band V2: goes OVER H1, UNDER H2 -->
+        <rect x="8.35" y="0" width="0.5" height="1.9"/>          <!-- above H1 -->
+        <rect x="8.35" y="1.9" width="0.5" height="0.5"/>        <!-- over H1 -->
+        <rect x="8.35" y="2.4" width="0.5" height="1.2"/>        <!-- between -->
+        <!-- gap at H2 crossing: y=3.6..4.1 -->
+        <rect x="8.35" y="4.1" width="0.5" height="1.9"/>        <!-- below H2 -->
+      </g>
+    </svg>
+    <div class="recipe"><code>Compose</code> with thin accent strips → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(shiftAlternate)</code> + <code>SpacerInsert</code>s between slices.</div>
+  </div>
+
+</div>
+
+<p>Freeform experimentation is expected — makers combine these recipes, mix presets with manual PlaceEdits, layer multiple cut-arrange passes, and compose sub-panels through the timeline. The feature vocabulary is designed to let that happen inside the model rather than against it.</p>
+
+<h3>3.1 — Model-fit audit</h3>
+
+<p>For each pattern, a quick audit of whether the v2.1 feature vocabulary covers it:</p>
+
+<table class="fit-table">
+  <thead>
+    <tr><th>Pattern</th><th>v2.1 fit</th><th>Requires</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Checkerboard</td><td class="fit-yes">full</td><td>Preset(flipAlternate) available at v2.12.</td></tr>
+    <tr><td>Brick</td><td class="fit-yes">full</td><td>Preset(shiftAlternate) available at v2.12.</td></tr>
+    <tr><td>3D cube / isometric</td><td class="fit-yes">full</td><td>Multi-pass + mitred cuts, available at v2.7 + v2.6.</td></tr>
+    <tr><td>Herringbone</td><td class="fit-yes">full</td><td>Mitred cut + flipAlternate preset.</td></tr>
+    <tr><td>Chevron</td><td class="fit-yes">full</td><td>Mitred cut + mirrorAlternate preset.</td></tr>
+    <tr><td>Basket weave</td><td class="fit-yes">full</td><td><code>rotate(90)</code> op, available at v2.16.</td></tr>
+    <tr><td>Pinwheel</td><td class="fit-yes">full</td><td><code>rotate(90|180|270)</code> ops, available at v2.16.</td></tr>
+    <tr><td>Quilt</td><td class="fit-yes">full</td><td>Multi-pass + manual PlaceEdits. Real quilt patterns take patience; the model is the expressive-enough part.</td></tr>
+    <tr><td>Pixel / mosaic</td><td class="fit-yes">full</td><td>Per-strip species sequence — already supported by compose.</td></tr>
+    <tr><td>Chaos</td><td class="fit-yes">full</td><td>Non-uniform strip width already supported. Uniform slice thickness limits some chaos styles (see out-of-scope).</td></tr>
+    <tr><td>Diamond</td><td class="fit-yes">full</td><td><code>rotate4way</code> preset; underlying ops available at v2.16.</td></tr>
+    <tr><td>Ripple</td><td class="fit-partial">approximate</td><td>Progressive strip-width only. Perfectly curved rippling would need non-uniform slice thickness; staircased approximation is realistic.</td></tr>
+    <tr><td>Celtic knot</td><td class="fit-yes">full</td><td><code>SpacerInsert</code> feature, available at v2.17.</td></tr>
+  </tbody>
+</table>
+
+<!-- ─────────── OUT OF SCOPE ─────────── -->
+<h2 id="oos">4. Deliberately out of scope <span class="new-tag">new</span></h2>
+
+<p>These patterns and techniques exist in the real-world maker vocabulary but are not supported by the v2.1 model. They're named here so the boundary is explicit — and so post-v2 work can pick them up without re-discovering the constraint.</p>
+
+<table>
+  <thead>
+    <tr><th>Technique / pattern</th><th>Reason it's out</th><th>Possible future path</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Compass rose, radial patterns</td>
+      <td>Requires tapered (non-rectangular) strips. Strip model is <code>{species, width}</code> with implicit parallel edges.</td>
+      <td>Post-v2 <code>TaperedStripDef</code> + domain support for parallelogram/trapezoid strip geometry.</td>
+    </tr>
+    <tr>
+      <td>Multi-species <em>within</em> a single strip (laminated strips)</td>
+      <td>Needed for some basket-weave and 3D-cube variants. Strips are atomic in v2.1.</td>
+      <td>Post-v2 <code>RipStrips</code> feature — output of a prior pipeline becomes the strip input of a later one.</td>
+    </tr>
+    <tr>
+      <td>Non-uniform slice thickness in one cut pass</td>
+      <td>Cut has a single <code>pitch</code>. Perfect chaos and exact ripple curves need varying thickness.</td>
+      <td>Multiple sequential single-slice cuts get you there slowly. A <code>VaryingCut</code> feature could replace <code>pitch</code> with a per-slice thickness array.</td>
+    </tr>
+    <tr>
+      <td>Post-assembly shaping (paddle shape, curved edges)</td>
+      <td>The model produces rectangular panels. Shaping happens at the bandsaw / router after glue-up.</td>
+      <td>Out-of-scope long-term; real workflow separates design from shaping.</td>
+    </tr>
+    <tr>
+      <td>Inlays (routed pockets + fill)</td>
+      <td>Combines end-grain base with a second additive step not representable as strip composition.</td>
+      <td>Out-of-scope long-term.</td>
+    </tr>
+    <tr>
+      <td>3D rotation exposing side grain</td>
+      <td>Deliberately excluded — breaks the end-grain face-up invariant. All PlaceEdit rotations are about the vertical axis.</td>
+      <td>Not planned.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ─────────── FILE LAYOUT ─────────── -->
+<h2 id="layout">5. File layout</h2>
+
+<pre><code>end-grain/
+  3d-experiment.html       # original; untouched
+  3d.html                  # current Svelte app; untouched during build
+  3d-v2.html               # new entry; grows through the sequence
+  v2-design.html           # original design doc
+  v2.1-design.html         # this document (revision)
+  src/
+    domain/                # shared, pure — Panel, operations, patterns
+    scene/                 # shared, pure — materials, mesh, Tile, axes
+    state/                 # old; archived at v2.15
+    ui/                    # old; archived at v2.15
+    main.ts                # old; archived at v2.15
+    v2/
+      state/               # new; becomes src/state/ at v2.15
+      ui/                  # new; becomes src/ui/ at v2.15
+      main.ts              # new; becomes src/main.ts at v2.15</code></pre>
+
+<p>Pure layers (<code>src/domain/</code>, <code>src/scene/</code>) are shared. They don't know about authoring-model shape, so no rewrite needed.</p>
+
+<!-- ─────────── CONCEPTS ─────────── -->
+<h2 id="concepts">6. Logical concepts</h2>
+
+<div class="concept-grid">
+  <div class="concept">
+    <h4>Feature</h4>
+    <p>One user intent with persistent parameters and a status. Immutable once created; edited via parameter updates. Kinds: <code>ComposeStrips</code>, <code>Cut</code>, <code>Arrange</code>, <code>PlaceEdit</code>, <code>Preset</code>, <code>SpacerInsert</code>.</p>
+  </div>
+  <div class="concept">
+    <h4>Timeline</h4>
+    <p>Ordered list of features. The final 3D result is the composition of every feature, evaluated top-down. The authoring surface.</p>
+  </div>
+  <div class="concept">
+    <h4>Reference</h4>
+    <p>How one feature points at an entity produced by an earlier feature. Re-evaluated each regen. Examples: <code>{ stripId }</code>, <code>{ arrangeId, sliceIdx, contributingStripIds }</code>.</p>
+  </div>
+  <div class="concept">
+    <h4>Resolver</h4>
+    <p>Small function that converts a reference to a live entity at regen time. Returns <em>ok</em>, <em>warning+match</em>, or <em>error</em>.</p>
+  </div>
+  <div class="concept">
+    <h4>Status</h4>
+    <p>Per-feature <code>'ok' | 'warning' | 'error'</code>. Present on every feature from day one. Rendered as tile badges + timeline-panel indicators.</p>
+  </div>
+  <div class="concept">
+    <h4>Provenance</h4>
+    <p>A slice's <code>contributingStripIds</code> — the strip IDs whose geometry feeds it. Captured by every PlaceEdit from v2.1 onward; consumed by the robust resolver at v2.14.</p>
+  </div>
+  <div class="concept">
+    <h4>Cursor-slide</h4>
+    <p>The arrangement algorithm. For each slice in order, measure its thickness along N, place its min-along-N face at the running cursor, advance. No pitch, no AABB, no spacing formula. Flush by construction regardless of cut angle.</p>
+  </div>
+  <div class="concept">
+    <h4>PlaceEdit <span class="changed-tag">updated</span></h4>
+    <p>A feature that applies a single manipulation — <code>reorder</code>, <code>rotate(90|180|270)</code>, or <code>shift</code> — to one slice in one arrangement. Stored as its own timeline entry; stackable with other PlaceEdits on the same slice.</p>
+  </div>
+  <div class="concept">
+    <h4>Preset <span class="changed-tag">updated</span></h4>
+    <p>A persistent feature that generates a batch of PlaceEdits at regen. Re-evaluates against the current slice list, so new slices (e.g. after a pitch change) get the same treatment. Individual PlaceEdits can be manually overridden.</p>
+  </div>
+  <div class="concept new">
+    <h4>SpacerInsert <span class="new-tag">new</span></h4>
+    <p>A feature that inserts a thin accent strip between two slices in an arrangement. Carries species, width, and a target reference (<code>arrangeId</code> + insertion-position reference). Canonical use: Celtic knot. Reference failure modes mirror PlaceEdit's.</p>
+  </div>
+  <div class="concept">
+    <h4>Tile</h4>
+    <p>One scissored viewport on the shared Three.js canvas. Tile has a root Group, overlays, pickable groups, and a rect. Rendering iterates tiles; only the current tile's geometry is visible during its render pass.</p>
+  </div>
+</div>
+
+<!-- ─────────── DATA ─────────── -->
+<h2 id="data">7. Data structures</h2>
+
+<h3>7.1 — <code>AppState</code></h3>
+<pre><code>interface AppState {
+  timeline: Feature[];   // ordered; authoring surface
+}</code></pre>
+
+<h3>7.2 — Features (discriminated union) <span class="changed-tag">updated</span></h3>
+<pre><code>type Feature =
+  | ComposeStrips
+  | Cut
+  | Arrange
+  | PlaceEdit
+  | Preset
+  | SpacerInsert;
+
+interface ComposeStrips {
+  kind: 'composeStrips';
+  id: 'compose-0';                // exactly one per design, stable id
+  strips: StripDef[];             // ordered left-to-right
+  stripHeight: number;            // uniform Y
+  stripLength: number;            // uniform Z
+  status: Status;                 // from v2.1
+}
+
+interface Cut {
+  kind: 'cut';
+  id: string;                      // 'cut-0', 'cut-1', ...
+  rip: number;                     // -90..90°
+  bevel: number;                   // 45..90°
+  pitch: number;                   // mm
+  showOffcuts: boolean;
+  status: Status;
+}
+
+interface Arrange {
+  kind: 'arrange';
+  id: string;                      // 'arrange-0', 'arrange-1', ...
+  layout: 'cursor-slide';          // only one algorithm for now
+  status: Status;
+  // NB: placements do NOT live here. PlaceEdits live in the timeline
+  // and are discovered by arrangeId.
+}
+
+interface PlaceEdit {
+  kind: 'placeEdit';
+  id: string;                      // 'edit-0', 'edit-1', ...
+  target: PlaceEditTarget;
+  op: PlaceEditOp;
+  status: Status;
+  statusReason?: string;
+}
+
+interface Preset {
+  kind: 'preset';
+  id: string;                      // 'preset-0', ...
+  arrangeId: string;               // which Arrange it operates on
+  preset:
+    | 'flipAlternate'
+    | 'rotateAlternate'            // 90° alternate, for basket weave
+    | 'rotate4way'                 // quadrant rotations, for pinwheel/diamond
+    | 'mirrorAlternate'            // chevron
+    | 'shiftAlternate';
+  params?: { shift?: number };     // e.g. shiftAlternate's delta in mm
+  status: Status;
+}
+
+interface SpacerInsert {
+  kind: 'spacerInsert';
+  id: string;                      // 'spacer-0', ...
+  arrangeId: string;
+  afterSliceIdx: number;           // inserts accent after this slice
+  contributingStripIds?: string[]; // provenance of the slice before
+  species: Species;
+  width: number;                   // mm, along the stack axis
+  status: Status;
+  statusReason?: string;
+}</code></pre>
+
+<h3>7.3 — References <span class="changed-tag">updated</span></h3>
+
+<p>PlaceEdit targets carry both the positional reference and the provenance set from v2.1. The resolver uses positional only until v2.14, where it upgrades to provenance-first:</p>
+
+<pre><code>interface PlaceEditTarget {
+  arrangeId: string;
+  sliceIdx: number;                         // always stored; resolver fallback
+  contributingStripIds?: string[];          // captured at edit time; consumed at v2.14
+}</code></pre>
+
+<p>Resolver order at v2.14:</p>
+<ol>
+  <li>Find slice whose <code>contributingStripIds</code> exactly matches stored set → apply, status <span class="badge badge-ok">ok</span>.</li>
+  <li>Fall back to <code>sliceIdx</code> positional match if still in range → apply, status <span class="badge badge-warn">warning</span>.</li>
+  <li>Otherwise → status <span class="badge badge-err">error</span>, edit skipped.</li>
+</ol>
+
+<h3>7.4 — PlaceEdit ops <span class="changed-tag">updated</span></h3>
+<pre><code>type PlaceEditOp =
+  | { kind: 'reorder'; newIdx: number }
+  | { kind: 'rotate'; degrees: 90 | 180 | 270 }   // rotation about slice's vertical axis
+  | { kind: 'shift'; delta: number };              // mm, perpendicular to cut normal</code></pre>
+
+<div class="callout-note">
+  <strong>Note on "flip".</strong> The UI term <em>flip</em> is preserved in user-facing copy and corresponds to <code>rotate(180)</code>. Double-click on a slice creates a <code>rotate(180)</code> PlaceEdit; double-click again removes it.
+</div>
+
+<h3>7.5 — Rotation semantics</h3>
+
+<p>All rotations are about the slice's <strong>vertical axis</strong> (perpendicular to the cut face, i.e. the axis that keeps end grain facing up). 90° and 270° swap the slice's horizontal dimensions — used for basket weave and pinwheel. 180° mirrors without affecting end-grain orientation — the common "flip" op.</p>
+
+<p>Rotation is applied <strong>before cursor-slide</strong>. Because cursor-slide measures each slice's thickness along the cut normal dynamically, the rotated slice's new thickness is consumed correctly — no gaps or overlaps regardless of cut angle or rotation amount.</p>
+
+<h3>7.6 — <code>StripDef</code></h3>
+<pre><code>interface StripDef {
+  stripId: string;                          // stable; never reused
+  species: Species;
+  width: number;                            // mm
+}
+
+type Species = 'maple' | 'walnut' | 'cherry' | 'padauk' | 'purpleheart';</code></pre>
+
+<h3>7.7 — <code>Status</code></h3>
+<pre><code>type Status = 'ok' | 'warning' | 'error';</code></pre>
+
+<h3>7.8 — Pipeline output</h3>
+<pre><code>interface PipelineOutput {
+  results: Map&lt;string, FeatureResult&gt;;       // per-feature output, keyed by id
+  trace: PipelineStep[];                      // flat trace for the debug inspector
+}
+
+interface FeatureResult {
+  featureId: string;
+  status: Status;
+  statusReason?: string;
+  panel?: Panel;                              // ComposeStrips, Arrange
+  slices?: Panel[];                           // Cut
+  offcuts?: Panel[];                          // Cut
+  sliceProvenance?: {                         // Cut only
+    sliceIdx: number;
+    contributingStripIds: string[];
+  }[];
+}
+
+interface PipelineStep {
+  featureId: string;
+  kind: Feature['kind'];
+  inputSummary: string;                       // e.g. "panel 800×50×400"
+  outputSummary: string;                      // e.g. "8 slices + 2 offcuts"
+  status: Status;
+  durationMs: number;
+}</code></pre>
+
+<!-- ─────────── OPERATIONS ─────────── -->
+<h2 id="operations">8. Supported operations</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>Tile / surface</th>
+      <th>Writes to</th>
+      <th>Shipped in</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Add strip (via catalog <code>+</code>)</td><td>Species catalog sidebar</td><td><code>ComposeStrips.strips</code></td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">v2.5</a></td></tr>
+    <tr><td>Drag strip along X (reorder)</td><td>Panel tile (3D)</td><td><code>ComposeStrips.strips</code></td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">v2.5</a></td></tr>
+    <tr><td>Right-click strip (remove)</td><td>Panel tile (3D)</td><td><code>ComposeStrips.strips</code></td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">v2.5</a></td></tr>
+    <tr><td>Adjust panel height/length</td><td>Catalog sidebar sliders</td><td><code>ComposeStrips</code></td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">v2.5</a></td></tr>
+    <tr><td>Adjust rip / bevel / pitch</td><td>Cut controls panel</td><td><code>Cut</code></td><td><a href="https://github.com/fjania/web-playground/issues/24" class="issue">v2.6</a></td></tr>
+    <tr><td>Toggle show-offcuts</td><td>Cut controls panel</td><td><code>Cut.showOffcuts</code></td><td><a href="https://github.com/fjania/web-playground/issues/24" class="issue">v2.6</a></td></tr>
+    <tr><td>Add pass</td><td>Button docked bottom-right</td><td>Append <code>[Cut, Arrange]</code> to timeline</td><td><a href="https://github.com/fjania/web-playground/issues/25" class="issue">v2.7</a></td></tr>
+    <tr><td>Remove last pass</td><td>Button docked bottom-right</td><td>Remove last <code>[Cut, Arrange]</code> pair</td><td><a href="https://github.com/fjania/web-playground/issues/25" class="issue">v2.7</a></td></tr>
+    <tr><td>Drag slice along stack axis (reorder)</td><td>Join tile (3D)</td><td>Append <code>PlaceEdit(reorder)</code></td><td><a href="https://github.com/fjania/web-playground/issues/27" class="issue">v2.9</a></td></tr>
+    <tr><td>Double-click slice (flip)</td><td>Join tile (3D)</td><td>Append/remove <code>PlaceEdit(rotate 180)</code></td><td><a href="https://github.com/fjania/web-playground/issues/28" class="issue">v2.10</a></td></tr>
+    <tr><td>Drag slice transversely (shift)</td><td>Join tile (3D)</td><td>Append <code>PlaceEdit(shift)</code></td><td><a href="https://github.com/fjania/web-playground/issues/29" class="issue">v2.11</a></td></tr>
+    <tr><td>Apply preset</td><td>Arrange controls</td><td>Append <code>Preset</code> feature</td><td><a href="https://github.com/fjania/web-playground/issues/30" class="issue">v2.12</a></td></tr>
+    <tr><td>Reset arrangement</td><td>Arrange controls</td><td>Remove all PlaceEdits + Presets targeting this Arrange</td><td><a href="https://github.com/fjania/web-playground/issues/30" class="issue">v2.12</a></td></tr>
+    <tr><td>Delete a feature</td><td>Timeline panel row</td><td>Remove feature</td><td><a href="https://github.com/fjania/web-playground/issues/31" class="issue">v2.13</a></td></tr>
+    <tr><td>Click feature → highlight affected tile</td><td>Timeline panel row</td><td>—</td><td><a href="https://github.com/fjania/web-playground/issues/31" class="issue">v2.13</a></td></tr>
+    <tr><td>Click tile badge → jump to feature</td><td>Tile badge</td><td>—</td><td><a href="https://github.com/fjania/web-playground/issues/31" class="issue">v2.13</a></td></tr>
+    <tr><td>Orbit / pan / zoom camera</td><td>Global</td><td>—</td><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">v2.3</a></td></tr>
+    <tr><td>Top / front camera snap</td><td>Tile quick-view buttons</td><td>—</td><td><a href="https://github.com/fjania/web-playground/issues/24" class="issue">v2.6</a></td></tr>
+    <tr><td>Right-click slice → rotate 90° / 270° <span class="new-tag">v2.16</span></td><td>Join tile (3D) context menu</td><td>Append <code>PlaceEdit(rotate 90|270)</code></td><td><span class="issue">v2.16</span></td></tr>
+    <tr><td>Insert spacer between slices <span class="new-tag">v2.17</span></td><td>Join tile (3D) + Arrange controls</td><td>Append <code>SpacerInsert</code> feature</td><td><span class="issue">v2.17</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ─────────── WORKFLOWS ─────────── -->
+<h2 id="workflows">9. Workflows</h2>
+
+<div class="workflow">
+  <h4>9.1 — Build a starting panel</h4>
+  <ol>
+    <li>Open <code>/end-grain/3d-v2.html</code>. The default timeline contains <code>ComposeStrips</code> + <code>Cut</code> + <code>Arrange</code>.</li>
+    <li>Set per-species widths in the catalog. Click <code>+</code> next to any species to append a strip. Panel widens.</li>
+    <li>Drag strips along X in the panel tile to reorder. Release commits.</li>
+    <li>Right-click a strip to remove it.</li>
+    <li>Adjust height/length sliders for the whole panel.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.2 — Build a checkerboard</h4>
+  <ol>
+    <li>Default timeline already has 16 alternating maple/walnut strips.</li>
+    <li>Open the Arrange controls. Click the <code>flipAlternate</code> preset button.</li>
+    <li>A new <code>Preset(flipAlternate, arrangeId=arrange-0)</code> feature appears in the timeline.</li>
+    <li>The join tile renders the classic checker. Internally the preset expanded into N/2 <code>PlaceEdit(rotate 180)</code> entries on odd slices at regen.</li>
+    <li>Change pitch to halve the slice count — the preset re-expands against the new slice list and the checker still covers everything.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.3 — Mitered rip without gaps</h4>
+  <ol>
+    <li>Set rip to 31° in the Cut controls.</li>
+    <li>Leave Arrange at default (cursor-slide identity).</li>
+    <li>Observe the join tile: slices reassemble flush — no gaps, no overlaps. The joined panel's bounding box equals the starting panel's.</li>
+    <li>This works because cursor-slide reads each slice's <em>thickness along N</em> from the geometry and places successive slices meeting face-to-face, rather than guessing from AABB centers.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.4 — Manual override of a preset</h4>
+  <ol>
+    <li>Apply the <code>flipAlternate</code> preset. The timeline grows by one <code>Preset</code> feature.</li>
+    <li>At regen, the Preset expands into <code>PlaceEdit(rotate 180)</code> for each odd slice.</li>
+    <li>Decide slice 2 should not be flipped. Right-click → "exclude from preset" (UI detail), which emits a <code>PlaceEdit(rotate 180)</code> on slice 2 as an explicit override that <em>cancels</em> the preset's edit for that target.</li>
+    <li>Drag slice 5 transversely by 10mm. A new <code>PlaceEdit(shift)</code> is appended.</li>
+    <li>All edits are explicit in the timeline; upstream changes replay the preset + the override correctly.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.5 — Basket weave via rotate(90) <span class="new-tag">v2.16</span></h4>
+  <ol>
+    <li>Compose ABA sandwich strips (maple-walnut-maple repeating).</li>
+    <li>Cut at rip=0° with pitch matching the panel height so slices end up square.</li>
+    <li>Apply <code>rotateAlternate</code> preset. Every odd slice rotates 90° about its vertical axis.</li>
+    <li>The join tile shows the interlocked basket weave.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.6 — Celtic knot via SpacerInsert <span class="new-tag">v2.17</span></h4>
+  <ol>
+    <li>Compose a panel with thin padauk accent strips sandwiched between maple/walnut.</li>
+    <li>Cut at rip=0°.</li>
+    <li>Apply <code>shiftAlternate</code> preset with shift equal to the accent-strip width so accent lines align across slices.</li>
+    <li>In the join tile, insert <code>SpacerInsert</code>s of padauk between adjacent slices where the knot calls for a crossing.</li>
+    <li>The inserted spacers carry provenance; changing the accent strip's species upstream updates the spacers' target and the knot stays coherent.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.7 — Upstream change, downstream survival</h4>
+  <ol>
+    <li>Existing design: composed panel + <code>Cut(rip=0°)</code> + <code>Arrange</code> + <code>Preset(flipAlternate)</code> + one manual <code>PlaceEdit(shift)</code> on slice 5.</li>
+    <li>Change rip from 0° to 15°. The pipeline regenerates.</li>
+    <li><code>Cut</code> produces a new slice list; provenance (contributing strips) is stable for interior slices.</li>
+    <li><code>Preset</code> re-expands against the new slice list — every odd slice gets flipped.</li>
+    <li><code>PlaceEdit(shift)</code> on slice 5 re-resolves: provenance matches → <span class="badge badge-ok">ok</span>.</li>
+    <li>The user sees the new mitered checker, the shift preserved, and a trace confirming which resolvers hit.</li>
+  </ol>
+</div>
+
+<div class="workflow">
+  <h4>9.8 — Upstream change breaks a reference</h4>
+  <ol>
+    <li>Same design as 9.7.</li>
+    <li>User reduces pitch so Cut now produces 4 slices instead of 8. Slice 5 no longer exists.</li>
+    <li>Pipeline regenerates:
+      <ul>
+        <li>Preset re-expands over 4 slices — 2 flips. <span class="badge badge-ok">ok</span>.</li>
+        <li>PlaceEdit(shift) on slice 5: provenance has no match; sliceIdx 5 is out of range → <span class="badge badge-err">error</span>.</li>
+      </ul>
+    </li>
+    <li>The PlaceEdit's tile gets a red badge; timeline-panel row highlights red.</li>
+    <li>User clicks the red badge. Options:
+      <ul>
+        <li><strong>Reselect</strong>: pick a replacement slice in the join tile; status flips to <span class="badge badge-ok">ok</span>.</li>
+        <li><strong>Delete</strong>: remove the PlaceEdit entirely.</li>
+      </ul>
+    </li>
+  </ol>
+</div>
+
+<!-- ─────────── STATUS ─────────── -->
+<h2 id="status">10. Error / warning taxonomy</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Meaning</th>
+      <th>Trigger examples</th>
+      <th>User action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-ok">ok</span></td>
+      <td>Reference resolved exactly.</td>
+      <td>Default state; all inputs valid; provenance exact match.</td>
+      <td>None.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-warn">warning</span></td>
+      <td>Reference resolved approximately (fallback hit).</td>
+      <td>Provenance set changed but <code>sliceIdx</code> still in range. User likely wants to review.</td>
+      <td>Confirm, reselect, or delete.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-err">error</span></td>
+      <td>Reference cannot be resolved. Feature skipped.</td>
+      <td>Target <code>arrangeId</code> gone (pass removed). <code>sliceIdx</code> out of range AND no provenance match. Spacer's anchor slice gone entirely.</td>
+      <td>Reselect (from timeline panel) or delete the feature.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>Deliberate non-goals.</strong> No auto-heal heuristics (nearest-centroid, nearest-species, etc.). No degrees of error beyond these three. No "multi-candidate" ambiguity state — if a resolver has multiple plausible matches, pick the first by a deterministic tiebreaker and mark it <span class="badge badge-warn">warning</span>.
+</div>
+
+<!-- ─────────── PLAN ─────────── -->
+<h2 id="plan">11. The 17-step delivery plan <span class="changed-tag">updated</span></h2>
+
+<p>Each step is one issue, small enough to review in minutes, with one testable claim. Changes from the original v2 plan are marked below.</p>
+
+<table class="step-table">
+  <tbody>
+    <tr><td>v2.1</td><td>Feature types (full set: ComposeStrips, Cut, Arrange, PlaceEdit, Preset, SpacerInsert) + <code>defaultTimeline()</code> + unit tests. Status on every feature. PlaceEdit op union with <code>rotate(90|180|270)</code>. <code>contributingStripIds</code> on target from day one. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/19" class="issue">#19</a></td></tr>
+    <tr><td>v2.2</td><td>Pipeline.run() with cursor-slide algorithm. Fixes miter bug at algorithm level. Tests assert flush reassembly.</td><td><a href="https://github.com/fjania/web-playground/issues/20" class="issue">#20</a></td></tr>
+    <tr><td>v2.3</td><td>Bootstrap <code>3d-v2.html</code>. Hardcoded default timeline renders correctly. Miter-fix visible on screen.</td><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">#21</a></td></tr>
+    <tr><td>v2.4</td><td>Debug inspector panel — live timeline + pipeline trace.</td><td><a href="https://github.com/fjania/web-playground/issues/22" class="issue">#22</a></td></tr>
+    <tr><td>v2.5</td><td>Species catalog + strip drag-reorder + right-click remove.</td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">#23</a></td></tr>
+    <tr><td>v2.6</td><td>Cut controls + quick-view camera buttons.</td><td><a href="https://github.com/fjania/web-playground/issues/24" class="issue">#24</a></td></tr>
+    <tr><td>v2.7</td><td>Add / remove pass. Parity checkpoint vs. 3d.html multi-pass. Unit test for timeline mutation. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/25" class="issue">#25</a></td></tr>
+    <tr><td>v2.8</td><td>Pipeline assigns non-ok statuses; badges render. (Types already carry <code>status</code> from v2.1.) <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/26" class="issue">#26</a></td></tr>
+    <tr><td>v2.9</td><td><code>PlaceEdit</code> feature + reorder drag on join tile. Emits <code>contributingStripIds</code>. Resolver uses <code>sliceIdx</code> for now. Unit tests for resolver. Parity checkpoint vs. 3d.html reorder. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/27" class="issue">#27</a></td></tr>
+    <tr><td>v2.10</td><td>Double-click flip = <code>rotate(180)</code>. Note: cursor-slide handles rotated-slice thickness correctly regardless of cut angle. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/28" class="issue">#28</a></td></tr>
+    <tr><td>v2.11</td><td>Transverse drag shift. Axis-lock from first 5px drag via projection into <code>{cutNormal, perpInPlane}</code> basis. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/29" class="issue">#29</a></td></tr>
+    <tr><td>v2.12</td><td>Arrangement presets as <strong>persistent features</strong>. <code>flipAlternate</code>, <code>rotateAlternate</code>, <code>rotate4way</code>, <code>mirrorAlternate</code>, <code>shiftAlternate</code>. Parity checkpoint vs. 3d.html pattern mode. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/30" class="issue">#30</a></td></tr>
+    <tr><td>v2.13</td><td>Timeline panel UI.</td><td><a href="https://github.com/fjania/web-playground/issues/31" class="issue">#31</a></td></tr>
+    <tr><td>v2.14</td><td>Provenance-based reference resolution (resolver upgrade; target shape already in place).</td><td><a href="https://github.com/fjania/web-playground/issues/32" class="issue">#32</a></td></tr>
+    <tr><td>v2.15</td><td>Cut-over — archive old, promote v2. Full parity with 3d.html for its supported patterns.</td><td><a href="https://github.com/fjania/web-playground/issues/33" class="issue">#33</a></td></tr>
+    <tr><td>v2.16</td><td>Rotate 90° / 270° UI affordance + basket weave &amp; pinwheel pattern verification. <span class="new-tag">new</span></td><td><span class="issue">#NEW</span></td></tr>
+    <tr><td>v2.17</td><td><code>SpacerInsert</code> implementation (feature declared at v2.1, unimplemented until here) + Celtic knot verification. <span class="new-tag">new</span></td><td><span class="issue">#NEW</span></td></tr>
+  </tbody>
+</table>
+
+<h3>11.1 — Per-step issue edit summary</h3>
+
+<table>
+  <thead>
+    <tr><th>Issue</th><th>Edit</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/18" class="issue">#18</a></td><td>Umbrella: update to 17 steps; add supported-patterns + out-of-scope tables; bump sub-issues list.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/19" class="issue">#19</a></td><td>v2.1: <strong>largest change set.</strong> Arrange has no <code>placements</code> field. Add <code>status</code> to all features. Extend <code>PlaceEditOp</code> with <code>rotate(90|180|270)</code>. Add <code>Preset</code> and <code>SpacerInsert</code> feature kinds. <code>PlaceEditTarget.contributingStripIds</code> optional from day one.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/20" class="issue">#20</a></td><td>v2.2: verification language clarifies that mitred-bbox equality is the algorithm-level gate (not the on-screen gate).</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">#21</a></td><td>v2.3: clarify that miter fix is <em>visible</em> here but implemented in v2.2.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/25" class="issue">#25</a></td><td>v2.7: add parity checkpoint vs. 3d.html multi-pass. Add unit test requirement.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/26" class="issue">#26</a></td><td>v2.8: scope reduced — types already have <code>status</code>; this issue is badge UI + pipeline non-ok assignment only.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/27" class="issue">#27</a></td><td>v2.9: emit <code>contributingStripIds</code> from day one (resolver ignores until v2.14). Add unit tests. Parity checkpoint vs. 3d.html reorder.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/28" class="issue">#28</a></td><td>v2.10: rename op semantics to <code>rotate(180)</code> under the "flip" UI label. Add mitred-slice compatibility note.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/29" class="issue">#29</a></td><td>v2.11: add axis-lock projection math to spec.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/30" class="issue">#30</a></td><td>v2.12: lock "presets are persistent features" (not immediate-mode). Update preset list (add <code>rotateAlternate</code>, <code>rotate4way</code>, <code>mirrorAlternate</code>). Parity checkpoint vs. 3d.html pattern mode.</td></tr>
+    <tr><td><a href="https://github.com/fjania/web-playground/issues/32" class="issue">#32</a></td><td>v2.14: simplified — target shape already in place from v2.1; this issue is resolver-only.</td></tr>
+    <tr><td>(new)</td><td>v2.16: rotate 90°/270° UI + basket-weave/pinwheel pattern verification.</td></tr>
+    <tr><td>(new)</td><td>v2.17: SpacerInsert implementation + Celtic knot verification.</td></tr>
+  </tbody>
+</table>
+
+<!-- ─────────── OPEN QUESTIONS ─────────── -->
+<h2 id="open">12. Open questions</h2>
+
+<ul>
+  <li><strong>Timeline panel docking</strong> — bottom drawer or right sidebar? Expanded or collapsed by default? Decision deferred to <a href="https://github.com/fjania/web-playground/issues/31" class="issue">v2.13</a>.</li>
+  <li><strong>"Exclude from preset" UI</strong> — workflow 9.4 assumes a way for users to override a preset's effect on a single slice. Cleanest model: manual PlaceEdit(rotate 180) after the Preset cancels the preset's rotation on that target. Worth a UI affordance (right-click → "exclude from preset"). Deferred to v2.12 implementation.</li>
+  <li><strong>Preset ordering vs. manual overrides.</strong> A manual PlaceEdit placed <em>before</em> a Preset vs. <em>after</em> means different things. UX probably wants "manual always wins" regardless of order. Spec needs a decision; pending v2.12.</li>
+  <li><strong>Reference scope beyond slice and strip</strong>  — e.g., a specific face or edge of a slice. Not needed for v2.1 scope; deferred until concrete use case appears.</li>
+  <li><strong>Multi-pass narrow-column layout.</strong> At 3+ passes, each tile column gets narrow. Layout switch (2×N grid? pagination? zoom-to-tile?) deferred until the annoyance hits in practice.</li>
+  <li><strong>Undo / redo.</strong> Not in v2 plan. State is an ordered list of features; history-stack is mechanically straightforward. Natural v2.18 follow-up.</li>
+  <li><strong>Post-v2 pattern extensions.</strong> Compass rose (tapered strips), laminated strips (<code>RipStrips</code>), non-uniform slice thickness (<code>VaryingCut</code>). Captured in §4 for future pickup.</li>
+</ul>
+
+<h2 style="margin-top:80px; border:none; color:var(--text-muted); font-size:13px; text-transform:uppercase; letter-spacing:0.08em;">End of review · v2.1</h2>
+
+</div>
+</body>
+</html>
