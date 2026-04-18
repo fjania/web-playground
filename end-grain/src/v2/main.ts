@@ -1,17 +1,21 @@
 /**
  * End-grain v2.3b bootstrap — wires pipeline output into the tile grid.
  *
- * Commit (b): final-output tile is now a live 3D viewport. Compose
- * and Cut tiles remain placeholders; they're wired up in commit (c).
+ * Commit (d): tile modes + click-to-swap + WebGL budget.
  *
- * Scope of this module:
- *  - Init one Three.js renderer + scene + camera + OrbitControls
- *    + lights, attached to the #tile-arrange-0 render slot.
- *  - Run the default timeline through the pipeline with
- *    `preserveLive: true` so we keep the final arrange's Panel
- *    handles for mesh building.
- *  - Build a mesh group from the final panel via meshBuilder.
- *  - Size camera to the panel's bbox and start the render loop.
+ * Tile modes:
+ *   '2d-summary'  — static SVG via summarize(PanelSnapshot)
+ *   '3d-active'   — live Three.js viewport (promoted non-final tile)
+ *   '3d-final'    — live Three.js viewport (always-on for the final arrange)
+ *
+ * WebGL budget: final-output tile stays 3D always; at most one
+ * non-final tile can be promoted to 3d-active at a time. Maximum
+ * 2 concurrent WebGL viewports.
+ *
+ * Promotable tiles are those whose feature has a live Panel in
+ * `output.livePanels`. In the default timeline that's compose-0
+ * plus the final arrange-0. Cut tiles can't promote (no live
+ * panel for individual slices in this version).
  */
 
 import {
@@ -20,6 +24,7 @@ import {
   Box3,
   Color,
   DirectionalLight,
+  Group,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -31,118 +36,91 @@ import { initManifold } from '../domain/manifold';
 import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';
-import { buildPanelGroup } from './scene/meshBuilder';
+import { buildPanelGroup, disposePanelGroup } from './scene/meshBuilder';
 import { summarize } from './render/summary';
+import type { Panel } from './domain/Panel';
 import type {
   ArrangeResult,
   ComposeStripsResult,
   CutResult,
+  Feature,
 } from './state/types';
 
 await initManifold();
 
-const arrangeTile = document.querySelector<HTMLElement>('[data-stage="arrange-0"]');
-if (!arrangeTile) throw new Error('3d-v2.html: missing arrange-0 tile');
-const renderSlot = arrangeTile.querySelector<HTMLElement>('[data-slot="render"]');
-const metaSlot = arrangeTile.querySelector<HTMLElement>('[data-slot="meta"]');
-if (!renderSlot || !metaSlot) throw new Error('3d-v2.html: arrange-0 tile missing slots');
-
-// ---- Pipeline run with live Panel preservation ----
+// ---- Pipeline ----
 const timeline = defaultTimeline(createIdCounter());
 const output = runPipeline(timeline, { preserveLive: true });
+const livePanels = output.livePanels ?? {};
+
 const finalArrangeId = findLastArrangeId(timeline);
-const finalPanel = finalArrangeId ? output.livePanels?.[finalArrangeId] : undefined;
-if (!finalPanel) throw new Error('pipeline did not preserve a final live panel');
+if (!finalArrangeId) throw new Error('no arrange in timeline');
+const finalPanel = livePanels[finalArrangeId];
+if (!finalPanel) throw new Error('pipeline did not preserve final arrange panel');
 
 // ---- 2D summary tiles (compose + cut) ----
-renderComposeTile(output.results['compose-0'] as ComposeStripsResult);
-renderCutTile(output.results['cut-0'] as CutResult);
+const composeResult = output.results['compose-0'] as ComposeStripsResult;
+const cutResult = output.results['cut-0'] as CutResult;
+renderComposeTile(composeResult);
+renderCutTile(cutResult);
 
-// ---- Three.js viewport ----
-renderSlot.innerHTML = '';
-const renderer = new WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.shadowMap.enabled = true;
-renderer.toneMapping = ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
-renderSlot.appendChild(renderer.domElement);
+// ---- Final output: 3D viewport, always on ----
+const finalTileEl = requireTile(finalArrangeId);
+const finalViewport = setupViewport(finalTileEl, finalPanel, { mode: '3d-final' });
+updateMeta(finalTileEl, finalPanel, 'final');
 
-const scene = new Scene();
-scene.background = new Color(0x262422);
-
-const key = new DirectionalLight(0xfff5e6, 1.6);
-key.position.set(300, 400, 200);
-key.castShadow = true;
-key.shadow.mapSize.set(1024, 1024);
-scene.add(key);
-scene.add(
-  new DirectionalLight(0xc8d8e8, 0.6).translateX(-200).translateY(100).translateZ(-100),
-);
-scene.add(new DirectionalLight(0xd4c8b8, 0.5).translateY(-300));
-scene.add(new AmbientLight(0x5a5450, 1.0));
-
-// Build the panel mesh group and centre the camera on it.
-const panelGroup = buildPanelGroup(finalPanel);
-scene.add(panelGroup);
-
-const bbox = new Box3().setFromObject(panelGroup);
-const size = new Vector3();
-const centre = new Vector3();
-bbox.getSize(size);
-bbox.getCenter(centre);
-const diag = size.length();
-
-// Camera framing. End-grain boards are stick-shaped (long in Z), and
-// the interesting face is the top (XZ plane). Position the camera
-// above-and-forward so the top face dominates the frame.
-//
-// Distance: diagonal × a small multiplier, so all axes fit with
-// room to breathe even in a narrow-tall tile aspect.
-const camDist = diag * 1.3;
-const camera = new PerspectiveCamera(45, 1, 0.5, diag * 10);
-camera.position
-  .copy(centre)
-  .add(new Vector3(camDist * 0.45, camDist * 0.75, camDist * 0.55));
-camera.lookAt(centre);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.copy(centre);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.update();
-
-// Resize observer keeps the renderer matched to the tile's render slot.
-const ro = new ResizeObserver(() => fitRendererToSlot());
-ro.observe(renderSlot);
-fitRendererToSlot();
-
-function fitRendererToSlot(): void {
-  const w = renderSlot!.clientWidth;
-  const h = renderSlot!.clientHeight;
-  if (w === 0 || h === 0) return;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+// ---- Tile-mode state + click handlers ----
+interface ActiveViewport {
+  tileEl: HTMLElement;
+  dispose: () => void;
+  featureId: string;
 }
+let activePromoted: ActiveViewport | null = null;
 
-// ---- Render loop ----
-function tick(): void {
-  controls.update();
-  renderer.render(scene, camera);
-  requestAnimationFrame(tick);
+document.querySelectorAll<HTMLElement>('.tile').forEach((tile) => {
+  const stageId = tile.dataset.stage;
+  if (!stageId) return;
+  if (stageId === finalArrangeId) {
+    tile.dataset.mode = '3d-final';
+    return;
+  }
+  tile.dataset.mode = '2d-summary';
+  tile.addEventListener('click', () => handleTileClick(stageId, tile));
+});
+
+function handleTileClick(stageId: string, tileEl: HTMLElement): void {
+  // Only tiles with a live panel can be promoted to 3D.
+  const panel = livePanels[stageId];
+  if (!panel) return;
+
+  if (tileEl.dataset.mode === '3d-active') {
+    // Demote back to 2D summary.
+    activePromoted?.dispose();
+    activePromoted = null;
+    tileEl.dataset.mode = '2d-summary';
+    restoreSummary(stageId, tileEl);
+    return;
+  }
+
+  // Promote. If another tile is already 3d-active, demote it first
+  // so the WebGL-viewport budget stays ≤ 2 (final + this one).
+  if (activePromoted) {
+    activePromoted.dispose();
+    activePromoted.tileEl.dataset.mode = '2d-summary';
+    restoreSummary(activePromoted.featureId, activePromoted.tileEl);
+    activePromoted = null;
+  }
+
+  const viewport = setupViewport(tileEl, panel, { mode: '3d-active' });
+  tileEl.dataset.mode = '3d-active';
+  activePromoted = {
+    tileEl,
+    dispose: viewport.dispose,
+    featureId: stageId,
+  };
 }
-requestAnimationFrame(tick);
-
-// ---- Meta line ----
-const b = finalPanel.boundingBox();
-const sx = (b.max.x - b.min.x).toFixed(0);
-const sy = (b.max.y - b.min.y).toFixed(0);
-const sz = (b.max.z - b.min.z).toFixed(0);
-metaSlot.textContent = `${finalPanel.segments.length} segments · bbox ${sx}×${sy}×${sz} mm`;
 
 // ---- Helpers ----
-
-import type { Feature } from './state/types';
 
 function findLastArrangeId(features: Feature[]): string | null {
   for (let i = features.length - 1; i >= 0; i--) {
@@ -152,43 +130,185 @@ function findLastArrangeId(features: Feature[]): string | null {
   return null;
 }
 
+function requireTile(stageId: string): HTMLElement {
+  const el = document.querySelector<HTMLElement>(`[data-stage="${stageId}"]`);
+  if (!el) throw new Error(`tile for stage ${stageId} missing`);
+  return el;
+}
+
 function renderComposeTile(result: ComposeStripsResult): void {
-  const tile = document.querySelector<HTMLElement>('[data-stage="compose-0"]');
-  if (!tile) return;
+  const tile = requireTile('compose-0');
   const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
-  const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
   if (slot) slot.innerHTML = summarize(result.panel);
-  if (meta) {
-    const xExt = (result.panel.bbox.max[0] - result.panel.bbox.min[0]).toFixed(0);
-    const zExt = (result.panel.bbox.max[2] - result.panel.bbox.min[2]).toFixed(0);
-    meta.textContent = `${result.panel.volumes.length} strips · ${xExt}×${zExt} mm`;
-  }
+  updateMetaFromSnapshot(tile, result.panel, 'compose');
 }
 
 function renderCutTile(result: CutResult): void {
-  const tile = document.querySelector<HTMLElement>('[data-stage="cut-0"]');
-  if (!tile) return;
+  const tile = requireTile('cut-0');
   const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
-  const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
   const subtitle = tile.querySelector<HTMLElement>('.subtitle');
+  const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
 
-  // Representative thumbnail: summarise the first slice. The Cut
-  // stage doesn't produce a single panel — it produces N slices —
-  // but a single-slice thumbnail conveys "this is what each slice
-  // looks like after the cut." Subtitle notes the count.
-  if (result.slices.length > 0 && slot) {
+  if (slot && result.slices.length > 0) {
     slot.innerHTML = summarize(result.slices[0]);
   }
   if (subtitle) {
     subtitle.textContent = `cut-0 · slice 0 of ${result.slices.length}`;
   }
   if (meta) {
-    const firstSlice = result.slices[0];
-    if (firstSlice) {
-      const zExt = (firstSlice.bbox.max[2] - firstSlice.bbox.min[2]).toFixed(0);
+    const first = result.slices[0];
+    if (first) {
+      const zExt = (first.bbox.max[2] - first.bbox.min[2]).toFixed(0);
       meta.textContent = `${result.slices.length} slices · pitch ${zExt} mm`;
     } else {
       meta.textContent = 'no slices';
     }
   }
 }
+
+/** Re-render a tile's 2D summary after demoting from 3D. */
+function restoreSummary(stageId: string, tileEl: HTMLElement): void {
+  const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
+  if (!slot) return;
+  if (stageId === 'compose-0') {
+    slot.innerHTML = summarize(composeResult.panel);
+  } else if (stageId === 'cut-0' && cutResult.slices.length > 0) {
+    slot.innerHTML = summarize(cutResult.slices[0]);
+  } else {
+    // For any other stage (future arrange-N), summarize its result's panel.
+    const result = output.results[stageId];
+    if (result && 'panel' in result) {
+      slot.innerHTML = summarize((result as ArrangeResult).panel);
+    }
+  }
+}
+
+function updateMeta(tileEl: HTMLElement, panel: Panel, label: string): void {
+  const meta = tileEl.querySelector<HTMLElement>('[data-slot="meta"]');
+  if (!meta) return;
+  const b = panel.boundingBox();
+  const x = (b.max.x - b.min.x).toFixed(0);
+  const y = (b.max.y - b.min.y).toFixed(0);
+  const z = (b.max.z - b.min.z).toFixed(0);
+  if (label === 'final') {
+    meta.textContent = `${panel.segments.length} segments · bbox ${x}×${y}×${z} mm`;
+  }
+}
+
+function updateMetaFromSnapshot(
+  tileEl: HTMLElement,
+  panel: ComposeStripsResult['panel'],
+  label: string,
+): void {
+  const meta = tileEl.querySelector<HTMLElement>('[data-slot="meta"]');
+  if (!meta) return;
+  const xExt = (panel.bbox.max[0] - panel.bbox.min[0]).toFixed(0);
+  const zExt = (panel.bbox.max[2] - panel.bbox.min[2]).toFixed(0);
+  if (label === 'compose') {
+    meta.textContent = `${panel.volumes.length} strips · ${xExt}×${zExt} mm`;
+  }
+}
+
+// ---- Viewport setup (shared between 3d-final and 3d-active) ----
+
+interface ViewportHandle {
+  dispose: () => void;
+}
+
+interface ViewportOptions {
+  mode: '3d-final' | '3d-active';
+}
+
+function setupViewport(
+  tileEl: HTMLElement,
+  panel: Panel,
+  _options: ViewportOptions,
+): ViewportHandle {
+  const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
+  if (!slot) throw new Error('tile missing render slot');
+  slot.innerHTML = '';
+
+  const renderer = new WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.shadowMap.enabled = true;
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  slot.appendChild(renderer.domElement);
+
+  const scene = new Scene();
+  scene.background = new Color(0x262422);
+
+  const key = new DirectionalLight(0xfff5e6, 1.6);
+  key.position.set(300, 400, 200);
+  key.castShadow = true;
+  scene.add(key);
+  scene.add(
+    new DirectionalLight(0xc8d8e8, 0.6)
+      .translateX(-200)
+      .translateY(100)
+      .translateZ(-100),
+  );
+  scene.add(new DirectionalLight(0xd4c8b8, 0.5).translateY(-300));
+  scene.add(new AmbientLight(0x5a5450, 1.0));
+
+  const panelGroup: Group = buildPanelGroup(panel);
+  scene.add(panelGroup);
+
+  const bbox = new Box3().setFromObject(panelGroup);
+  const size = new Vector3();
+  const centre = new Vector3();
+  bbox.getSize(size);
+  bbox.getCenter(centre);
+  const diag = size.length();
+  const camDist = diag * 1.3;
+
+  const camera = new PerspectiveCamera(45, 1, 0.5, diag * 10);
+  camera.position
+    .copy(centre)
+    .add(new Vector3(camDist * 0.45, camDist * 0.75, camDist * 0.55));
+  camera.lookAt(centre);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.copy(centre);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.update();
+
+  const ro = new ResizeObserver(() => fit());
+  ro.observe(slot);
+  fit();
+
+  function fit(): void {
+    const w = slot!.clientWidth;
+    const h = slot!.clientHeight;
+    if (w === 0 || h === 0) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  let alive = true;
+  function tick(): void {
+    if (!alive) return;
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  return {
+    dispose(): void {
+      alive = false;
+      ro.disconnect();
+      controls.dispose();
+      disposePanelGroup(panelGroup);
+      renderer.dispose();
+      if (renderer.domElement.parentElement) {
+        renderer.domElement.parentElement.removeChild(renderer.domElement);
+      }
+    },
+  };
+}
+
+// Mark final viewport explicitly so lint doesn't complain about the unused handle.
+void finalViewport;

@@ -133,11 +133,10 @@ export function runPipeline(features: Feature[], options: RunOptions = {}): Pipe
     }
   }
 
-  // Snapshot the final lastPanel (if any) for the caller.
-  let livePanels: Record<string, Panel> | undefined;
-  if (ctx.preserveLive && ctx.lastPanel && ctx.lastPanelFeatureId) {
-    livePanels = { [ctx.lastPanelFeatureId]: ctx.lastPanel };
-  }
+  // Hand off the accumulated livePanels map (under preserveLive).
+  const livePanels = ctx.preserveLive
+    ? { ...ctx.livePanelsByFeature }
+    : undefined;
 
   ctx.disposeLiveGeometry({ keepLivePanels: ctx.preserveLive });
 
@@ -166,13 +165,16 @@ class ExecutionContext {
   lastCut: Cut | null = null;
 
   /**
-   * When true, the still-alive panel at pipeline end (the final
-   * arrange's output, or compose's output if no arrange ran) is
-   * surfaced to the caller via `PipelineOutput.livePanels`. Caller
-   * takes ownership and must dispose.
+   * When true, live Panel instances for EVERY panel-producing
+   * feature (compose + each arrange) are surfaced to the caller
+   * via `PipelineOutput.livePanels`. Cut's input is not disposed
+   * under preserveLive so the compose panel stays alive past the
+   * Cut step. Caller owns all livePanels and must dispose.
    */
   preserveLive = false;
-  /** Which feature last set `lastPanel`. Used to key the preserved output. */
+  /** featureId → live Panel. Accumulates under preserveLive. */
+  livePanelsByFeature: Record<string, Panel> = {};
+  /** Which feature last set `lastPanel`. */
   lastPanelFeatureId: string | null = null;
 
   private presetIndex = new Map<string, Preset[]>();
@@ -232,6 +234,7 @@ function executeComposeStrips(
   if (ctx.lastPanel) ctx.lastPanel.dispose();
   ctx.lastPanel = panel;
   ctx.lastPanelFeatureId = f.id;
+  if (ctx.preserveLive) ctx.livePanelsByFeature[f.id] = panel;
   return {
     featureId: f.id,
     status: 'ok',
@@ -280,9 +283,11 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     contributingStripIds: collectStripIds(s),
   }));
 
-  // Stash live slices for the downstream Arrange. Dispose input +
-  // offcuts; we don't reuse them as live geometry.
-  input.dispose();
+  // Stash live slices for the downstream Arrange. Offcuts always
+  // dispose (we don't surface them). The input panel disposes only
+  // when preserveLive is false — under preserveLive it stays alive
+  // inside livePanelsByFeature for the caller's viewport access.
+  if (!ctx.preserveLive) input.dispose();
   ctx.lastPanel = null;
   for (const o of offcuts) o.dispose();
   ctx.lastSlices = slices;
@@ -416,6 +421,7 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     ctx.lastSliceProvenance = [];
     ctx.lastPanel = assembled;
     ctx.lastPanelFeatureId = f.id;
+    if (ctx.preserveLive) ctx.livePanelsByFeature[f.id] = assembled;
     return {
       featureId: f.id,
       status: 'ok',
@@ -540,6 +546,7 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
 
   ctx.lastPanel = assembled;
   ctx.lastPanelFeatureId = f.id;
+  if (ctx.preserveLive) ctx.livePanelsByFeature[f.id] = assembled;
 
   const appliedEditSources = mergedEdits.map((e) => e.source);
 

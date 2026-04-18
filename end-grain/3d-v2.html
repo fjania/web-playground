@@ -53,6 +53,19 @@
       gap: 0.5rem;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
       min-width: 0;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .tile[data-mode="2d-summary"]:hover {
+      border-color: #8a6a44;
+      cursor: pointer;
+    }
+    .tile[data-mode="3d-active"] {
+      border-color: #8a6a44;
+      box-shadow: 0 2px 4px rgba(138, 106, 68, 0.25);
+      cursor: pointer;
+    }
+    .tile[data-mode="3d-final"] {
+      cursor: default;
     }
     .tile.tile--2d {
       flex: 0 0 240px;
