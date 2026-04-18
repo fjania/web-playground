@@ -32,6 +32,12 @@ import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';
 import { buildPanelGroup } from './scene/meshBuilder';
+import { summarize } from './render/summary';
+import type {
+  ArrangeResult,
+  ComposeStripsResult,
+  CutResult,
+} from './state/types';
 
 await initManifold();
 
@@ -47,6 +53,10 @@ const output = runPipeline(timeline, { preserveLive: true });
 const finalArrangeId = findLastArrangeId(timeline);
 const finalPanel = finalArrangeId ? output.livePanels?.[finalArrangeId] : undefined;
 if (!finalPanel) throw new Error('pipeline did not preserve a final live panel');
+
+// ---- 2D summary tiles (compose + cut) ----
+renderComposeTile(output.results['compose-0'] as ComposeStripsResult);
+renderCutTile(output.results['cut-0'] as CutResult);
 
 // ---- Three.js viewport ----
 renderSlot.innerHTML = '';
@@ -140,4 +150,45 @@ function findLastArrangeId(features: Feature[]): string | null {
     if (f.kind === 'arrange') return f.id;
   }
   return null;
+}
+
+function renderComposeTile(result: ComposeStripsResult): void {
+  const tile = document.querySelector<HTMLElement>('[data-stage="compose-0"]');
+  if (!tile) return;
+  const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
+  const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
+  if (slot) slot.innerHTML = summarize(result.panel);
+  if (meta) {
+    const xExt = (result.panel.bbox.max[0] - result.panel.bbox.min[0]).toFixed(0);
+    const zExt = (result.panel.bbox.max[2] - result.panel.bbox.min[2]).toFixed(0);
+    meta.textContent = `${result.panel.volumes.length} strips · ${xExt}×${zExt} mm`;
+  }
+}
+
+function renderCutTile(result: CutResult): void {
+  const tile = document.querySelector<HTMLElement>('[data-stage="cut-0"]');
+  if (!tile) return;
+  const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
+  const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
+  const subtitle = tile.querySelector<HTMLElement>('.subtitle');
+
+  // Representative thumbnail: summarise the first slice. The Cut
+  // stage doesn't produce a single panel — it produces N slices —
+  // but a single-slice thumbnail conveys "this is what each slice
+  // looks like after the cut." Subtitle notes the count.
+  if (result.slices.length > 0 && slot) {
+    slot.innerHTML = summarize(result.slices[0]);
+  }
+  if (subtitle) {
+    subtitle.textContent = `cut-0 · slice 0 of ${result.slices.length}`;
+  }
+  if (meta) {
+    const firstSlice = result.slices[0];
+    if (firstSlice) {
+      const zExt = (firstSlice.bbox.max[2] - firstSlice.bbox.min[2]).toFixed(0);
+      meta.textContent = `${result.slices.length} slices · pitch ${zExt} mm`;
+    } else {
+      meta.textContent = 'no slices';
+    }
+  }
 }
