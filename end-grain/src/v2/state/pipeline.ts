@@ -296,6 +296,17 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
 
   const { slices, offcuts } = input.cutRepeated(normal, f.pitch, count, 0);
 
+  // Tag every segment of each slice with this Cut's slice id so the
+  // view layer can group / explode by slice origin. Mutates segments
+  // in place — safe because slices were just created; nothing else
+  // holds references yet.
+  for (let sliceIdx = 0; sliceIdx < slices.length; sliceIdx++) {
+    const sliceId = `${f.id}-slice-${sliceIdx}`;
+    for (const seg of slices[sliceIdx].segments) {
+      seg.contributingSliceIds = [...seg.contributingSliceIds, sliceId];
+    }
+  }
+
   // Take snapshots before we move the live geometry into ctx / dispose.
   const sliceSnapshots: PanelSnapshot[] = slices.map((s) => s.toSnapshot());
   const offcutSnapshots: PanelSnapshot[] = offcuts.map((p) => p.toSnapshot());
@@ -614,6 +625,9 @@ function makeSpacerPanel(spacer: SpacerInsert, reference: Panel): Panel {
       manifold: mf,
       species: spacer.species,
       contributingStripIds: [spacer.id],
+      // Spacers don't descend from a Cut — they're fresh material
+      // inserted into the arrangement. No slice provenance.
+      contributingSliceIds: [],
     },
   ]);
 }

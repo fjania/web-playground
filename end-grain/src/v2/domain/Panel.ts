@@ -26,6 +26,17 @@ export interface Segment {
    * on cut, transform, rotate, translate.
    */
   contributingStripIds: string[];
+  /**
+   * Slice provenance. Empty before any Cut runs; a Cut tags each
+   * slice's segments with `${cut.id}-slice-${sliceIdx}`. If the
+   * panel is re-cut later, additional slice ids accumulate. Preserved
+   * on transform / translate / rotate / concat.
+   *
+   * Enables view-layer consumers (exploded output, timeline
+   * thumbnails, hover highlight) to group segments by slice origin
+   * without heuristics.
+   */
+  contributingSliceIds: string[];
 }
 
 export class Panel {
@@ -49,7 +60,12 @@ export class Panel {
       const cx = x + width / 2;
       x += width;
       const mf = Manifold.cube([width, height, length], true).translate([cx, 0, 0]);
-      return { manifold: mf, species, contributingStripIds: [stripId] };
+      return {
+        manifold: mf,
+        species,
+        contributingStripIds: [stripId],
+        contributingSliceIds: [],
+      };
     });
     return new Panel(segs);
   }
@@ -71,12 +87,22 @@ export class Panel {
     for (const s of this.segments) {
       const [a, b] = s.manifold.splitByPlane(normal, offset);
       if (a.numVert() > 0) {
-        above.push({ manifold: a, species: s.species, contributingStripIds: [...s.contributingStripIds] });
+        above.push({
+          manifold: a,
+          species: s.species,
+          contributingStripIds: [...s.contributingStripIds],
+          contributingSliceIds: [...s.contributingSliceIds],
+        });
       } else {
         a.delete();
       }
       if (b.numVert() > 0) {
-        below.push({ manifold: b, species: s.species, contributingStripIds: [...s.contributingStripIds] });
+        below.push({
+          manifold: b,
+          species: s.species,
+          contributingStripIds: [...s.contributingStripIds],
+          contributingSliceIds: [...s.contributingSliceIds],
+        });
       } else {
         b.delete();
       }
@@ -130,6 +156,7 @@ export class Panel {
         manifold: s.manifold.transform(m),
         species: s.species,
         contributingStripIds: [...s.contributingStripIds],
+        contributingSliceIds: [...s.contributingSliceIds],
       })),
     );
   }
@@ -140,6 +167,7 @@ export class Panel {
         manifold: s.manifold.translate([tx, ty, tz]),
         species: s.species,
         contributingStripIds: [...s.contributingStripIds],
+        contributingSliceIds: [...s.contributingSliceIds],
       })),
     );
   }
@@ -245,6 +273,7 @@ export class Panel {
           max: [bb.max[0], bb.max[1], bb.max[2]] as [number, number, number],
         },
         contributingStripIds: [...s.contributingStripIds],
+        contributingSliceIds: [...s.contributingSliceIds],
         topFace: extractTopFacePolygon(s.manifold),
       };
     });

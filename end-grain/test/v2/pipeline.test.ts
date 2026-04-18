@@ -108,6 +108,35 @@ describe('runPipeline — slice provenance', () => {
     }
   });
 
+  it('slices are tagged with contributingSliceIds = [${cut.id}-slice-${idx}]', () => {
+    const out = runPipeline(checkerboardTimeline());
+    const r = out.results['cut-0'] as CutResult;
+    for (let sliceIdx = 0; sliceIdx < r.slices.length; sliceIdx++) {
+      const slice = r.slices[sliceIdx];
+      const expectedSliceId = `cut-0-slice-${sliceIdx}`;
+      for (const v of slice.volumes) {
+        expect(v.contributingSliceIds).toEqual([expectedSliceId]);
+      }
+    }
+  });
+
+  it('arrange output carries the slice ids from cut (preserved through concat)', () => {
+    const out = runPipeline(checkerboardTimeline());
+    const r = out.results['arrange-0'] as ArrangeResult;
+    // Every volume in the arrange output should have exactly one
+    // slice id referencing cut-0 (since there's only one Cut in
+    // this timeline).
+    for (const v of r.panel.volumes) {
+      expect(v.contributingSliceIds).toHaveLength(1);
+      expect(v.contributingSliceIds[0]).toMatch(/^cut-0-slice-\d+$/);
+    }
+    // All 8 distinct slice ids should appear across the volumes.
+    const distinctSlices = new Set(
+      r.panel.volumes.map((v) => v.contributingSliceIds[0]),
+    );
+    expect(distinctSlices.size).toBe(8);
+  });
+
   it('rip=30°: slice bboxes differ per slice (angled cut staggers them)', () => {
     const counter = createIdCounter();
     const timeline = defaultTimeline(counter);

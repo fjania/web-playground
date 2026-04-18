@@ -61,6 +61,16 @@ export interface PanelSnapshot {
      */
     contributingStripIds: string[];
     /**
+     * Which slice(s) this volume descends from. Empty before any
+     * Cut runs. A Cut tags each slice's segments with
+     * `${cut.id}-slice-${sliceIdx}`. Multi-generation cuts
+     * accumulate ids.
+     *
+     * Enables view consumers (exploded output, thumbnails, hover)
+     * to group volumes by slice origin without heuristics.
+     */
+    contributingSliceIds: string[];
+    /**
      * Top-face polygon in XZ, at y = bbox.max[1]. Ordered around
      * the centroid (CCW when viewed from +Y looking down). Captures
      * the volume's actual top-down footprint — essential for
