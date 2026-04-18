@@ -266,24 +266,25 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
  * the later operation that would push them flush. At the Cut stage
  * they're distinct pieces.
  *
- * For visibility we apply a small additional separation along the
- * cut-normal direction (1mm per slice) so adjacent slices don't
- * Z-fight at their shared cut faces. Interior faces are visible
- * without being pried apart.
+ * For visibility we explode slices apart along the cut-normal so
+ * interior cut faces are clearly visible. The gap is scaled to the
+ * cut pitch (~60% of pitch between adjacent slices) so the explosion
+ * feels natural at any pitch — dense cuts get small gaps, coarse
+ * cuts get larger ones, and the interior faces are always obvious.
  */
 function buildCutOutputGroup(cut: CutResult): Group {
   const group = new Group();
   // Derive cut-normal from the Cut feature (rotation about Y by rip).
   const ripRad = cutFeature ? (cutFeature.rip * Math.PI) / 180 : 0;
   const normal = new Vector3(Math.sin(ripRad), 0, Math.cos(ripRad));
+  const pitch = cutFeature?.pitch ?? 50;
+  const gapPerSlice = pitch * 0.6;
 
   cut.slices.forEach((sliceSnap, sliceIdx) => {
     const sliceGroup = buildGroupFromSnapshot(sliceSnap);
     // Centre-relative offset: slices near the middle stay put;
-    // slices further out get pushed further from centre. Using
-    // ~8 mm per slice gap so interior faces are clearly visible
-    // without slices flying apart.
-    const offset = (sliceIdx - (cut.slices.length - 1) / 2) * 8.0;
+    // slices further out get pushed further from centre.
+    const offset = (sliceIdx - (cut.slices.length - 1) / 2) * gapPerSlice;
     sliceGroup.position.addScaledVector(normal, offset);
     sliceGroup.userData.sliceIdx = sliceIdx;
     group.add(sliceGroup);
