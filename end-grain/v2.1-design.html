@@ -434,6 +434,7 @@
 <h2 id="principles">2. Design principles</h2>
 
 <ul>
+  <li><strong>Model is the source of truth; rendering is a pure function of the model. <span class="new-tag">new</span></strong> The full authoring state (<code>AppState.timeline</code>) and the derived computed state (<code>PipelineOutput</code>) together describe everything the app represents. They are JSON-serialisable, contain no <code>THREE.Mesh</code> / <code>Scene</code> / <code>Geometry</code> handles, and are produced by <code>Pipeline.run()</code> — a pure function that runs in Node without a browser. Rendering (2D summaries, 3D viewports, badges, inspector, export) consumes this state; it never mutates it. Renderer-local state (hover, camera, focus, selection) is ephemeral, never persisted, and never affects the computed output. <em>Consequences</em>: pipeline tests run headless and fast; bug triage is a two-question split (pipeline output wrong → modelling bug; pipeline output right but display wrong → rendering bug); multiple renderers (2D summary, 3D, JSON export) share one model.</li>
   <li><strong>Every user intent is a Feature.</strong> Parameter changes and manual edits both land in the same ordered list.</li>
   <li><strong>Pattern vocabulary is explicit.</strong> The app names what it supports and names what it doesn't. Freeform experimentation lives inside the supported vocabulary, not outside it.</li>
   <li><strong>References are re-evaluated each regen</strong>, not stored as opaque IDs. Each resolver is a small function.</li>
@@ -441,6 +442,7 @@
   <li><strong>Stable IDs, allocated at creation, never reused after deletion.</strong></li>
   <li><strong>Cursor-slide arrangement</strong> (the craftsman's algorithm) replaces AABB-based layout. Identity becomes flush reassembly regardless of cut angle.</li>
   <li><strong>Presets are persistent.</strong> A preset is a feature that re-generates its batch of PlaceEdits on each regen, so slice-count changes don't leave the new slices un-patterned.</li>
+  <li><strong>3D rendering budget. <span class="new-tag">new</span></strong> At most two 3D viewports active at a time: the <em>final-output tile</em> (always) and the <em>active-focus tile</em> (only when the user is interacting with a specific stage). Every other stage tile renders as a 2D top-down SVG summary, refreshed on pipeline regen. Clicking a 2D summary tile (or interacting with its control panel) activates it as the focus 3D viewport; the previously-active tile reverts to a 2D summary. Rationale: five simultaneous 3D viewports stress the GPU/CPU; two stays comfortable.</li>
   <li><strong>No auto-heal.</strong> Heuristic "nearest match" repairs are confusing bug sources. Clear warning + one-click reselect.</li>
   <li><strong>No query language.</strong> Reference vocabulary is small enough to hand-write resolvers.</li>
   <li><strong>Greenfield, not migration.</strong> New files under <code>src/v2/</code>; current app untouched during the build; final step archives old files.</li>
@@ -1256,8 +1258,9 @@ interface PipelineStep {
 <table class="step-table">
   <tbody>
     <tr><td>v2.1</td><td>Feature types (full set: ComposeStrips, Cut, Arrange, PlaceEdit, Preset, SpacerInsert) + <code>defaultTimeline()</code> + unit tests. Status on every feature. PlaceEdit op union with <code>rotate(90|180|270)</code>. <code>contributingStripIds</code> on target from day one. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/19" class="issue">#19</a></td></tr>
-    <tr><td>v2.2</td><td>Pipeline.run() with cursor-slide algorithm. Fixes miter bug at algorithm level. Tests assert flush reassembly.</td><td><a href="https://github.com/fjania/web-playground/issues/20" class="issue">#20</a></td></tr>
-    <tr><td>v2.3</td><td>Bootstrap <code>3d-v2.html</code>. Hardcoded default timeline renders correctly. Miter-fix visible on screen.</td><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">#21</a></td></tr>
+    <tr><td>v2.2</td><td>Pipeline.run() with cursor-slide algorithm. Fixes miter bug at algorithm level. Tests assert flush reassembly. Runs headless in Node.</td><td><a href="https://github.com/fjania/web-playground/issues/20" class="issue">#20</a></td></tr>
+    <tr><td>v2.3a</td><td>2D top-down summary renderer. Pure function <code>summarize(panel, edits?, spacers?) → SVG</code>. No Three.js. Snapshot-tested. <span class="new-tag">new</span></td><td><span class="issue">#NEW</span></td></tr>
+    <tr><td>v2.3b</td><td>Bootstrap <code>3d-v2.html</code>. Final-output tile as 3D viewport; other stages as 2D summaries. Miter-fix visible on screen.</td><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">#21</a></td></tr>
     <tr><td>v2.4</td><td>Debug inspector panel — live timeline + pipeline trace.</td><td><a href="https://github.com/fjania/web-playground/issues/22" class="issue">#22</a></td></tr>
     <tr><td>v2.5</td><td>Species catalog + strip drag-reorder + right-click remove.</td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">#23</a></td></tr>
     <tr><td>v2.6</td><td>Cut controls + quick-view camera buttons.</td><td><a href="https://github.com/fjania/web-playground/issues/24" class="issue">#24</a></td></tr>
