@@ -1,21 +1,39 @@
 /**
  * End-grain v2.3b bootstrap — wires pipeline output into the tile grid.
  *
- * Commit (d): tile modes + click-to-swap + WebGL budget.
+ * Mental model for the three tiles (Input → Operation → Output):
  *
- * Tile modes:
- *   '2d-summary'  — static SVG via summarize(PanelSnapshot)
- *   '3d-active'   — live Three.js viewport (promoted non-final tile)
- *   '3d-final'    — live Three.js viewport (always-on for the final arrange)
+ *   Tile 1 — INPUT.     The panel being operated on. For the default
+ *                       timeline this is compose-0's output.
  *
- * WebGL budget: final-output tile stays 3D always; at most one
- * non-final tile can be promoted to 3d-active at a time. Maximum
- * 2 concurrent WebGL viewports.
+ *   Tile 2 — OPERATION. The operation being performed (and its
+ *                       parameters), not its output. Renders via
+ *                       operations.ts — e.g. a Cut draws cut-plane
+ *                       lines overlaid on the input panel plus a
+ *                       params label.
  *
- * Promotable tiles are those whose feature has a live Panel in
- * `output.livePanels`. In the default timeline that's compose-0
- * plus the final arrange-0. Cut tiles can't promote (no live
- * panel for individual slices in this version).
+ *   Tile 3 — OUTPUT.    3D viewport of the result. For the bootstrap
+ *                       this is the final arrange's panel; once the
+ *                       timeline panel UI (#31) lands, this will
+ *                       reflect only the currently-selected
+ *                       operation's output.
+ *
+ * The 3-tile view is an editor for a SINGLE selected operation. The
+ * timeline (debug inspector + eventually #31) is the navigator that
+ * lists all features and lets the user pick which one to focus on.
+ *
+ * Today the selected operation is hardcoded to cut-0 (the only Cut
+ * in the default timeline). Selection-driven rebinding arrives with
+ * #31. This bootstrap establishes the mental model and the I/X/O
+ * layout; authoring issues (#27–#36) will add edit affordances to
+ * the operation tile.
+ *
+ * Tile modes (unchanged from earlier commits):
+ *   '2d-summary'  — static SVG view (input / operation diagrams)
+ *   '3d-active'   — live Three.js viewport (promoted tile)
+ *   '3d-final'    — live Three.js viewport (always-on output tile)
+ *
+ * WebGL budget: ≤ 2 concurrent viewports — enforced architecturally.
  */
 
 import {
@@ -37,7 +55,8 @@ import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';
 import { buildPanelGroup, disposePanelGroup } from './scene/meshBuilder';
-import { summarize, summarizeSlices } from './render/summary';
+import { summarize } from './render/summary';
+import { renderCutOperation } from './render/operations';
 import { mountInspector } from './ui/debugInspector';
 import type { Panel } from './domain/Panel';
 import type {
@@ -74,12 +93,12 @@ if (!finalArrangeId) throw new Error('no arrange in timeline');
 const finalPanel = livePanels[finalArrangeId];
 if (!finalPanel) throw new Error('pipeline did not preserve final arrange panel');
 
-// ---- 2D summary tiles (compose + cut) ----
+// ---- Input + Operation tiles (2D) ----
 const composeResult = output.results['compose-0'] as ComposeStripsResult;
 const cutResult = output.results['cut-0'] as CutResult;
-renderComposeTile(composeResult);
 const cutFeature = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
-renderCutTile(cutResult, cutFeature);
+renderInputTile(composeResult);
+renderOperationTile(composeResult, cutResult, cutFeature);
 
 // ---- Debug inspector (read-only panel) ----
 mountInspector({ timeline, output });
@@ -156,15 +175,33 @@ function requireTile(stageId: string): HTMLElement {
   return el;
 }
 
-function renderComposeTile(result: ComposeStripsResult): void {
+/**
+ * Input tile: top-down view of the panel being operated on. For the
+ * current bootstrap, that's the compose result.
+ */
+function renderInputTile(result: ComposeStripsResult): void {
   const tile = requireTile('compose-0');
   const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
   if (slot) slot.innerHTML = summarize(result.panel);
-  updateMetaFromSnapshot(tile, result.panel, 'compose');
+  const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
+  if (meta) {
+    const xExt = (result.panel.bbox.max[0] - result.panel.bbox.min[0]).toFixed(0);
+    const zExt = (result.panel.bbox.max[2] - result.panel.bbox.min[2]).toFixed(0);
+    meta.textContent = `${result.panel.volumes.length} strips · ${xExt}×${zExt} mm`;
+  }
 }
 
-function renderCutTile(
-  result: CutResult,
+/**
+ * Operation tile: renders the Cut as an operation diagram — the
+ * input panel's top-down view with cut-plane lines overlaid and
+ * offcut regions lightly shaded. The subtitle carries the key
+ * params (rip, pitch, bevel); the meta slot carries the derived
+ * slice count so the viewer can see what N pieces this operation
+ * will produce when applied.
+ */
+function renderOperationTile(
+  inputResult: ComposeStripsResult,
+  cutResult: CutResult,
   cut: (Feature & { kind: 'cut' }) | undefined,
 ): void {
   const tile = requireTile('cut-0');
@@ -172,36 +209,38 @@ function renderCutTile(
   const subtitle = tile.querySelector<HTMLElement>('.subtitle');
   const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
 
-  // Render ALL slices as an "exploded" stack with small Z-gaps
-  // between them. The downstream Arrange(identity) pushes these
-  // same slices flush together, so the relationship is visually
-  // obvious: Cut A is the panel pulled apart; Final output is
-  // those slices put back together.
-  if (slot && result.slices.length > 0) {
-    slot.innerHTML = summarizeSlices(result.slices, { gap: 15 });
+  if (!cut) {
+    if (slot) slot.innerHTML = '<div class="placeholder">cut feature missing</div>';
+    return;
+  }
+
+  if (slot) {
+    slot.innerHTML = renderCutOperation(inputResult.panel, cut);
   }
   if (subtitle) {
-    subtitle.textContent = `cut-0 · ${result.slices.length} slices, exploded`;
+    subtitle.textContent = `cut-0 · rip ${cut.rip}° · pitch ${cut.pitch} · bevel ${cut.bevel}°`;
   }
   if (meta) {
-    if (result.slices.length > 0 && cut) {
-      meta.textContent = `${result.slices.length} slices · pitch ${cut.pitch} mm · rip ${cut.rip}°`;
-    } else {
-      meta.textContent = 'no slices';
-    }
+    meta.textContent =
+      `→ ${cutResult.slices.length} inner slices (${cutResult.offcuts.length} offcuts discarded)`;
   }
 }
 
-/** Re-render a tile's 2D summary after demoting from 3D. */
+/**
+ * Re-render a tile's 2D view after demoting from 3D. Dispatches by
+ * the tile's role (input panel / cut operation / etc) rather than
+ * just stage id, so the right 2D rendering gets restored.
+ */
 function restoreSummary(stageId: string, tileEl: HTMLElement): void {
   const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
   if (!slot) return;
   if (stageId === 'compose-0') {
     slot.innerHTML = summarize(composeResult.panel);
-  } else if (stageId === 'cut-0' && cutResult.slices.length > 0) {
-    slot.innerHTML = summarizeSlices(cutResult.slices, { gap: 15 });
+  } else if (stageId === 'cut-0') {
+    if (cutFeature) {
+      slot.innerHTML = renderCutOperation(composeResult.panel, cutFeature);
+    }
   } else {
-    // For any other stage (future arrange-N), summarize its result's panel.
     const result = output.results[stageId];
     if (result && 'panel' in result) {
       slot.innerHTML = summarize((result as ArrangeResult).panel);
@@ -209,6 +248,7 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
   }
 }
 
+/** Meta line on the Output tile — shown in 'final' mode. */
 function updateMeta(tileEl: HTMLElement, panel: Panel, label: string): void {
   const meta = tileEl.querySelector<HTMLElement>('[data-slot="meta"]');
   if (!meta) return;
@@ -218,20 +258,6 @@ function updateMeta(tileEl: HTMLElement, panel: Panel, label: string): void {
   const z = (b.max.z - b.min.z).toFixed(0);
   if (label === 'final') {
     meta.textContent = `${panel.segments.length} segments · bbox ${x}×${y}×${z} mm`;
-  }
-}
-
-function updateMetaFromSnapshot(
-  tileEl: HTMLElement,
-  panel: ComposeStripsResult['panel'],
-  label: string,
-): void {
-  const meta = tileEl.querySelector<HTMLElement>('[data-slot="meta"]');
-  if (!meta) return;
-  const xExt = (panel.bbox.max[0] - panel.bbox.min[0]).toFixed(0);
-  const zExt = (panel.bbox.max[2] - panel.bbox.min[2]).toFixed(0);
-  if (label === 'compose') {
-    meta.textContent = `${panel.volumes.length} strips · ${xExt}×${zExt} mm`;
   }
 }
 

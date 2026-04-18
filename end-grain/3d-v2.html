@@ -325,29 +325,29 @@
   </header>
   <div class="layout">
   <main id="tiles">
-    <article class="tile tile--2d" data-stage="compose-0">
+    <article class="tile tile--2d" data-stage="compose-0" data-role="input">
       <header>
-        <h2>Starting panel</h2>
-        <p class="subtitle">compose-0</p>
+        <h2>Input</h2>
+        <p class="subtitle">compose-0 · the panel being operated on</p>
       </header>
       <div class="render" data-slot="render">
-        <div class="placeholder">2D summary pending</div>
+        <div class="placeholder">input pending</div>
       </div>
       <div class="meta" data-slot="meta"></div>
     </article>
-    <article class="tile tile--2d" data-stage="cut-0">
+    <article class="tile tile--2d" data-stage="cut-0" data-role="operation">
       <header>
-        <h2>Cut A</h2>
-        <p class="subtitle">cut-0 · slice 0 of N</p>
+        <h2>Operation: Cut</h2>
+        <p class="subtitle">cut-0 · params</p>
       </header>
       <div class="render" data-slot="render">
-        <div class="placeholder">2D summary pending</div>
+        <div class="placeholder">operation diagram pending</div>
       </div>
       <div class="meta" data-slot="meta"></div>
     </article>
-    <article class="tile tile--3d" data-stage="arrange-0">
+    <article class="tile tile--3d" data-stage="arrange-0" data-role="output">
       <header>
-        <h2>Final output</h2>
+        <h2>Output</h2>
         <p class="subtitle">arrange-0 · 3D viewport</p>
       </header>
       <div class="render" data-slot="render">
