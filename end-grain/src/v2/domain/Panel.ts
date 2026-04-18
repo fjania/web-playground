@@ -157,12 +157,15 @@ export class Panel {
   }
 
   /**
-   * Append another panel's segments. Both inputs remain valid — no
-   * handles are moved; `other` is effectively cloned into the result.
+   * Append another panel's segments. The result owns its own manifold
+   * handles — both `this` and `other` are cloned — so disposing
+   * either input does not invalidate the result. This is the safest
+   * contract for a pipeline that frees intermediates aggressively.
    */
   concat(other: Panel): Panel {
-    const cloned = other.clone();
-    return new Panel([...this.segments, ...cloned.segments]);
+    const a = this.clone();
+    const b = other.clone();
+    return new Panel([...a.segments, ...b.segments]);
   }
 
   boundingBox(): Box3 {
@@ -219,8 +222,20 @@ export class Panel {
    * per segment, carrying species + AABB + provenance. This is the
    * type pipeline results surface — live Panel instances never cross
    * the pipeline-output boundary.
+   *
+   * Empty panels (no segments — e.g. an offcut from a cut that ran
+   * exactly at the panel boundary) return a zero-size bbox at the
+   * origin rather than Three's default Box3 state of ±Infinity. That
+   * keeps the snapshot JSON-safe: JSON.stringify turns Infinity into
+   * null, which breaks the roundtrip invariant.
    */
   toSnapshot(): PanelSnapshot {
+    if (this.segments.length === 0) {
+      return {
+        bbox: { min: [0, 0, 0], max: [0, 0, 0] },
+        volumes: [],
+      };
+    }
     const volumes = this.segments.map((s) => {
       const bb = s.manifold.boundingBox();
       return {
