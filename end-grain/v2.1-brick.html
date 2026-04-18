@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>End Grain v2.1 — Brick Walk-through</title>
+<style>
+  :root {
+    --bg: #1c1917;
+    --surface: #242120;
+    --surface-2: #2d2a28;
+    --line: #3d3835;
+    --text: #d6d3d1;
+    --text-dim: #a8a29e;
+    --text-muted: #78716c;
+    --accent: #e4cc8f;
+    --accent-warm: #b45309;
+    --new: #60a5fa;
+    --maple: #e4cc8f;
+    --walnut: #3d2416;
+    --cherry: #c97050;
+    --padauk: #c84020;
+    --purpleheart: #5a2a6a;
+    --ok: #4ade80;
+    --warning: #fbbf24;
+    --error: #ef4444;
+    --code-bg: #141211;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    line-height: 1.55;
+    font-size: 14px;
+  }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--line); }
+  a:hover { color: #fff; border-bottom-color: var(--accent); }
+  code {
+    background: var(--code-bg); color: var(--accent);
+    padding: 1px 5px; border-radius: 3px; font-size: 0.88em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  pre code { background: transparent; padding: 0; color: inherit; font-size: 1em; }
+  h1, h2, h3, h4 { color: #fff; letter-spacing: -0.01em; font-weight: 600; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 {
+    font-size: 20px;
+    margin: 48px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  h3 { font-size: 16px; margin: 24px 0 10px; color: var(--accent); }
+  h4 {
+    font-size: 12px; margin: 18px 0 6px;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 22px; margin: 10px 0; }
+  li { margin: 4px 0; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 48px 32px 120px; }
+  .subtitle { color: var(--text-dim); font-size: 15px; margin-bottom: 20px; }
+  .header-meta {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-muted);
+    margin-bottom: 20px; padding: 12px 16px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+  .header-meta a { color: var(--text-dim); }
+
+  .toc {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 4px; padding: 14px 20px; margin: 30px 0 40px;
+    font-size: 13px;
+  }
+  .toc ol { padding-left: 22px; }
+  .toc a { color: var(--text-dim); border: none; }
+  .toc a:hover { color: var(--accent); }
+
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 10px;
+    font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+  .badge-ok { background: rgba(74, 222, 128, 0.14); color: var(--ok); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .badge-warn { background: rgba(251, 191, 36, 0.14); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.3); }
+  .badge-new { background: rgba(96, 165, 250, 0.14); color: var(--new); border: 1px solid rgba(96, 165, 250, 0.3); }
+
+  .step {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    padding: 18px 24px; margin: 28px 0;
+    background: var(--surface);
+  }
+  .step.highlight { border-left-color: var(--new); }
+  .step h3 { margin: 0 0 4px; color: var(--accent); }
+  .step.highlight h3 { color: var(--new); }
+  .step .action {
+    color: var(--text-dim); font-size: 13px;
+    margin: 0 0 14px; font-style: italic;
+  }
+  .step .action strong { font-style: normal; color: var(--accent); }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin: 14px 0;
+  }
+  .tile {
+    position: relative;
+    background: #0f0d0c;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 22px 10px 6px;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .tile svg { flex: 0 1 auto; max-height: 110px; }
+  .tile-label {
+    position: absolute; top: 6px; left: 8px;
+    font-size: 9px; color: var(--accent-warm);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .tile-note {
+    margin-top: 6px; font-size: 9.5px;
+    color: var(--text-muted); text-align: center; line-height: 1.3;
+  }
+
+  .observations {
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 3px; padding: 10px 16px; margin: 12px 0 0;
+    font-size: 12.5px; color: var(--text-dim);
+  }
+  .observations h4 { margin: 0 0 6px; color: var(--accent); }
+  .observations ul { margin: 4px 0 0; padding-left: 20px; }
+  .observations li { color: var(--text-dim); }
+  .observations strong { color: var(--text); }
+
+  .condensed {
+    background: var(--code-bg);
+    border-left: 3px solid var(--text-muted);
+    padding: 10px 16px;
+    margin: 12px 0;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .condensed a { color: var(--accent); }
+
+  .new-tag {
+    display: inline-block;
+    background: rgba(96, 165, 250, 0.12);
+    color: var(--new);
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    padding: 0 6px; font-size: 10px; border-radius: 3px;
+    vertical-align: middle; margin-left: 6px;
+    letter-spacing: 0.04em; font-weight: 600; text-transform: uppercase;
+  }
+  .callout {
+    background: var(--surface);
+    border-left: 3px solid var(--accent-warm);
+    padding: 12px 18px; margin: 14px 0;
+    border-radius: 0 4px 4px 0;
+    color: var(--text-dim); font-size: 13px;
+  }
+  .callout strong { color: var(--accent); }
+
+  .diff-add { color: var(--ok); }
+  .diff-remove { color: var(--error); }
+  .diff-note { color: var(--text-muted); font-style: italic; }
+  .j-str { color: #9dc6a4; }
+  .j-num { color: #e4cc8f; }
+  .j-key { color: #a8a29e; }
+  .j-comment { color: var(--text-muted); font-style: italic; }
+
+  .invariants-table {
+    border-collapse: collapse; width: 100%;
+    margin: 14px 0; font-size: 12.5px;
+  }
+  .invariants-table th, .invariants-table td {
+    border: 1px solid var(--line); padding: 8px 12px;
+    text-align: left; vertical-align: top;
+  }
+  .invariants-table th {
+    background: var(--surface); color: var(--accent);
+    font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .preserved { color: var(--ok); font-weight: 600; }
+  .changed { color: var(--warning); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>End Grain v2.1 — Brick Walk-through</h1>
+<div class="subtitle">Step-by-step construction of a running-bond brick pattern, showing every data-structure transition. Complements the <a href="/end-grain/v2.1-checkerboard.html">checkerboard walk-through</a> by exercising the <code>shiftAlternate</code> preset — the first one that takes params AND changes the output panel's bounding box.</div>
+
+<div class="header-meta">
+  <div>Parent design: <a href="/end-grain/v2.1-design.html">v2.1-design.html</a></div>
+  <div>Companion: <a href="/end-grain/v2.1-checkerboard.html">v2.1-checkerboard.html</a></div>
+  <div>Issue-update notes: <a href="/end-grain/v2.1-issue-updates.md">v2.1-issue-updates.md</a></div>
+  <div>Pattern: Brick</div>
+</div>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#intro">Recipe &amp; target</a></li>
+    <li><a href="#step0">Step 0 — default state (same as checkerboard)</a></li>
+    <li><a href="#step1">Step 1 — user adds 6 more strips (same as checkerboard)</a></li>
+    <li><a href="#step2">Step 2 — user applies shiftAlternate preset</a></li>
+    <li><a href="#invariants">Invariants of the shift operation</a></li>
+    <li><a href="#exposed">What this walk-through newly exposes</a></li>
+    <li><a href="#open">Open questions after this exercise</a></li>
+  </ol>
+</div>
+
+<!-- ─────────── RECIPE ─────────── -->
+<h2 id="intro">1. Recipe &amp; target</h2>
+
+<p>From the v2.1 design doc's pattern card:</p>
+
+<pre><code>Compose(A,B,A,B,...) → Cut(rip=0) → Arrange + Preset(shiftAlternate, ½ brick).</code></pre>
+
+<p>Target: a running-bond brick pattern with 50×50 mm cells and half-cell row offsets. Same compose + cut parameters as the checkerboard walk-through; the only difference is the preset kind and its param.</p>
+<ul>
+  <li><strong>8 strips</strong> alternating maple / walnut, each 50 mm wide. Panel 400×50×400.</li>
+  <li><strong>Crosscut</strong> perpendicular to z at <strong>pitch 50 mm</strong> → 8 slices, each 400×50×50.</li>
+  <li><strong>Arrangement</strong>: 8 slices stacked along z; <code>shiftAlternate({ shift: 25 })</code> translates every odd-index slice by 25 mm along the X axis (perpendicular to the cut normal). Half of a 50 mm brick = 25 mm.</li>
+</ul>
+
+<p>Because this walk-through shares its starting point with the checkerboard one, Steps 0 and 1 are condensed — same panel, same cut, same identity arrange. The real work is in <strong>Step 2</strong>.</p>
+
+<!-- ─────────── STEP 0 ─────────── -->
+<h2 id="step0">2. Step 0 — default state (same as checkerboard)</h2>
+
+<div class="step">
+  <h3>Bootstrap: <code>3d-v2.html</code> loads</h3>
+  <div class="action"><strong>User action:</strong> opens <code>/end-grain/3d-v2.html</code>. <code>defaultTimeline()</code> is instantiated. Pipeline runs once.</div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-label">panel (top view)</div>
+      <svg viewBox="0 0 4 8" width="55%" preserveAspectRatio="xMidYMid meet">
+        <rect x="0" y="0" width="2" height="8" fill="var(--maple)"/>
+        <rect x="2" y="0" width="2" height="8" fill="var(--walnut)"/>
+        <line x1="2" y1="0" x2="2" y2="8" stroke="#1a1816" stroke-width="0.04"/>
+      </svg>
+      <div class="tile-note">2 strips · 100×50×400</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">cut A (top view)</div>
+      <svg viewBox="0 0 4 8" width="55%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <g transform="translate(0 0)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 1)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 2)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 3)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 4)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 5)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 6)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 7)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+        </g>
+        <line x1="2" y1="0" x2="2" y2="8" stroke="#1a1816" stroke-width="0.03" opacity="0.6"/>
+      </svg>
+      <div class="tile-note">8 slices · each keeps the 2-band composition</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">join 1 (top view)</div>
+      <svg viewBox="0 0 4 8" width="55%" preserveAspectRatio="xMidYMid meet">
+        <rect x="0" y="0" width="2" height="8" fill="var(--maple)"/>
+        <rect x="2" y="0" width="2" height="8" fill="var(--walnut)"/>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.22">
+          <line x1="0" y1="1" x2="4" y2="1"/><line x1="0" y1="2" x2="4" y2="2"/><line x1="0" y1="3" x2="4" y2="3"/><line x1="0" y1="4" x2="4" y2="4"/><line x1="0" y1="5" x2="4" y2="5"/><line x1="0" y1="6" x2="4" y2="6"/><line x1="0" y1="7" x2="4" y2="7"/>
+        </g>
+        <line x1="2" y1="0" x2="2" y2="8" stroke="#1a1816" stroke-width="0.04"/>
+      </svg>
+      <div class="tile-note">identity arrange · panel identical to source</div>
+    </div>
+  </div>
+
+  <div class="condensed">
+    <strong>Data-structure state at this step:</strong> identical to
+    <a href="/end-grain/v2.1-checkerboard.html#step0">checkerboard Step 0</a>.
+    <code>appState.timeline</code> = default 3-feature timeline (ComposeStrips, Cut, Arrange).
+    Pipeline output: <code>compose-0.panel</code>, <code>cut-0.slices[8]</code> with uniform
+    <code>sliceProvenance</code>, <code>arrange-0.panel</code> identical in bbox to
+    <code>compose-0.panel</code>. No PlaceEdits, no Presets.
+    Skipping the full JSON here for brevity — see the checkerboard page if you want it.
+  </div>
+</div>
+
+<!-- ─────────── STEP 1 ─────────── -->
+<h2 id="step1">3. Step 1 — user adds 6 more strips (same as checkerboard)</h2>
+
+<div class="step">
+  <h3>Populate the starting panel to 8 alternating strips</h3>
+  <div class="action"><strong>User action:</strong> same six clicks in the species catalog as the checkerboard walk-through. Strip IDs <code>strip-2</code> through <code>strip-7</code> appended to <code>compose-0.strips</code>.</div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-label">panel (top view)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <rect x="0" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="1" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="2" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="3" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="4" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="5" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="6" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="7" y="0" width="1" height="8" fill="var(--walnut)"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.6">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
+        </g>
+      </svg>
+      <div class="tile-note">8 strips · 400×50×400</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">cut A (top view)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <g transform="translate(0 0)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 1)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 2)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 3)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 4)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 5)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 6)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 7)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.5">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
+        </g>
+      </svg>
+      <div class="tile-note">8 slices · each keeps the 8-band composition</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">join 1 (top view)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <rect x="0" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="1" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="2" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="3" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="4" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="5" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="6" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="7" y="0" width="1" height="8" fill="var(--walnut)"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.22">
+          <line x1="0" y1="1" x2="8" y2="1"/><line x1="0" y1="2" x2="8" y2="2"/><line x1="0" y1="3" x2="8" y2="3"/><line x1="0" y1="4" x2="8" y2="4"/><line x1="0" y1="5" x2="8" y2="5"/><line x1="0" y1="6" x2="8" y2="6"/><line x1="0" y1="7" x2="8" y2="7"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.6">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
+        </g>
+      </svg>
+      <div class="tile-note">identity arrange · panel identical to source</div>
+    </div>
+  </div>
+
+  <div class="condensed">
+    <strong>Data-structure state at this step:</strong> identical to
+    <a href="/end-grain/v2.1-checkerboard.html#step1">checkerboard Step 1</a>.
+    <code>compose-0.strips</code> now has 8 entries (strip-0 through strip-7, alternating maple/walnut).
+    <code>cut-0</code> produces 8 slices at 400×50×50. Every slice's
+    <code>contributingStripIds</code> = <code>['strip-0'..'strip-7']</code> because rip=0 spans all strips.
+    No PlaceEdits, no Presets.
+  </div>
+</div>
+
+<!-- ─────────── STEP 2 ─────────── -->
+<h2 id="step2">4. Step 2 — user applies shiftAlternate preset</h2>
+
+<div class="step highlight">
+  <h3>Apply <code>Preset(shiftAlternate, { shift: 25 })</code> — bricks emerge</h3>
+  <div class="action"><strong>User action:</strong> in the Arrange controls, clicks the <code>shiftAlternate</code> preset button and sets <code>shift</code> to 25 mm (half of the 50 mm strip width). A <code>Preset</code> feature is appended to the timeline targeting <code>arrange-0</code>. Pipeline regens.</div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-label">panel (unchanged)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <rect x="0" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="1" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="2" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="3" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="4" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="5" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="6" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="7" y="0" width="1" height="8" fill="var(--walnut)"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.6">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
+        </g>
+      </svg>
+      <div class="tile-note">identical to Step 1</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">cut A (unchanged)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <g transform="translate(0 0)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 1)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 2)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 3)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 4)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 5)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 6)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 7)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+        </g>
+      </svg>
+      <div class="tile-note">slices unchanged</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">join 1 (BRICK!)</div>
+      <svg viewBox="0 0 8.5 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <!-- 8 slices stacked. Even slices at x=0..8, odd slices at
+             x=0.5..8.5. Each slice preserves its M W M W M W M W band
+             composition — only the X position differs. This is the
+             brick-pattern invariant: composition preserved, position
+             offset, bbox extended. -->
+        <g>
+          <!-- Slice 0 (even, x=0..8) -->
+          <rect x="0" y="0" width="1" height="1" fill="var(--maple)"/><rect x="1" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="0" width="1" height="1" fill="var(--maple)"/><rect x="3" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="0" width="1" height="1" fill="var(--maple)"/><rect x="5" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="0" width="1" height="1" fill="var(--maple)"/><rect x="7" y="0" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 1 (odd, x=0.5..8.5) -->
+          <rect x="0.5" y="1" width="1" height="1" fill="var(--maple)"/><rect x="1.5" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="2.5" y="1" width="1" height="1" fill="var(--maple)"/><rect x="3.5" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="4.5" y="1" width="1" height="1" fill="var(--maple)"/><rect x="5.5" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="6.5" y="1" width="1" height="1" fill="var(--maple)"/><rect x="7.5" y="1" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 2 (even) -->
+          <rect x="0" y="2" width="1" height="1" fill="var(--maple)"/><rect x="1" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="2" width="1" height="1" fill="var(--maple)"/><rect x="3" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="2" width="1" height="1" fill="var(--maple)"/><rect x="5" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="2" width="1" height="1" fill="var(--maple)"/><rect x="7" y="2" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 3 (odd) -->
+          <rect x="0.5" y="3" width="1" height="1" fill="var(--maple)"/><rect x="1.5" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="2.5" y="3" width="1" height="1" fill="var(--maple)"/><rect x="3.5" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="4.5" y="3" width="1" height="1" fill="var(--maple)"/><rect x="5.5" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="6.5" y="3" width="1" height="1" fill="var(--maple)"/><rect x="7.5" y="3" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 4 (even) -->
+          <rect x="0" y="4" width="1" height="1" fill="var(--maple)"/><rect x="1" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="4" width="1" height="1" fill="var(--maple)"/><rect x="3" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="4" width="1" height="1" fill="var(--maple)"/><rect x="5" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="4" width="1" height="1" fill="var(--maple)"/><rect x="7" y="4" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 5 (odd) -->
+          <rect x="0.5" y="5" width="1" height="1" fill="var(--maple)"/><rect x="1.5" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="2.5" y="5" width="1" height="1" fill="var(--maple)"/><rect x="3.5" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="4.5" y="5" width="1" height="1" fill="var(--maple)"/><rect x="5.5" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="6.5" y="5" width="1" height="1" fill="var(--maple)"/><rect x="7.5" y="5" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 6 (even) -->
+          <rect x="0" y="6" width="1" height="1" fill="var(--maple)"/><rect x="1" y="6" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="6" width="1" height="1" fill="var(--maple)"/><rect x="3" y="6" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="6" width="1" height="1" fill="var(--maple)"/><rect x="5" y="6" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="6" width="1" height="1" fill="var(--maple)"/><rect x="7" y="6" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 7 (odd) -->
+          <rect x="0.5" y="7" width="1" height="1" fill="var(--maple)"/><rect x="1.5" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="2.5" y="7" width="1" height="1" fill="var(--maple)"/><rect x="3.5" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="4.5" y="7" width="1" height="1" fill="var(--maple)"/><rect x="5.5" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="6.5" y="7" width="1" height="1" fill="var(--maple)"/><rect x="7.5" y="7" width="1" height="1" fill="var(--walnut)"/>
+        </g>
+        <!-- Slice boundaries (horizontal mortar lines) -->
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.35">
+          <line x1="0" y1="1" x2="8.5" y2="1"/><line x1="0" y1="2" x2="8.5" y2="2"/><line x1="0" y1="3" x2="8.5" y2="3"/><line x1="0" y1="4" x2="8.5" y2="4"/><line x1="0" y1="5" x2="8.5" y2="5"/><line x1="0" y1="6" x2="8.5" y2="6"/><line x1="0" y1="7" x2="8.5" y2="7"/>
+        </g>
+        <!-- Dashed box showing original panel bbox for reference -->
+        <rect x="0" y="0" width="8" height="8" fill="none" stroke="var(--accent-warm)" stroke-width="0.04" stroke-dasharray="0.15 0.1" opacity="0.5"/>
+      </svg>
+      <div class="tile-note">425×50×400 bbox · bricks offset ½-cell · dashed = original panel bbox</div>
+    </div>
+  </div>
+
+  <h4>AppState.timeline <span class="diff-note">(appended entry in green)</span></h4>
+<pre><code>[
+  { <span class="j-key">kind</span>: <span class="j-str">'composeStrips'</span>, <span class="j-key">id</span>: <span class="j-str">'compose-0'</span>, <span class="j-comment">/* 8 strips */</span> },
+  { <span class="j-key">kind</span>: <span class="j-str">'cut'</span>,           <span class="j-key">id</span>: <span class="j-str">'cut-0'</span>,     <span class="j-key">rip</span>: <span class="j-num">0</span>, <span class="j-key">pitch</span>: <span class="j-num">50</span> },
+  { <span class="j-key">kind</span>: <span class="j-str">'arrange'</span>,       <span class="j-key">id</span>: <span class="j-str">'arrange-0'</span>, <span class="j-key">layout</span>: <span class="j-str">'cursor-slide'</span> },
+<span class="diff-add">  {</span>
+<span class="diff-add">    kind: 'preset',</span>
+<span class="diff-add">    id: 'preset-0',</span>
+<span class="diff-add">    arrangeId: 'arrange-0',</span>
+<span class="diff-add">    preset: 'shiftAlternate',</span>
+<span class="diff-add">    params: { shift: 25 },     // mm, along +X (perpendicular to cut normal)</span>
+<span class="diff-add">    status: 'ok'</span>
+<span class="diff-add">  }</span>
+]</code></pre>
+
+  <h4>Pipeline output — <code>results</code></h4>
+<pre><code>Map {
+  <span class="j-str">'compose-0'</span> => <span class="j-comment">/* unchanged — bbox 400×50×400 */</span>,
+  <span class="j-str">'cut-0'</span>     => <span class="j-comment">/* unchanged — 8 slices, uniform provenance */</span>,
+  <span class="j-str">'preset-0'</span>  => {
+    <span class="j-key">featureId</span>: <span class="j-str">'preset-0'</span>,
+    <span class="j-key">status</span>: <span class="j-str">'ok'</span>,
+    <span class="j-key">expandedPlaceEdits</span>: [
+      { <span class="j-key">target</span>: { <span class="j-key">arrangeId</span>: <span class="j-str">'arrange-0'</span>, <span class="j-key">sliceIdx</span>: <span class="j-num">1</span>,
+                   <span class="j-key">contributingStripIds</span>: [<span class="j-str">'strip-0'</span>..<span class="j-str">'strip-7'</span>] },
+        <span class="j-key">op</span>: { <span class="j-key">kind</span>: <span class="j-str">'shift'</span>, <span class="j-key">delta</span>: <span class="j-num">25</span> },
+        <span class="j-key">source</span>: <span class="j-str">'preset-0'</span> },
+      { <span class="j-key">target</span>: { <span class="j-key">arrangeId</span>: <span class="j-str">'arrange-0'</span>, <span class="j-key">sliceIdx</span>: <span class="j-num">3</span>, <span class="j-comment">...</span> },
+        <span class="j-key">op</span>: { <span class="j-key">kind</span>: <span class="j-str">'shift'</span>, <span class="j-key">delta</span>: <span class="j-num">25</span> }, <span class="j-key">source</span>: <span class="j-str">'preset-0'</span> },
+      { <span class="j-key">target</span>: { <span class="j-key">arrangeId</span>: <span class="j-str">'arrange-0'</span>, <span class="j-key">sliceIdx</span>: <span class="j-num">5</span>, <span class="j-comment">...</span> },
+        <span class="j-key">op</span>: { <span class="j-key">kind</span>: <span class="j-str">'shift'</span>, <span class="j-key">delta</span>: <span class="j-num">25</span> }, <span class="j-key">source</span>: <span class="j-str">'preset-0'</span> },
+      { <span class="j-key">target</span>: { <span class="j-key">arrangeId</span>: <span class="j-str">'arrange-0'</span>, <span class="j-key">sliceIdx</span>: <span class="j-num">7</span>, <span class="j-comment">...</span> },
+        <span class="j-key">op</span>: { <span class="j-key">kind</span>: <span class="j-str">'shift'</span>, <span class="j-key">delta</span>: <span class="j-num">25</span> }, <span class="j-key">source</span>: <span class="j-str">'preset-0'</span> }
+    ]
+  },
+  <span class="j-str">'arrange-0'</span> => {
+    <span class="j-key">featureId</span>: <span class="j-str">'arrange-0'</span>,
+    <span class="j-key">status</span>: <span class="j-str">'ok'</span>,
+    <span class="j-key">panel</span>: <span class="j-comment">Panel{bbox: 425×50×400}</span>,  <span class="j-comment">// wider than input's 400×50×400 !</span>
+    <span class="j-key">appliedEditCount</span>: <span class="j-num">4</span>,
+    <span class="j-key">appliedEditSources</span>: [<span class="j-str">'preset-0'</span>, <span class="j-str">'preset-0'</span>, <span class="j-str">'preset-0'</span>, <span class="j-str">'preset-0'</span>]
+  }
+}</code></pre>
+
+  <h4>Pipeline output — <code>trace</code></h4>
+<pre><code>[
+  <span class="j-comment">// Same topological order as checkerboard: preset runs before arrange.</span>
+  { <span class="j-key">featureId</span>: <span class="j-str">'compose-0'</span>, <span class="j-key">inputSummary</span>: <span class="j-str">'—'</span>,
+    <span class="j-key">outputSummary</span>: <span class="j-str">'panel 400×50×400, 8 strips'</span>, <span class="j-key">status</span>: <span class="j-str">'ok'</span>, <span class="j-key">durationMs</span>: <span class="j-num">0.4</span> },
+  { <span class="j-key">featureId</span>: <span class="j-str">'cut-0'</span>,     <span class="j-key">inputSummary</span>: <span class="j-str">'panel 400×50×400'</span>,
+    <span class="j-key">outputSummary</span>: <span class="j-str">'8 slices, 0 offcuts'</span>, <span class="j-key">status</span>: <span class="j-str">'ok'</span>, <span class="j-key">durationMs</span>: <span class="j-num">4.3</span> },
+  { <span class="j-key">featureId</span>: <span class="j-str">'preset-0'</span>,  <span class="j-key">inputSummary</span>: <span class="j-str">'target arrange-0, 8 slices, shift=25'</span>,
+    <span class="j-key">outputSummary</span>: <span class="j-str">'expanded to 4 PlaceEdit(shift 25) on odd slices'</span>,
+    <span class="j-key">status</span>: <span class="j-str">'ok'</span>, <span class="j-key">durationMs</span>: <span class="j-num">0.2</span> },
+  { <span class="j-key">featureId</span>: <span class="j-str">'arrange-0'</span>, <span class="j-key">inputSummary</span>: <span class="j-str">'8 slices, 4 edits'</span>,
+    <span class="j-key">outputSummary</span>: <span class="j-str">'panel 425×50×400, 4 shifts applied'</span>, <span class="j-key">status</span>: <span class="j-str">'ok'</span>, <span class="j-key">durationMs</span>: <span class="j-num">2.4</span> }
+]</code></pre>
+
+  <div class="observations">
+    <h4>Observations</h4>
+    <ul>
+      <li><strong>Preset.params carries data now.</strong> <code>flipAlternate</code> had empty params. <code>shiftAlternate</code> has <code>{ shift: 25 }</code>. Confirms Preset's type must be a discriminated union on <code>preset</code> name, with per-preset <code>params</code> shapes.</li>
+      <li><strong>Output panel bbox is 425×50×400, not 400×50×400.</strong> The +X extension comes from odd slices overhanging. This is new: flipAlternate preserved the bbox, shiftAlternate extends it.</li>
+      <li><strong>Half-bricks at both X edges.</strong> At x=0..25 mm: only even slices have material. At x=400..425 mm: only odd slices. Real brick boards accept this aesthetic (or trim the overhangs after glue-up). Our model preserves the overhangs by default.</li>
+      <li><strong>The cut tile is literally identical to Step 1 / to checkerboard Step 2's cut tile.</strong> The preset changes nothing upstream of Arrange. This is the whole point of a feature timeline — distinct authorial intents compose cleanly.</li>
+      <li><strong>Expanded PlaceEdits share the same target shape with manual PlaceEdits</strong>, so the resolver at v2.14 treats preset-generated and user-authored edits uniformly — whether the op is rotate or shift.</li>
+      <li><strong>Pipeline execution order</strong> is the same topological sort as checkerboard: compose → cut → preset → arrange. Preset runs before Arrange because Arrange depends on its expansion.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ─────────── INVARIANTS ─────────── -->
+<h2 id="invariants">5. Invariants of the shift operation</h2>
+
+<p>The shift op on a slice preserves certain properties and changes others. Making these explicit tells the pipeline what to test for and tells the visualizations what to make visible.</p>
+
+<table class="invariants-table">
+  <thead>
+    <tr><th>Property</th><th>shift(25)</th><th>rotate(180) <span class="diff-note">(from checker for comparison)</span></th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Slice count</td>
+      <td class="preserved">preserved</td>
+      <td class="preserved">preserved</td>
+    </tr>
+    <tr>
+      <td>Per-slice band composition (species × x-interval)</td>
+      <td class="preserved">preserved</td>
+      <td class="preserved">preserved (just mirrored in x)</td>
+    </tr>
+    <tr>
+      <td>Per-slice band <em>ordering</em> along x</td>
+      <td class="preserved">preserved</td>
+      <td class="changed">reversed</td>
+    </tr>
+    <tr>
+      <td>Slice position along stack axis (Z)</td>
+      <td class="preserved">preserved (cursor-slide still abuts along N)</td>
+      <td class="preserved">preserved</td>
+    </tr>
+    <tr>
+      <td>Slice position along perpendicular axis (X)</td>
+      <td class="changed">shifted by +25 mm on odd slices</td>
+      <td class="preserved">preserved</td>
+    </tr>
+    <tr>
+      <td>Output panel bbox</td>
+      <td class="changed">extended from 400 to 425 mm in X</td>
+      <td class="preserved">preserved</td>
+    </tr>
+    <tr>
+      <td>Volume of material</td>
+      <td class="preserved">preserved</td>
+      <td class="preserved">preserved</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The join tile above shows this: every slice still has its full <code>M W M W M W M W</code> band composition (eight 1-unit cells), eight slices are still stacked flush along Z (horizontal mortar lines at each slice boundary), and the only thing that changed is that odd slices live at x ∈ [0.5, 8.5] instead of x ∈ [0, 8]. The dashed orange box shows the original 400×400 bbox so the extension is obvious.</p>
+
+<!-- ─────────── EXPOSED ─────────── -->
+<h2 id="exposed">6. What this walk-through newly exposes</h2>
+
+<p>Everything the checkerboard walk-through exposed still applies. Brick adds the following:</p>
+
+<h3>6.1 <code>Preset.params</code> is per-preset-kind</h3>
+<p>Concrete instances: <code>flipAlternate</code> takes no params. <code>shiftAlternate</code> takes <code>{ shift: number }</code> (mm). Future additions per the v2.1 design:</p>
+<ul>
+  <li><code>rotateAlternate</code>: <code>{ degrees: 90 | 180 | 270 }</code></li>
+  <li><code>mirrorAlternate</code>: no params</li>
+  <li><code>rotate4way</code>: no params</li>
+</ul>
+<p>Type-level: <code>Preset</code> must be a discriminated union keyed on <code>preset</code> name. Written up as a concrete proposal in <a href="/end-grain/v2.1-issue-updates.md">issue-update notes</a>, §#19.</p>
+
+<h3>6.2 Arrange's output bbox is not always the input bbox</h3>
+<p>The checkerboard preset left the bbox untouched. The brick preset extends it by <code>shift</code> mm in X. This matters for:</p>
+<ul>
+  <li><strong>Tests</strong>: v2.2's pipeline test suite must assert bbox extension for shift presets and bbox invariance for rotate presets — two separate assertions.</li>
+  <li><strong>Downstream passes</strong>: if a second <code>Cut</code> feature operates on the arrange-0 output, it sees a wider panel than the original. Provenance and slice counts cascade accordingly.</li>
+  <li><strong>Scene rendering</strong>: the tile camera needs to fit the actual output bbox, not the input bbox. Simple in practice — the render loop reads <code>arrange.panel.bbox</code>, not <code>compose.panel.bbox</code>.</li>
+</ul>
+
+<h3>6.3 Edge-handling is a user-facing decision</h3>
+<p>The output has half-bricks at both X edges. Three plausible behaviours:</p>
+<ol>
+  <li><strong>Preserve</strong> the full extended bbox (this walk-through's default — realistic to how makers actually build brick boards, trimming after if they want).</li>
+  <li><strong>Trim</strong> to the original input bbox (clean edges but material loss). Would be a separate <code>Trim</code> feature.</li>
+  <li><strong>Symmetric shift</strong>: alternate +shift/2 and −shift/2 instead of 0/+shift so the pattern stays centered. Keeps bbox asymmetric issues but avoids one-sided overhang.</li>
+</ol>
+<p>Recommendation: go with option 1 for v2.12 (simplest, most realistic, and 2 + 3 can be built later without breaking 1).</p>
+
+<h3>6.4 Direction convention for shift</h3>
+<p>Positive <code>shift</code> goes in +X direction (perpendicular to N, toward positive X of the workpiece). Negative shifts the other way. Needs one sentence in the v2.12 spec. Same convention applies to <code>shiftAlternate</code> and to manual <code>PlaceEdit(shift, delta)</code>.</p>
+
+<h3>6.5 Shift preset's expansion must receive its params</h3>
+<p>The preset-expansion signature has to thread the preset's params through to the expansion function:</p>
+<pre><code>expand(preset, slices, sliceProvenance): PlaceEdit[]
+  → for 'flipAlternate': { slices, provenance } → rotate(180) on odd indices
+  → for 'shiftAlternate': { slices, provenance, params.shift } → shift(params.shift) on odd indices</code></pre>
+<p>Issue #20's spec should surface this signature. It's already noted in the issue-updates notes.</p>
+
+<h3>6.6 Preset + manual composition gets more interesting with shifts</h3>
+<p>In checkerboard, Preset(flipAlternate) + manual PlaceEdit(rotate 180) on the same slice happen to cancel (since rotate is its own inverse). In brick, Preset(shiftAlternate, 25) + manual PlaceEdit(shift, 10) on the same slice compose linearly: the slice ends up shifted by 25 + 10 = 35. Or does it? Two possibilities:</p>
+<ol>
+  <li><strong>Additive</strong>: compose. Slice ends up shifted by 35 mm.</li>
+  <li><strong>Override</strong>: manual wins. Slice ends up shifted by 10 mm only.</li>
+</ol>
+<p>Preferred rule (stated in the issue-updates notes): <strong>manual always wins over preset on the same slice, regardless of op kind</strong>. So the manual PlaceEdit replaces the preset's contribution for that slice. This is consistent, predictable, and makes the checkerboard workflow 8.4 in v2.1-design.html ("manual override of a preset") work uniformly across op types.</p>
+
+<!-- ─────────── OPEN ─────────── -->
+<h2 id="open">7. Open questions after this exercise</h2>
+
+<ul>
+  <li><strong>What if <code>shift</code> exceeds strip width?</strong> e.g. <code>shift = 60</code> on 50 mm strips. The band offsets cross more than one band, producing a pattern very different from "brick." Not broken, just surprising. Does the UI clamp, warn, or allow freely? Proposed: allow freely, surface the current <code>shift</code> value prominently in the controls.</li>
+  <li><strong>What if <code>shift</code> is negative?</strong> Same geometry mirrored. Works by the convention above (+X vs −X). No special handling needed, but worth a sentence of spec.</li>
+  <li><strong>What if strips aren't all the same width?</strong> The "half-brick" heuristic only makes sense when bricks have a uniform width. With a mixed-width panel (the "chaos" pattern's starting state), <code>shiftAlternate(25)</code> still produces a shifted pattern but not a brick. The preset doesn't care — it's a pure translation op — but the <em>name</em> shiftAlternate is only meaningful when bricks align.</li>
+  <li><strong>Should the shift amount be expressed in mm or as a fraction of strip width?</strong> Currently absolute mm. The pattern card says "½ brick" suggesting a fraction. If we store absolute mm, the preset stops making sense when a user later changes strip width. If we store a fraction, the preset auto-rescales. <em>Recommendation: store mm, with a UI affordance to set it as "½ current strip width" at apply time</em>. Predictable at regen, convenient at creation.</li>
+</ul>
+
+<h2 style="margin-top:80px; border:none; color:var(--text-muted); font-size:13px; text-transform:uppercase; letter-spacing:0.08em;">End of walk-through · Brick</h2>
+
+</div>
+</body>
+</html>
