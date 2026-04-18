@@ -15,14 +15,17 @@ import {
   BufferAttribute,
   BufferGeometry,
   EdgesGeometry,
+  ExtrudeGeometry,
   Group,
   LineBasicMaterial,
   LineSegments,
   Mesh,
+  Shape,
   type Material,
 } from 'three';
 import { SPECIES_DEFS } from '../../scene/materials';
 import type { Panel, Segment } from '../domain/Panel';
+import type { PanelSnapshot } from '../state/types';
 
 /**
  * Build a Three.js Group containing one Mesh per panel segment.
@@ -98,6 +101,81 @@ function segmentToMesh(seg: Segment): Mesh {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/**
+ * Build a Three.js Group from a serialisable PanelSnapshot (plain
+ * data; no live manifold handles required). Each volume's topFace
+ * polygon is extruded along Y from bbox.min[1] to bbox.max[1],
+ * producing a prism that matches the volume's real 3D shape —
+ * including parallelograms (angled cuts) and rotated rectangles.
+ *
+ * Why: snapshot-rendering lets us render ANY pipeline result in 3D
+ * without requiring the live Panel to be preserved. Enables the
+ * Cut-focused I/X/O view (slices rendered as distinct pieces from
+ * CutResult.slices snapshots) and future per-slice / per-arrange
+ * inspection views that don't need the live geometry.
+ *
+ * Visual fidelity note: snapshot meshes use the first side-grain
+ * material from SPECIES_DEFS with flat shading. They don't carry
+ * v1's 6-material end-grain routing — acceptable for debug/inspection
+ * views (where you care about shape and species, not grain). The
+ * live-Panel builder above stays the canonical path for
+ * production-quality renders.
+ */
+export function buildGroupFromSnapshot(snap: PanelSnapshot): Group {
+  const group = new Group();
+  snap.volumes.forEach((vol, i) => {
+    if (vol.topFace.length < 3) return;
+
+    const shape = new Shape();
+    shape.moveTo(vol.topFace[0].x, vol.topFace[0].z);
+    for (let k = 1; k < vol.topFace.length; k++) {
+      shape.lineTo(vol.topFace[k].x, vol.topFace[k].z);
+    }
+    shape.closePath();
+
+    const depth = vol.bbox.max[1] - vol.bbox.min[1];
+    const geo = new ExtrudeGeometry(shape, {
+      depth: Math.max(depth, 0.001),
+      bevelEnabled: false,
+    });
+    // ExtrudeGeometry extrudes along +Z in its local space. Our
+    // extrusion axis is world Y, so rotate -90° about X (brings
+    // +Z to +Y) and translate into Y range.
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, vol.bbox.min[1], 0);
+    geo.computeVertexNormals();
+
+    const mats = SPECIES_DEFS[vol.species];
+    const baseMat = (mats?.[0] ?? mats?.[2]) as Material | undefined;
+    if (!baseMat) throw new Error(`no material for species ${vol.species}`);
+    const m = (baseMat as any).clone();
+    m.flatShading = true;
+
+    const mesh = new Mesh(geo, m);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.volIdx = i;
+    mesh.userData.species = vol.species;
+    mesh.userData.contributingStripIds = [...vol.contributingStripIds];
+    mesh.userData.contributingSliceIds = [...vol.contributingSliceIds];
+    group.add(mesh);
+
+    // Edge overlay — same convention as the live-Panel builder.
+    const edgesGeo = new EdgesGeometry(geo, 1);
+    const edgesMat = new LineBasicMaterial({
+      color: 0x1a1a1a,
+      transparent: true,
+      opacity: 0.45,
+      depthTest: true,
+    });
+    const edges = new LineSegments(edgesGeo, edgesMat);
+    edges.userData.role = 'segment-edges';
+    edges.userData.volIdx = i;
+    group.add(edges);
+  });
+  return group;
 }
 
 /**

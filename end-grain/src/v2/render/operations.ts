@@ -64,10 +64,14 @@ export function renderCutOperation(inputPanel: PanelSnapshot, cut: Cut): SvgStri
       // Plane equation x·sin + z·cos = d  →  z = (d - x·sin)/cos
       const z1 = (d - xMin * sin) / cos;
       const z2 = (d - xMax * sin) / cos;
+      // Dashed stroke: signals "imminent operation" per the shared
+      // visual vocabulary. Solid strokes are reserved for existing
+      // geometry (the panel's outline, edges of rendered volumes).
       lines.push(
         `<line x1="${fmt(xMin)}" y1="${fmt(z1)}" ` +
           `x2="${fmt(xMax)}" y2="${fmt(z2)}" ` +
-          `stroke="#1a1a1a" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`,
+          `stroke="#1a1a1a" stroke-width="1.2" ` +
+          `stroke-dasharray="8 5" vector-effect="non-scaling-stroke"/>`,
       );
     }
   }

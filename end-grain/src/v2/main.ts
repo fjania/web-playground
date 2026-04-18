@@ -54,7 +54,11 @@ import { initManifold } from '../domain/manifold';
 import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';
-import { buildPanelGroup, disposePanelGroup } from './scene/meshBuilder';
+import {
+  buildGroupFromSnapshot,
+  buildPanelGroup,
+  disposePanelGroup,
+} from './scene/meshBuilder';
 import { summarize } from './render/summary';
 import { renderCutOperation } from './render/operations';
 import { mountInspector } from './ui/debugInspector';
@@ -103,10 +107,17 @@ renderOperationTile(composeResult, cutResult, cutFeature);
 // ---- Debug inspector (read-only panel) ----
 mountInspector({ timeline, output });
 
-// ---- Final output: 3D viewport, always on ----
-const finalTileEl = requireTile(finalArrangeId);
-const finalViewport = setupViewport(finalTileEl, finalPanel, { mode: '3d-final' });
-updateMeta(finalTileEl, finalPanel, 'final');
+// ---- Output tile: 3D viewport of the SELECTED operation's output ----
+// For the current bootstrap the selected operation is cut-0, so the
+// output is cut-0's slices. Rendered from snapshots via the
+// snapshot-based mesh builder — no need for a live Panel here.
+// The tile's DOM still uses data-stage="arrange-0" for back-compat
+// with the tile-promotion logic; that gets reworked when #31 lands
+// selection-driven rebinding.
+const outputTileEl = requireTile(finalArrangeId);
+const cutOutputGroup = buildCutOutputGroup(cutResult);
+const finalViewport = setupViewport(outputTileEl, cutOutputGroup, { mode: '3d-final' });
+updateOutputMeta(outputTileEl, cutResult);
 
 // ---- Tile-mode state + click handlers ----
 interface ActiveViewport {
@@ -150,7 +161,7 @@ function handleTileClick(stageId: string, tileEl: HTMLElement): void {
     activePromoted = null;
   }
 
-  const viewport = setupViewport(tileEl, panel, { mode: '3d-active' });
+  const viewport = setupViewport(tileEl, buildPanelGroup(panel), { mode: '3d-active' });
   tileEl.dataset.mode = '3d-active';
   activePromoted = {
     tileEl,
@@ -248,17 +259,45 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
   }
 }
 
-/** Meta line on the Output tile — shown in 'final' mode. */
-function updateMeta(tileEl: HTMLElement, panel: Panel, label: string): void {
+/**
+ * Build the Output-tile 3D scene for a Cut-selected view. Each slice
+ * is rendered from its snapshot in its baked post-cut position. The
+ * slices are naturally separated along the cut-normal — Arrange is
+ * the later operation that would push them flush. At the Cut stage
+ * they're distinct pieces.
+ *
+ * For visibility we apply a small additional separation along the
+ * cut-normal direction (1mm per slice) so adjacent slices don't
+ * Z-fight at their shared cut faces. Interior faces are visible
+ * without being pried apart.
+ */
+function buildCutOutputGroup(cut: CutResult): Group {
+  const group = new Group();
+  // Derive cut-normal from the Cut feature (rotation about Y by rip).
+  const ripRad = cutFeature ? (cutFeature.rip * Math.PI) / 180 : 0;
+  const normal = new Vector3(Math.sin(ripRad), 0, Math.cos(ripRad));
+
+  cut.slices.forEach((sliceSnap, sliceIdx) => {
+    const sliceGroup = buildGroupFromSnapshot(sliceSnap);
+    // Centre-relative offset: slices near the middle stay put;
+    // slices further out get pushed further from centre. Using
+    // ~8 mm per slice gap so interior faces are clearly visible
+    // without slices flying apart.
+    const offset = (sliceIdx - (cut.slices.length - 1) / 2) * 8.0;
+    sliceGroup.position.addScaledVector(normal, offset);
+    sliceGroup.userData.sliceIdx = sliceIdx;
+    group.add(sliceGroup);
+  });
+  return group;
+}
+
+/** Meta line on the Output tile — describes what the Cut produced. */
+function updateOutputMeta(tileEl: HTMLElement, cut: CutResult): void {
   const meta = tileEl.querySelector<HTMLElement>('[data-slot="meta"]');
   if (!meta) return;
-  const b = panel.boundingBox();
-  const x = (b.max.x - b.min.x).toFixed(0);
-  const y = (b.max.y - b.min.y).toFixed(0);
-  const z = (b.max.z - b.min.z).toFixed(0);
-  if (label === 'final') {
-    meta.textContent = `${panel.segments.length} segments · bbox ${x}×${y}×${z} mm`;
-  }
+  const totalVolumes = cut.slices.reduce((n, s) => n + s.volumes.length, 0);
+  meta.textContent =
+    `${cut.slices.length} slices · ${totalVolumes} segments · ${cut.offcuts.length} offcuts discarded`;
 }
 
 // ---- Viewport setup (shared between 3d-final and 3d-active) ----
@@ -273,7 +312,7 @@ interface ViewportOptions {
 
 function setupViewport(
   tileEl: HTMLElement,
-  panel: Panel,
+  panelGroup: Group,
   _options: ViewportOptions,
 ): ViewportHandle {
   const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
@@ -303,7 +342,6 @@ function setupViewport(
   scene.add(new DirectionalLight(0xd4c8b8, 0.5).translateY(-300));
   scene.add(new AmbientLight(0x5a5450, 1.0));
 
-  const panelGroup: Group = buildPanelGroup(panel);
   scene.add(panelGroup);
 
   const bbox = new Box3().setFromObject(panelGroup);
