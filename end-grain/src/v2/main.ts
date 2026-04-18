@@ -76,17 +76,27 @@ await initManifold();
 // ---- Pipeline ----
 const timeline = defaultTimeline(createIdCounter());
 
-// Optional: override the cut's rip angle via `?rip=30` in the URL.
-// Useful for verifying the v2.2 cursor-slide / concat-in-place
-// algorithm visually — mitred identity should reassemble flush in
-// the 3D final tile. No effect on the default load.
+// Optional: override the cut's angles via `?rip=30&bevel=60` in the
+// URL. Useful for visually verifying the pipeline + operation-view
+// behaviour at non-default angles (mitred identity, bevelled cuts).
+// No effect on the default load.
 const params = new URLSearchParams(window.location.search);
-const ripOverride = params.get('rip');
-if (ripOverride !== null) {
-  const rip = Number(ripOverride);
-  if (Number.isFinite(rip)) {
-    const cut = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
-    if (cut) cut.rip = rip;
+const cutOverride = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
+if (cutOverride) {
+  const ripOverride = params.get('rip');
+  if (ripOverride !== null) {
+    const v = Number(ripOverride);
+    if (Number.isFinite(v)) cutOverride.rip = v;
+  }
+  const bevelOverride = params.get('bevel');
+  if (bevelOverride !== null) {
+    const v = Number(bevelOverride);
+    if (Number.isFinite(v)) cutOverride.bevel = v;
+  }
+  const pitchOverride = params.get('pitch');
+  if (pitchOverride !== null) {
+    const v = Number(pitchOverride);
+    if (Number.isFinite(v) && v > 0) cutOverride.pitch = v;
   }
 }
 
