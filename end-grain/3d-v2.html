@@ -189,6 +189,47 @@
       color: #555;
       white-space: pre-wrap;
     }
+    #inspector .section-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      margin: 0 0 0.4rem;
+    }
+    #inspector .section-header h3 {
+      margin: 0;
+    }
+    #inspector .section-header .copy-btn {
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid #d4d4d0;
+      border-radius: 3px;
+      padding: 1px 6px;
+      cursor: pointer;
+      font-size: 0.65rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #666;
+    }
+    #inspector .section-header .copy-btn:hover {
+      background: #f0f0ea;
+    }
+    #inspector .section-header .copy-btn.copied {
+      background: #e8f0e4;
+      color: #3a6634;
+      border-color: #b8d0ad;
+    }
+    #inspector .json-block {
+      grid-column: 1 / -1;
+      margin-top: 0.4rem;
+      padding: 0.5rem 0.6rem;
+      background: #1e1e1c;
+      color: #d4d4ce;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      line-height: 1.45;
+      white-space: pre;
+      overflow-x: auto;
+      max-height: 200px;
+    }
     .tile {
       background: #fff;
       border: 1px solid #e4e4e0;

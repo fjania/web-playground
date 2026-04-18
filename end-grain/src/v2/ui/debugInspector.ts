@@ -72,16 +72,70 @@ export function mountInspector(initial: InspectorMountInput): InspectorHandle {
 function renderTimeline(root: HTMLElement, timeline: Feature[]): void {
   const section = root.querySelector<HTMLElement>('[data-slot="timeline"]');
   if (!section) return;
-  section.innerHTML = '<h3>Timeline</h3>';
+  section.innerHTML = '';
+  section.appendChild(
+    makeSectionHeader('Timeline', {
+      label: 'Copy JSON',
+      payload: () => JSON.stringify(timeline, null, 2),
+    }),
+  );
   for (const f of timeline) {
     section.appendChild(makeTimelineRow(f));
   }
 }
 
+function makeSectionHeader(
+  title: string,
+  copy: { label: string; payload: () => string },
+): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'section-header';
+  const h3 = document.createElement('h3');
+  h3.textContent = title;
+  wrap.appendChild(h3);
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.textContent = copy.label;
+  btn.addEventListener('click', async () => {
+    const text = copy.payload();
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'Copied ✓';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = copy.label;
+        btn.classList.remove('copied');
+      }, 1200);
+    } catch {
+      // Fallback: textarea + select + copy (rare; modern browsers
+      // grant clipboard for user-initiated clicks on HTTPS/localhost).
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = 'Copied ✓';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = copy.label;
+        btn.classList.remove('copied');
+      }, 1200);
+    }
+  });
+  wrap.appendChild(btn);
+  return wrap;
+}
+
 function makeTimelineRow(f: Feature): HTMLElement {
   const row = document.createElement('div');
-  row.className = 'row';
+  row.className = 'row trace'; // reuse .trace cursor + grid-template
   row.dataset.featureId = f.id;
+  row.dataset.expanded = 'false';
+  // Swap the trace template's 4 columns back to 3 (no duration col here).
+  row.style.gridTemplateColumns = '1.2rem 1fr auto';
 
   const icon = document.createElement('span');
   icon.className = 'icon';
@@ -104,6 +158,23 @@ function makeTimelineRow(f: Feature): HTMLElement {
   badge.className = `badge ${f.status}`;
   badge.textContent = f.status;
   row.appendChild(badge);
+
+  // Click anywhere on the row (except the badge) to toggle a JSON block.
+  row.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('.badge')) return;
+    const expanded = row.dataset.expanded === 'true';
+    const existing = row.querySelector<HTMLElement>('.json-block');
+    if (expanded) {
+      row.dataset.expanded = 'false';
+      existing?.remove();
+      return;
+    }
+    row.dataset.expanded = 'true';
+    const block = document.createElement('pre');
+    block.className = 'json-block';
+    block.textContent = JSON.stringify(f, null, 2);
+    row.appendChild(block);
+  });
 
   return row;
 }
@@ -147,7 +218,13 @@ function paramsSummary(f: Feature): string {
 function renderTrace(root: HTMLElement, output: PipelineOutput): void {
   const section = root.querySelector<HTMLElement>('[data-slot="trace"]');
   if (!section) return;
-  section.innerHTML = '<h3>Pipeline trace</h3>';
+  section.innerHTML = '';
+  section.appendChild(
+    makeSectionHeader('Pipeline trace', {
+      label: 'Copy JSON',
+      payload: () => JSON.stringify(output, null, 2),
+    }),
+  );
   for (const featureId of output.trace) {
     const result = output.results[featureId];
     if (!result) continue;
