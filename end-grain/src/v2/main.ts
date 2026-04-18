@@ -265,13 +265,21 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
  *
  * Layout: the pieces (offcut, slices, offcut) stay at their **original
  * cut angle** — they remain the parallelogram prisms the saw actually
- * produced — and each one is translated along the cut-normal by a
- * uniform gap. Adjacent pieces no longer touch at their cut faces,
- * so the cut surfaces are clearly visible between them.
+ * produced — and are laid out along the cut-normal through the origin
+ * with a uniform gap between each. All pieces share a single axis
+ * (their lateral, perpendicular-to-normal offsets from the baked
+ * panel position are cancelled), so the row marches cleanly along
+ * the normal rather than stair-stepping.
  *
- * We don't axis-align the pieces. Keeping the rip angle makes the
- * geometry honest — the viewer sees the shape the blade left behind,
- * not a tidied-up rectangle.
+ * Gap sizing — derived from the geometry, not picked by eye. The
+ * interior cut face is perpendicular to the cut-normal, dimensioned
+ * by (face_chord × panel_thickness). As the user orbits off-normal
+ * by angle α, the neighbour's near edge starts occluding the face.
+ * Line-of-sight clears when G ≥ face_dim / tan(α). For a generous
+ * 45° orbital range in any direction, G = max(face_chord, Y_extent).
+ * The chord length is taken as the longest topFace edge (the two
+ * cut-plane edges of a slice's topFace are longer than the
+ * pitch-boundary edges at any non-degenerate rip).
  *
  * Offcuts are included at the row ends with reduced opacity so they
  * read as "discarded" — present for context, but visually secondary
@@ -295,33 +303,96 @@ function buildCutOutputGroup(cut: CutResult): Group {
   if (cut.offcuts[1]) pieces.push({ snap: cut.offcuts[1], kind: 'offcut' });
   if (pieces.length === 0) return group;
 
-  // Gap between pieces, measured along the cut-normal. Uniform so
-  // the visual rhythm is even regardless of piece kind.
-  const gap = 20;
-  const explodeIndex = (i: number) => (i - (pieces.length - 1) / 2) * gap;
+  // Measure each piece along and perpendicular to the cut-normal.
+  // We also track the longest topFace edge (≈ cut-face chord length)
+  // and the Y extent (≈ panel thickness) for gap sizing.
+  type Measured = {
+    piece: Piece;
+    widthD: number;      // thickness along cut-normal
+    centerD: number;     // centroid along cut-normal
+    centerP: number;     // centroid perpendicular to normal (in XZ)
+    centerY: number;     // centroid along Y
+    maxEdgeXZ: number;   // longest topFace edge (cut-face chord)
+    yExtent: number;     // Y extent of the piece
+  };
+  const measured: Measured[] = pieces.map((piece) => {
+    let minD = Infinity, maxD = -Infinity;
+    let minP = Infinity, maxP = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let longestEdge = 0;
+    for (const vol of piece.snap.volumes) {
+      const f = vol.topFace;
+      for (let i = 0; i < f.length; i++) {
+        const p = f[i];
+        const d = p.x * sin + p.z * cos;
+        const t = -p.x * cos + p.z * sin;
+        if (d < minD) minD = d;
+        if (d > maxD) maxD = d;
+        if (t < minP) minP = t;
+        if (t > maxP) maxP = t;
+        const q = f[(i + 1) % f.length];
+        const elen = Math.hypot(q.x - p.x, q.z - p.z);
+        if (elen > longestEdge) longestEdge = elen;
+      }
+      if (vol.bbox.min[1] < minY) minY = vol.bbox.min[1];
+      if (vol.bbox.max[1] > maxY) maxY = vol.bbox.max[1];
+    }
+    return {
+      piece,
+      widthD: Math.max(0, maxD - minD),
+      centerD: (minD + maxD) / 2,
+      centerP: (minP + maxP) / 2,
+      centerY: (minY + maxY) / 2,
+      maxEdgeXZ: longestEdge,
+      yExtent: Math.max(0, maxY - minY),
+    };
+  });
 
-  pieces.forEach((piece, i) => {
-    const meshGroup = buildGroupFromSnapshot(piece.snap);
-    // Additional translation along the cut-normal — symmetric about
-    // the mid-piece so the row stays centred on the original panel.
-    const offset = explodeIndex(i);
-    meshGroup.position.x += offset * sin;
-    meshGroup.position.z += offset * cos;
+  // Gap ≥ max(cut-face chord, panel Y thickness) gives a clear
+  // line-of-sight to the whole interior face from ~45° off-normal.
+  const gap = measured.reduce(
+    (g, m) => Math.max(g, m.maxEdgeXZ, m.yExtent),
+    0,
+  );
 
-    meshGroup.userData.kind = piece.kind;
-    if (piece.kind === 'slice') {
-      meshGroup.userData.sliceIdx = i - (cut.offcuts[0] ? 1 : 0);
+  // Lay the pieces out on a common axis running along the cut-normal
+  // through the origin. Each piece's baked lateral offset (its
+  // perpendicular-to-normal position in the original panel) is
+  // cancelled, so the row doesn't stair-step sideways.
+  const totalWidth =
+    measured.reduce((a, m) => a + m.widthD, 0) + gap * (measured.length - 1);
+  let cursor = -totalWidth / 2;
+
+  let sliceIdx = 0;
+  for (const m of measured) {
+    const meshGroup = buildGroupFromSnapshot(m.piece.snap);
+    // Target centroid: on the cut-normal axis through origin, at
+    // along-normal distance targetD. The piece's current baked
+    // centroid is at (currentX, centerY, currentZ); translate it to
+    // (targetX, 0, targetZ).
+    const targetD = cursor + m.widthD / 2;
+    const currentX = m.centerD * sin - m.centerP * cos;
+    const currentZ = m.centerD * cos + m.centerP * sin;
+    const targetX = targetD * sin;
+    const targetZ = targetD * cos;
+    meshGroup.position.set(
+      targetX - currentX,
+      -m.centerY,
+      targetZ - currentZ,
+    );
+
+    meshGroup.userData.kind = m.piece.kind;
+    if (m.piece.kind === 'slice') {
+      meshGroup.userData.sliceIdx = sliceIdx++;
     }
 
-    // Offcut treatment: dim meshes + edges so they read as discarded.
-    if (piece.kind === 'offcut') {
+    if (m.piece.kind === 'offcut') {
       meshGroup.traverse((obj) => {
         const anyObj = obj as any;
         if (anyObj.isMesh && anyObj.material) {
-          const mat = anyObj.material;
-          mat.transparent = true;
-          mat.opacity = 0.2;
-          mat.depthWrite = false;
+          anyObj.material.transparent = true;
+          anyObj.material.opacity = 0.2;
+          anyObj.material.depthWrite = false;
         }
         if (anyObj.isLineSegments && anyObj.material) {
           anyObj.material.transparent = true;
@@ -331,7 +402,8 @@ function buildCutOutputGroup(cut: CutResult): Group {
     }
 
     group.add(meshGroup);
-  });
+    cursor += m.widthD + gap;
+  }
 
   return group;
 }
