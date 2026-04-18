@@ -281,12 +281,25 @@ function setupViewport(
   bbox.getSize(size);
   bbox.getCenter(centre);
   const diag = size.length();
-  const camDist = diag * 1.3;
 
+  // Camera orientation matches the 2D summary's top-down convention:
+  // +X horizontal (right), +Z going down on screen. A viewer can look
+  // at a Cut A tile, find that same slice in the 3D viewport, and
+  // trace both in the same orientation.
+  //
+  // camera.up = (0, 0, -1) makes world -Z the screen-up direction,
+  // which maps world +Z to screen-down (matching the SVG convention).
+  // Tilt = 20° off straight-down so the board's Y-thickness shows as
+  // a side lip rather than the panel reading as a flat rect.
+  const tilt = 0.35; // radians ≈ 20°
+  const camDist = Math.max(size.x, size.z) * 1.3;
   const camera = new PerspectiveCamera(45, 1, 0.5, diag * 10);
-  camera.position
-    .copy(centre)
-    .add(new Vector3(camDist * 0.45, camDist * 0.75, camDist * 0.55));
+  camera.up.set(0, 0, -1);
+  camera.position.set(
+    centre.x,
+    centre.y + camDist * Math.cos(tilt),
+    centre.z - camDist * Math.sin(tilt),
+  );
   camera.lookAt(centre);
 
   const controls = new OrbitControls(camera, renderer.domElement);
