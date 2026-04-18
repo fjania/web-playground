@@ -94,6 +94,47 @@ describe('runPipeline — default timeline', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Provenance — slice sliceProvenance at rip=0 and rip=30°.
+// ---------------------------------------------------------------------------
+
+describe('runPipeline — slice provenance', () => {
+  it('rip=0: every slice carries the full strip list', () => {
+    const out = runPipeline(checkerboardTimeline());
+    const r = out.results['cut-0'] as CutResult;
+    const fullStripList = ['strip-0', 'strip-1', 'strip-2', 'strip-3',
+                          'strip-4', 'strip-5', 'strip-6', 'strip-7'];
+    for (const { contributingStripIds } of r.sliceProvenance) {
+      expect([...contributingStripIds].sort()).toEqual([...fullStripList].sort());
+    }
+  });
+
+  it('rip=30°: slice bboxes differ per slice (angled cut staggers them)', () => {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    const cut = timeline[1];
+    if (cut.kind !== 'cut') throw new Error('unexpected shape');
+    cut.rip = 30;
+
+    const out = runPipeline(timeline);
+    const r = out.results['cut-0'] as CutResult;
+    expect(r.slices.length).toBeGreaterThan(1);
+
+    // Successive slices must have distinct bboxes — because the cut
+    // plane is angled, each slice's min-Z differs from the previous.
+    for (let i = 1; i < r.slices.length; i++) {
+      const prev = r.slices[i - 1];
+      const cur = r.slices[i];
+      const samePosition =
+        prev.bbox.min[2] === cur.bbox.min[2] &&
+        prev.bbox.max[2] === cur.bbox.max[2] &&
+        prev.bbox.min[0] === cur.bbox.min[0] &&
+        prev.bbox.max[0] === cur.bbox.max[0];
+      expect(samePosition).toBe(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Mitred identity — rip=30°, no edits. Tests the cursor-slide algorithm's
 // ability to reassemble flush at any cut angle.
 // ---------------------------------------------------------------------------
