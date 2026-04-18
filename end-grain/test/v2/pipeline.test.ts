@@ -288,6 +288,147 @@ describe('runPipeline — mitred cut (rip=30°) discards partial slices', () => 
 });
 
 // ---------------------------------------------------------------------------
+// Bevel sweep — rip=0°, pitch=50 on the default 100×50×400 panel.
+//
+// Safe-extent formula from executeCut with α = 90° − bevel:
+//   safe = cos α · (Lz·|cos θ| − Lx·|sin θ|) − Ly·|sin α|
+// At rip=0 this reduces to: safe = cos α · Lz − Ly · sin α.
+//
+// Output Z extent of the (identity) Arrange:
+//   zExtent = (count · pitch + sin α · Ly) / cos α
+// — the outermost plane offsets project across the panel's Y dimension
+// with a sin α · Ly shift, then scale by 1/cos α to convert from
+// along-normal distance to along-Z distance.
+// ---------------------------------------------------------------------------
+
+describe.each([
+  { bevel: 90, expectedCount: 8 },  // α=0  → safe = 400
+  { bevel: 75, expectedCount: 7 },  // α=15 → safe ≈ 373.4
+  { bevel: 60, expectedCount: 6 },  // α=30 → safe ≈ 321.4
+  { bevel: 45, expectedCount: 4 },  // α=45 → safe ≈ 247.5
+])('runPipeline — bevel=$bevel° (rip=0) on default 100×50×400 panel', ({ bevel, expectedCount }) => {
+  function runAtBevel(): {
+    compose: ComposeStripsResult;
+    arrange: ArrangeResult;
+    cut: CutResult;
+  } {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    const cutFeature = timeline[1];
+    if (cutFeature.kind !== 'cut') throw new Error('unexpected shape');
+    cutFeature.bevel = bevel;
+    const out = runPipeline(timeline);
+    return {
+      compose: out.results['compose-0'] as ComposeStripsResult,
+      arrange: out.results['arrange-0'] as ArrangeResult,
+      cut: out.results['cut-0'] as CutResult,
+    };
+  }
+
+  it(`produces ${expectedCount} inner slices per safe-extent formula`, () => {
+    const { cut } = runAtBevel();
+    expect(cut.slices.length).toBe(expectedCount);
+  });
+
+  it('identity arrange preserves full X width', () => {
+    const { compose, arrange } = runAtBevel();
+    const inputX = compose.panel.bbox.max[0] - compose.panel.bbox.min[0];
+    const outputX = arrange.panel.bbox.max[0] - arrange.panel.bbox.min[0];
+    expect(outputX).toBeCloseTo(inputX, 2);
+  });
+
+  it('output Z extent matches (count*pitch + sinα*Ly)/cosα', () => {
+    const { compose, arrange } = runAtBevel();
+    const Ly = compose.panel.bbox.max[1] - compose.panel.bbox.min[1];
+    const alphaRad = ((90 - bevel) * Math.PI) / 180;
+    const pitch = 50;
+    const expectedZ =
+      (expectedCount * pitch + Math.sin(alphaRad) * Ly) / Math.cos(alphaRad);
+    const outputZ = arrange.panel.bbox.max[2] - arrange.panel.bbox.min[2];
+    expect(outputZ).toBeCloseTo(expectedZ, 1);
+  });
+
+  it('output bbox is centred (symmetric about origin)', () => {
+    const { arrange } = runAtBevel();
+    expect(arrange.panel.bbox.min[0] + arrange.panel.bbox.max[0]).toBeCloseTo(0, 2);
+    expect(arrange.panel.bbox.min[2] + arrange.panel.bbox.max[2]).toBeCloseTo(0, 2);
+  });
+
+  it('panel thickness (Y) is preserved through the cut', () => {
+    const { compose, arrange } = runAtBevel();
+    const inputY = compose.panel.bbox.max[1] - compose.panel.bbox.min[1];
+    const outputY = arrange.panel.bbox.max[1] - arrange.panel.bbox.min[1];
+    expect(outputY).toBeCloseTo(inputY, 2);
+  });
+
+  it('every slice has topFace polygon with 3+ points', () => {
+    const { cut } = runAtBevel();
+    for (const slice of cut.slices) {
+      for (const v of slice.volumes) {
+        expect(v.topFace.length).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it('slice Z extent matches (pitch + sinα*Ly)/cosα (bevelled trapezoidal prism)', () => {
+    const { compose, cut } = runAtBevel();
+    const Ly = compose.panel.bbox.max[1] - compose.panel.bbox.min[1];
+    const alphaRad = ((90 - bevel) * Math.PI) / 180;
+    const pitch = 50;
+    const expectedZ = (pitch + Math.sin(alphaRad) * Ly) / Math.cos(alphaRad);
+    // Look at the first slice — all slices share the same Z extent
+    // (identical shapes, just translated along the cut-normal).
+    if (cut.slices.length > 0) {
+      const sliceZ =
+        cut.slices[0].bbox.max[2] - cut.slices[0].bbox.min[2];
+      expect(sliceZ).toBeCloseTo(expectedZ, 1);
+    }
+  });
+});
+
+describe('runPipeline — liveCutSlices surfaced under preserveLive', () => {
+  it('populates liveCutSlices for each Cut with one Panel per slice', () => {
+    const timeline = defaultTimeline(createIdCounter());
+    const out = runPipeline(timeline, { preserveLive: true });
+    expect(out.liveCutSlices).toBeDefined();
+    const cutSlices = out.liveCutSlices!['cut-0'];
+    expect(cutSlices).toBeDefined();
+    const snap = (out.results['cut-0'] as CutResult).slices;
+    expect(cutSlices.length).toBe(snap.length);
+    // Clean up — caller owns these.
+    for (const p of cutSlices) p.dispose();
+    if (out.livePanels) {
+      for (const p of Object.values(out.livePanels)) p.dispose();
+    }
+  });
+
+  it('omits liveCutSlices without preserveLive', () => {
+    const timeline = defaultTimeline(createIdCounter());
+    const out = runPipeline(timeline);
+    expect(out.liveCutSlices).toBeUndefined();
+  });
+
+  it('live slices at bevel=60° carry bevel-tilted manifold (Z extent > pitch)', () => {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    const cut = timeline[1];
+    if (cut.kind !== 'cut') throw new Error('unexpected timeline shape');
+    cut.bevel = 60;
+    const out = runPipeline(timeline, { preserveLive: true });
+    const slices = out.liveCutSlices!['cut-0'];
+    const firstBbox = slices[0].boundingBox();
+    const zExtent = firstBbox.max.z - firstBbox.min.z;
+    // At bevel=60 (α=30), pitch=50, Ly=50:
+    //   zExtent = (50 + sin30·50)/cos30 = 75/0.866 ≈ 86.6
+    expect(zExtent).toBeCloseTo(86.6, 0);
+    for (const p of slices) p.dispose();
+    if (out.livePanels) {
+      for (const p of Object.values(out.livePanels)) p.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Serialisability — model is the source of truth.
 // ---------------------------------------------------------------------------
 
