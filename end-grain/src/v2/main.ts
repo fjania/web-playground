@@ -50,6 +50,21 @@ await initManifold();
 
 // ---- Pipeline ----
 const timeline = defaultTimeline(createIdCounter());
+
+// Optional: override the cut's rip angle via `?rip=30` in the URL.
+// Useful for verifying the v2.2 cursor-slide / concat-in-place
+// algorithm visually — mitred identity should reassemble flush in
+// the 3D final tile. No effect on the default load.
+const params = new URLSearchParams(window.location.search);
+const ripOverride = params.get('rip');
+if (ripOverride !== null) {
+  const rip = Number(ripOverride);
+  if (Number.isFinite(rip)) {
+    const cut = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
+    if (cut) cut.rip = rip;
+  }
+}
+
 const output = runPipeline(timeline, { preserveLive: true });
 const livePanels = output.livePanels ?? {};
 
@@ -62,7 +77,8 @@ if (!finalPanel) throw new Error('pipeline did not preserve final arrange panel'
 const composeResult = output.results['compose-0'] as ComposeStripsResult;
 const cutResult = output.results['cut-0'] as CutResult;
 renderComposeTile(composeResult);
-renderCutTile(cutResult);
+const cutFeature = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
+renderCutTile(cutResult, cutFeature);
 
 // ---- Final output: 3D viewport, always on ----
 const finalTileEl = requireTile(finalArrangeId);
@@ -143,7 +159,10 @@ function renderComposeTile(result: ComposeStripsResult): void {
   updateMetaFromSnapshot(tile, result.panel, 'compose');
 }
 
-function renderCutTile(result: CutResult): void {
+function renderCutTile(
+  result: CutResult,
+  cut: (Feature & { kind: 'cut' }) | undefined,
+): void {
   const tile = requireTile('cut-0');
   const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
   const subtitle = tile.querySelector<HTMLElement>('.subtitle');
@@ -156,10 +175,12 @@ function renderCutTile(result: CutResult): void {
     subtitle.textContent = `cut-0 · slice 0 of ${result.slices.length}`;
   }
   if (meta) {
-    const first = result.slices[0];
-    if (first) {
-      const zExt = (first.bbox.max[2] - first.bbox.min[2]).toFixed(0);
-      meta.textContent = `${result.slices.length} slices · pitch ${zExt} mm`;
+    if (result.slices.length > 0 && cut) {
+      // Pitch is taken from the Cut feature itself (the perpendicular
+      // cut spacing along the cut-normal). Reading Z-extent from the
+      // slice snapshot overstates pitch for rip != 0 because the
+      // slice's AABB is wider in Z than the true slice thickness.
+      meta.textContent = `${result.slices.length} slices · pitch ${cut.pitch} mm · rip ${cut.rip}°`;
     } else {
       meta.textContent = 'no slices';
     }
