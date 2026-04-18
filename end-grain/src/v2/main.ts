@@ -37,7 +37,7 @@ import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';
 import { buildPanelGroup, disposePanelGroup } from './scene/meshBuilder';
-import { summarize } from './render/summary';
+import { summarize, summarizeSlices } from './render/summary';
 import type { Panel } from './domain/Panel';
 import type {
   ArrangeResult,
@@ -168,18 +168,19 @@ function renderCutTile(
   const subtitle = tile.querySelector<HTMLElement>('.subtitle');
   const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
 
+  // Render ALL slices as an "exploded" stack with small Z-gaps
+  // between them. The downstream Arrange(identity) pushes these
+  // same slices flush together, so the relationship is visually
+  // obvious: Cut A is the panel pulled apart; Final output is
+  // those slices put back together.
   if (slot && result.slices.length > 0) {
-    slot.innerHTML = summarize(result.slices[0]);
+    slot.innerHTML = summarizeSlices(result.slices, { gap: 15 });
   }
   if (subtitle) {
-    subtitle.textContent = `cut-0 · slice 0 of ${result.slices.length}`;
+    subtitle.textContent = `cut-0 · ${result.slices.length} slices, exploded`;
   }
   if (meta) {
     if (result.slices.length > 0 && cut) {
-      // Pitch is taken from the Cut feature itself (the perpendicular
-      // cut spacing along the cut-normal). Reading Z-extent from the
-      // slice snapshot overstates pitch for rip != 0 because the
-      // slice's AABB is wider in Z than the true slice thickness.
       meta.textContent = `${result.slices.length} slices · pitch ${cut.pitch} mm · rip ${cut.rip}°`;
     } else {
       meta.textContent = 'no slices';
@@ -194,7 +195,7 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
   if (stageId === 'compose-0') {
     slot.innerHTML = summarize(composeResult.panel);
   } else if (stageId === 'cut-0' && cutResult.slices.length > 0) {
-    slot.innerHTML = summarize(cutResult.slices[0]);
+    slot.innerHTML = summarizeSlices(cutResult.slices, { gap: 15 });
   } else {
     // For any other stage (future arrange-N), summarize its result's panel.
     const result = output.results[stageId];

@@ -51,6 +51,64 @@ export const SPECIES_COLOURS: Record<Species, string> = {
 const STROKE = '#00000022';
 const STROKE_WIDTH = 0.5;
 
+/**
+ * Render a collection of slice snapshots (the output of a Cut) as a
+ * single SVG with small Z-gaps between slices so the viewer sees
+ * them as distinct pieces. The stacked-along-Z layout is the same
+ * orientation as `summarize()` — +X right, +Z down — so the Cut
+ * tile and the downstream Arrange tile stay visually comparable.
+ *
+ * With `gap = 0` this produces output equivalent to summarizing
+ * the concat of all slices in their baked positions (i.e., the
+ * identity-Arrange output). A non-zero gap shifts each slice along
+ * +Z by `sliceIdx * gap` so the separations become visible.
+ */
+export function summarizeSlices(
+  slices: PanelSnapshot[],
+  options: { gap?: number } = {},
+): SvgString {
+  const gap = options.gap ?? 10;
+  if (slices.length === 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 0 0"/>`;
+  }
+
+  // Shift each slice's volumes by (sliceIdx * gap) along +Z and
+  // accumulate the composite bbox.
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  const shiftedVolumes: PanelSnapshot['volumes'] = [];
+  slices.forEach((slice, i) => {
+    const dz = i * gap;
+    for (const v of slice.volumes) {
+      const shifted = {
+        species: v.species,
+        bbox: {
+          min: [v.bbox.min[0], v.bbox.min[1], v.bbox.min[2] + dz] as [number, number, number],
+          max: [v.bbox.max[0], v.bbox.max[1], v.bbox.max[2] + dz] as [number, number, number],
+        },
+        contributingStripIds: [...v.contributingStripIds],
+        topFace: v.topFace.map((p) => ({ x: p.x, z: p.z + dz })),
+      };
+      shiftedVolumes.push(shifted);
+      if (shifted.bbox.min[0] < minX) minX = shifted.bbox.min[0];
+      if (shifted.bbox.max[0] > maxX) maxX = shifted.bbox.max[0];
+      if (shifted.bbox.min[2] < minZ) minZ = shifted.bbox.min[2];
+      if (shifted.bbox.max[2] > maxZ) maxZ = shifted.bbox.max[2];
+    }
+  });
+
+  return summarize({
+    bbox: {
+      min: [minX, 0, minZ],
+      max: [maxX, 0, maxZ],
+    },
+    volumes: shiftedVolumes,
+  });
+}
+
 export function summarize(snapshot: PanelSnapshot): SvgString {
   const { min, max } = snapshot.bbox;
   const minX = min[0];
