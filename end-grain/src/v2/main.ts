@@ -102,6 +102,7 @@ if (cutOverride) {
 
 const output = runPipeline(timeline, { preserveLive: true });
 const livePanels = output.livePanels ?? {};
+const liveCutSlices = output.liveCutSlices ?? {};
 
 const finalArrangeId = findLastArrangeId(timeline);
 if (!finalArrangeId) throw new Error('no arrange in timeline');
@@ -120,13 +121,21 @@ mountInspector({ timeline, output });
 
 // ---- Output tile: 3D viewport of the SELECTED operation's output ----
 // For the current bootstrap the selected operation is cut-0, so the
-// output is cut-0's slices. Rendered from snapshots via the
-// snapshot-based mesh builder — no need for a live Panel here.
-// The tile's DOM still uses data-stage="arrange-0" for back-compat
-// with the tile-promotion logic; that gets reworked when #31 lands
-// selection-driven rebinding.
+// output is cut-0's slices. Rendered from LIVE Panel meshes so the
+// actual manifold geometry (including bevel-angled end faces) shows
+// up correctly — snapshot-based rendering only knows the top face
+// polygon and would extrude it straight up, giving a wrong mesh at
+// bevel ≠ 90°.
+//
+// The snapshot `cutResult` is still passed to `buildCutOutputGroup`
+// alongside the live slices, because layout decisions (gap size,
+// offcut detection) are computed from the snapshot's plain-data
+// views. The tile's DOM still uses data-stage="arrange-0" for
+// back-compat with the tile-promotion logic; that gets reworked
+// when #31 lands selection-driven rebinding.
 const outputTileEl = requireTile(finalArrangeId);
-const cutOutputGroup = buildCutOutputGroup(cutResult);
+const liveCutSlicesForSelected = liveCutSlices['cut-0'] ?? [];
+const cutOutputGroup = buildCutOutputGroup(cutResult, liveCutSlicesForSelected);
 const finalViewport = setupViewport(outputTileEl, cutOutputGroup, { mode: '3d-final' });
 updateOutputMeta(outputTileEl, cutResult);
 
@@ -278,29 +287,43 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
  * inserts a gap along the panel's long axis (Z) so the pieces
  * separate without a diagonal staircase.
  *
- * Why Z-only and not normal-to-face: the cut-normal at any rip ≠ 0
- * has both X and Z components, so a gap along it drags each piece
- * sideways in X on top of its naturally-offset baked X position.
- * The combined X drift per step produces a staircase that doesn't
- * match the Operation view's single-column layout. Pushing along
- * Z alone keeps every piece within the panel's native X column;
- * pieces stack vertically with 45° band boundaries, matching the
- * Operation view's layout.
+ * Slice meshes come from LIVE Panels (via buildPanelGroup), so the
+ * actual manifold geometry renders correctly even when the cut has
+ * a non-vertical bevel. The snapshot-based builder (used for the
+ * offcuts, where live Panels aren't surfaced today) extrudes the
+ * topFace straight along Y — that only matches truth at bevel=90°.
+ * The layout math still uses the snapshot because it's the plain
+ * data structure with bbox and topFace already computed.
+ *
+ * Why Z-only gap and not normal-to-face: the cut-normal at any rip
+ * ≠ 0 has both X and Z components, so a gap along it drags each
+ * piece sideways in X on top of its naturally-offset baked X
+ * position. The combined X drift per step produces a staircase that
+ * doesn't match the Operation view's single-column layout. Pushing
+ * along Z alone keeps every piece within the panel's native X
+ * column; pieces stack vertically with the cut-plane band
+ * boundaries, matching the Operation view's layout.
  *
  * Gap: the Y thickness of the panel (≈ the "height" of each segment).
  *
  * Offcuts are translucent so they read as discarded.
  */
-function buildCutOutputGroup(cut: CutResult): Group {
+function buildCutOutputGroup(cut: CutResult, liveSlices: Panel[]): Group {
   const group = new Group();
 
   // Pieces in cut order (along the cut-normal, which is also monotonic
   // along Z for any rip where cos(rip) > 0, so cut-order = Z-order).
   type PieceKind = 'slice' | 'offcut';
-  type Piece = { snap: PanelSnapshot; kind: PieceKind };
+  type Piece = {
+    snap: PanelSnapshot;
+    kind: PieceKind;
+    live?: Panel; // present for slices under preserveLive
+  };
   const pieces: Piece[] = [];
   if (cut.offcuts[0]) pieces.push({ snap: cut.offcuts[0], kind: 'offcut' });
-  for (const s of cut.slices) pieces.push({ snap: s, kind: 'slice' });
+  cut.slices.forEach((s, i) => {
+    pieces.push({ snap: s, kind: 'slice', live: liveSlices[i] });
+  });
   if (cut.offcuts[1]) pieces.push({ snap: cut.offcuts[1], kind: 'offcut' });
   if (pieces.length === 0) return group;
 
@@ -314,7 +337,13 @@ function buildCutOutputGroup(cut: CutResult): Group {
   const centerIdx = (pieces.length - 1) / 2;
 
   pieces.forEach((piece, i) => {
-    const meshGroup = buildGroupFromSnapshot(piece.snap);
+    // Live Panel when available (slices under preserveLive) — the
+    // manifold mesh captures bevel-angled end faces faithfully.
+    // Fall back to snapshot extrusion for offcuts (which aren't
+    // surfaced live) and for the headless / no-preserveLive path.
+    const meshGroup = piece.live
+      ? buildPanelGroup(piece.live)
+      : buildGroupFromSnapshot(piece.snap);
     // Push along +Z only. No X motion is introduced — each piece
     // stays in the panel's natural X column, same as the Operation
     // tile.

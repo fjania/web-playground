@@ -56,15 +56,23 @@ export interface PipelineOutput {
   /**
    * Live Panel instances per featureId, populated when
    * `runPipeline(features, { preserveLive: true })` is called.
-   * Present only for features that produce a panel (ComposeStrips
-   * and Arrange for this version; Cut's live slices are not
-   * surfaced). Caller owns these and must call `.dispose()` when
-   * done to free manifold handles.
+   * Present only for features that produce a single panel
+   * (ComposeStrips and Arrange). Caller owns these and must call
+   * `.dispose()` when done to free manifold handles.
    *
    * Absent for the default (pure-function) call to preserve JSON
    * serialisability.
    */
   livePanels?: Record<string, Panel>;
+  /**
+   * Live per-slice Panel instances per Cut featureId, populated
+   * under preserveLive. Each entry is an array of N slices (same
+   * order as the corresponding CutResult.slices snapshots). These
+   * are CLONES of the slices Arrange consumes, so preservation
+   * doesn't interfere with downstream geometry. Caller owns these
+   * and must dispose each Panel when done.
+   */
+  liveCutSlices?: Record<string, Panel[]>;
 }
 
 export interface RunOptions {
@@ -133,9 +141,13 @@ export function runPipeline(features: Feature[], options: RunOptions = {}): Pipe
     }
   }
 
-  // Hand off the accumulated livePanels map (under preserveLive).
+  // Hand off the accumulated livePanels + liveCutSlices maps (under
+  // preserveLive).
   const livePanels = ctx.preserveLive
     ? { ...ctx.livePanelsByFeature }
+    : undefined;
+  const liveCutSlices = ctx.preserveLive
+    ? { ...ctx.liveCutSlicesByFeature }
     : undefined;
 
   ctx.disposeLiveGeometry({ keepLivePanels: ctx.preserveLive });
@@ -144,6 +156,7 @@ export function runPipeline(features: Feature[], options: RunOptions = {}): Pipe
     results: ctx.results,
     trace: ctx.trace,
     ...(livePanels ? { livePanels } : {}),
+    ...(liveCutSlices ? { liveCutSlices } : {}),
   };
 }
 
@@ -174,6 +187,12 @@ class ExecutionContext {
   preserveLive = false;
   /** featureId → live Panel. Accumulates under preserveLive. */
   livePanelsByFeature: Record<string, Panel> = {};
+  /**
+   * featureId → live cut slices. Accumulates under preserveLive.
+   * Clones of the slices the Cut produced, safe to keep past the
+   * downstream Arrange's consumption.
+   */
+  liveCutSlicesByFeature: Record<string, Panel[]> = {};
   /** Which feature last set `lastPanel`. */
   lastPanelFeatureId: string | null = null;
 
@@ -330,6 +349,14 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     sliceIdx,
     contributingStripIds: collectStripIds(s),
   }));
+
+  // Under preserveLive, surface clones of the slices to the caller
+  // via liveCutSlicesByFeature. Clones so downstream Arrange can
+  // still consume (and dispose) the originals normally; the caller
+  // owns the clones and must dispose them when done.
+  if (ctx.preserveLive) {
+    ctx.liveCutSlicesByFeature[f.id] = slices.map((s) => s.clone());
+  }
 
   // Stash live slices for the downstream Arrange. Offcuts always
   // dispose (we don't surface them). The input panel disposes only
