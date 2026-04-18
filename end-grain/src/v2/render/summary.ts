@@ -63,22 +63,34 @@ export function summarize(snapshot: PanelSnapshot): SvgString {
     `viewBox="${fmt(minX)} ${fmt(minZ)} ${fmt(extentX)} ${fmt(extentZ)}" ` +
     `preserveAspectRatio="xMidYMid meet">`;
 
-  const rects = snapshot.volumes.map(rect).join('');
-  return `${header}${rects}</svg>`;
+  const shapes = snapshot.volumes.map(volumeShape).join('');
+  return `${header}${shapes}</svg>`;
 }
 
-function rect(v: PanelSnapshot['volumes'][number]): string {
+/**
+ * Emit a `<polygon>` from the volume's topFace when present, so
+ * angled / rotated geometry renders as its true top-down footprint.
+ * Falls back to `<rect>` from the bbox if topFace is missing or
+ * degenerate (< 3 points) — defensive; should not happen for any
+ * valid pipeline-produced volume.
+ */
+function volumeShape(v: PanelSnapshot['volumes'][number]): string {
+  const fill = SPECIES_COLOURS[v.species];
+  const stroke = `stroke="${STROKE}" stroke-width="${STROKE_WIDTH}"`;
+  const species = `data-species="${v.species}"`;
+  if (v.topFace && v.topFace.length >= 3) {
+    const pts = v.topFace.map((p) => `${fmt(p.x)},${fmt(p.z)}`).join(' ');
+    return `<polygon points="${pts}" fill="${fill}" ${stroke} ${species}/>`;
+  }
+  // Fallback — should be unreachable for pipeline output.
   const x = v.bbox.min[0];
   const z = v.bbox.min[2];
   const w = v.bbox.max[0] - v.bbox.min[0];
   const h = v.bbox.max[2] - v.bbox.min[2];
-  const fill = SPECIES_COLOURS[v.species];
   return (
     `<rect x="${fmt(x)}" y="${fmt(z)}" ` +
     `width="${fmt(w)}" height="${fmt(h)}" ` +
-    `fill="${fill}" ` +
-    `stroke="${STROKE}" stroke-width="${STROKE_WIDTH}" ` +
-    `data-species="${v.species}"/>`
+    `fill="${fill}" ${stroke} ${species}/>`
   );
 }
 

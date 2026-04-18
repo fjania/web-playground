@@ -22,8 +22,17 @@ function finalPanel(timeline: Feature[]): PanelSnapshot {
   return arrange.panel;
 }
 
+/**
+ * Count the number of volume-rendering shapes in the SVG. After v2.3a
+ * was extended with topFace polygons, summary.ts emits <polygon> for
+ * volumes with topFace data and falls back to <rect> only when
+ * topFace is missing. Count both so structural assertions still
+ * reflect "how many volumes got rendered."
+ */
 function countRects(svg: string): number {
-  return (svg.match(/<rect /g) ?? []).length;
+  const rects = (svg.match(/<rect /g) ?? []).length;
+  const polys = (svg.match(/<polygon /g) ?? []).length;
+  return rects + polys;
 }
 
 function countFillOccurrences(svg: string, colour: string): number {
