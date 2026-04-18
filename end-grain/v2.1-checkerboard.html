@@ -277,43 +277,47 @@
   <div class="tiles">
     <div class="tile">
       <div class="tile-label">panel (top view)</div>
-      <svg viewBox="0 0 4 4" width="80%" preserveAspectRatio="xMidYMid meet">
-        <rect x="0" y="0" width="2" height="4" fill="var(--maple)"/>
-        <rect x="2" y="0" width="2" height="4" fill="var(--walnut)"/>
-        <line x1="2" y1="0" x2="2" y2="4" stroke="#1a1816" stroke-width="0.05"/>
+      <svg viewBox="0 0 4 8" width="55%" preserveAspectRatio="xMidYMid meet">
+        <rect x="0" y="0" width="2" height="8" fill="var(--maple)"/>
+        <rect x="2" y="0" width="2" height="8" fill="var(--walnut)"/>
+        <line x1="2" y1="0" x2="2" y2="8" stroke="#1a1816" stroke-width="0.04"/>
       </svg>
       <div class="tile-note">2 strips · 100×50×400</div>
     </div>
     <div class="tile">
       <div class="tile-label">cut A (top view)</div>
-      <svg viewBox="0 0 8 4" width="95%" preserveAspectRatio="xMidYMid meet">
-        <!-- 8 slices, each 0.9 wide with 0.1 gap. Each slice shows
-             50/50 maple/walnut (2-strip composition). -->
-        <g stroke="#1a1816" stroke-width="0.03">
-          <g transform="translate(0 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(1 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(2 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(3 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(4 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(5 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(6 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(7 0)"><rect width="0.45" height="4" fill="var(--maple)"/><rect x="0.45" width="0.45" height="4" fill="var(--walnut)"/></g>
+      <svg viewBox="0 0 4 8" width="55%" preserveAspectRatio="xMidYMid meet">
+        <!-- 8 slices stacked along the cut direction (vertical here = Z).
+             Each slice preserves the panel's 2-band M|W composition;
+             they're just shown with gaps between so you can see there
+             are 8 separate pieces. -->
+        <g>
+          <g transform="translate(0 0)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 1)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 2)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 3)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 4)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 5)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 6)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 7)"><rect width="2" height="0.85" fill="var(--maple)"/><rect x="2" width="2" height="0.85" fill="var(--walnut)"/></g>
         </g>
+        <line x1="2" y1="0" x2="2" y2="8" stroke="#1a1816" stroke-width="0.03" opacity="0.6"/>
       </svg>
-      <div class="tile-note">8 slices · each 2-band M/W</div>
+      <div class="tile-note">8 slices · each keeps the 2-band composition</div>
     </div>
     <div class="tile">
       <div class="tile-label">join 1 (top view)</div>
-      <svg viewBox="0 0 4 4" width="80%" preserveAspectRatio="xMidYMid meet">
-        <rect x="0" y="0" width="2" height="4" fill="var(--maple)"/>
-        <rect x="2" y="0" width="2" height="4" fill="var(--walnut)"/>
-        <g stroke="#1a1816" stroke-width="0.03" opacity="0.4">
-          <line x1="0" y1="0.5" x2="4" y2="0.5"/><line x1="0" y1="1" x2="4" y2="1"/><line x1="0" y1="1.5" x2="4" y2="1.5"/>
-          <line x1="0" y1="2" x2="4" y2="2"/><line x1="0" y1="2.5" x2="4" y2="2.5"/><line x1="0" y1="3" x2="4" y2="3"/>
-          <line x1="0" y1="3.5" x2="4" y2="3.5"/>
+      <svg viewBox="0 0 4 8" width="55%" preserveAspectRatio="xMidYMid meet">
+        <rect x="0" y="0" width="2" height="8" fill="var(--maple)"/>
+        <rect x="2" y="0" width="2" height="8" fill="var(--walnut)"/>
+        <!-- Faint slice-boundary lines to show the panel was reassembled
+             from 8 slices without transforms. -->
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.22">
+          <line x1="0" y1="1" x2="4" y2="1"/><line x1="0" y1="2" x2="4" y2="2"/><line x1="0" y1="3" x2="4" y2="3"/><line x1="0" y1="4" x2="4" y2="4"/><line x1="0" y1="5" x2="4" y2="5"/><line x1="0" y1="6" x2="4" y2="6"/><line x1="0" y1="7" x2="4" y2="7"/>
         </g>
+        <line x1="2" y1="0" x2="2" y2="8" stroke="#1a1816" stroke-width="0.04"/>
       </svg>
-      <div class="tile-note">identity arrange · 2×8 vertical stripes</div>
+      <div class="tile-note">identity arrange · panel identical to source</div>
     </div>
   </div>
 
@@ -409,40 +413,7 @@
   <div class="tiles">
     <div class="tile">
       <div class="tile-label">panel (top view)</div>
-      <svg viewBox="0 0 8 4" width="95%" preserveAspectRatio="xMidYMid meet">
-        <g stroke="#1a1816" stroke-width="0.03">
-          <rect x="0" y="0" width="1" height="4" fill="var(--maple)"/>
-          <rect x="1" y="0" width="1" height="4" fill="var(--walnut)"/>
-          <rect x="2" y="0" width="1" height="4" fill="var(--maple)"/>
-          <rect x="3" y="0" width="1" height="4" fill="var(--walnut)"/>
-          <rect x="4" y="0" width="1" height="4" fill="var(--maple)"/>
-          <rect x="5" y="0" width="1" height="4" fill="var(--walnut)"/>
-          <rect x="6" y="0" width="1" height="4" fill="var(--maple)"/>
-          <rect x="7" y="0" width="1" height="4" fill="var(--walnut)"/>
-        </g>
-      </svg>
-      <div class="tile-note">8 strips · 400×50×400</div>
-    </div>
-    <div class="tile">
-      <div class="tile-label">cut A (top view)</div>
-      <svg viewBox="0 0 8 4" width="95%" preserveAspectRatio="xMidYMid meet">
-        <g stroke="#1a1816" stroke-width="0.03">
-          <!-- 8 slices, each showing the 8-strip composition, gaps between slices -->
-          <g transform="translate(0,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(1,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(2,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(3,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(4,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(5,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(6,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-          <g transform="translate(7,0)"><rect x="0" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.1125" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.225" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.3375" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.45" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.5625" y="0" width="0.1125" height="4" fill="var(--walnut)"/><rect x="0.675" y="0" width="0.1125" height="4" fill="var(--maple)"/><rect x="0.7875" y="0" width="0.1125" height="4" fill="var(--walnut)"/></g>
-        </g>
-      </svg>
-      <div class="tile-note">8 slices × 8 bands each</div>
-    </div>
-    <div class="tile">
-      <div class="tile-label">join 1 (top view)</div>
-      <svg viewBox="0 0 8 8" width="92%" preserveAspectRatio="xMidYMid meet">
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
         <g>
           <rect x="0" y="0" width="1" height="8" fill="var(--maple)"/>
           <rect x="1" y="0" width="1" height="8" fill="var(--walnut)"/>
@@ -452,12 +423,72 @@
           <rect x="5" y="0" width="1" height="8" fill="var(--walnut)"/>
           <rect x="6" y="0" width="1" height="8" fill="var(--maple)"/>
           <rect x="7" y="0" width="1" height="8" fill="var(--walnut)"/>
-          <g stroke="#1a1816" stroke-width="0.04" opacity="0.35">
-            <line x1="0" y1="1" x2="8" y2="1"/><line x1="0" y1="2" x2="8" y2="2"/><line x1="0" y1="3" x2="8" y2="3"/><line x1="0" y1="4" x2="8" y2="4"/><line x1="0" y1="5" x2="8" y2="5"/><line x1="0" y1="6" x2="8" y2="6"/><line x1="0" y1="7" x2="8" y2="7"/>
-          </g>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.6">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
         </g>
       </svg>
-      <div class="tile-note">identity · still vertical stripes</div>
+      <div class="tile-note">8 strips · 400×50×400</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">cut A (top view)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <!-- 8 slices stacked along the cut direction. Each slice still
+             carries the panel's full 8-band composition; the cut just
+             separated the panel into 8 cross-sections. -->
+        <g>
+          <g transform="translate(0 0)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 1)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 2)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 3)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 4)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 5)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 6)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+          <g transform="translate(0 7)">
+            <rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/>
+          </g>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.5">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
+        </g>
+      </svg>
+      <div class="tile-note">8 slices · each keeps the 8-band composition</div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">join 1 (top view)</div>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <rect x="0" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="1" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="2" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="3" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="4" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="5" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="6" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="7" y="0" width="1" height="8" fill="var(--walnut)"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.22">
+          <line x1="0" y1="1" x2="8" y2="1"/><line x1="0" y1="2" x2="8" y2="2"/><line x1="0" y1="3" x2="8" y2="3"/><line x1="0" y1="4" x2="8" y2="4"/><line x1="0" y1="5" x2="8" y2="5"/><line x1="0" y1="6" x2="8" y2="6"/><line x1="0" y1="7" x2="8" y2="7"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.6">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
+        </g>
+      </svg>
+      <div class="tile-note">identity arrange · panel identical to source</div>
     </div>
   </div>
 
@@ -530,49 +561,63 @@
   <div class="tiles">
     <div class="tile">
       <div class="tile-label">panel (unchanged)</div>
-      <svg viewBox="0 0 8 4" width="95%" preserveAspectRatio="xMidYMid meet">
-        <g stroke="#1a1816" stroke-width="0.03">
-          <rect x="0" y="0" width="1" height="4" fill="var(--maple)"/><rect x="1" y="0" width="1" height="4" fill="var(--walnut)"/>
-          <rect x="2" y="0" width="1" height="4" fill="var(--maple)"/><rect x="3" y="0" width="1" height="4" fill="var(--walnut)"/>
-          <rect x="4" y="0" width="1" height="4" fill="var(--maple)"/><rect x="5" y="0" width="1" height="4" fill="var(--walnut)"/>
-          <rect x="6" y="0" width="1" height="4" fill="var(--maple)"/><rect x="7" y="0" width="1" height="4" fill="var(--walnut)"/>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <g>
+          <rect x="0" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="1" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="2" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="3" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="4" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="5" y="0" width="1" height="8" fill="var(--walnut)"/>
+          <rect x="6" y="0" width="1" height="8" fill="var(--maple)"/>
+          <rect x="7" y="0" width="1" height="8" fill="var(--walnut)"/>
+        </g>
+        <g stroke="#1a1816" stroke-width="0.03" opacity="0.6">
+          <line x1="1" y1="0" x2="1" y2="8"/><line x1="2" y1="0" x2="2" y2="8"/><line x1="3" y1="0" x2="3" y2="8"/><line x1="4" y1="0" x2="4" y2="8"/><line x1="5" y1="0" x2="5" y2="8"/><line x1="6" y1="0" x2="6" y2="8"/><line x1="7" y1="0" x2="7" y2="8"/>
         </g>
       </svg>
-      <div class="tile-note">8 strips · identical to Step 1</div>
+      <div class="tile-note">identical to Step 1</div>
     </div>
     <div class="tile">
       <div class="tile-label">cut A (unchanged)</div>
-      <svg viewBox="0 0 8 4" width="95%" preserveAspectRatio="xMidYMid meet">
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <!-- 8 slices stacked, each preserving the 8-band composition (same as Step 1). -->
         <g>
-          <g stroke="#1a1816" stroke-width="0.03">
-            <rect x="0" y="0" width="0.9" height="4" fill="var(--maple)"/>
-            <rect x="1" y="0" width="0.9" height="4" fill="var(--walnut)"/>
-            <rect x="2" y="0" width="0.9" height="4" fill="var(--maple)"/>
-            <rect x="3" y="0" width="0.9" height="4" fill="var(--walnut)"/>
-            <rect x="4" y="0" width="0.9" height="4" fill="var(--maple)"/>
-            <rect x="5" y="0" width="0.9" height="4" fill="var(--walnut)"/>
-            <rect x="6" y="0" width="0.9" height="4" fill="var(--maple)"/>
-            <rect x="7" y="0" width="0.9" height="4" fill="var(--walnut)"/>
-          </g>
+          <g transform="translate(0 0)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 1)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 2)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 3)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 4)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 5)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 6)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
+          <g transform="translate(0 7)"><rect x="0" width="1" height="0.85" fill="var(--maple)"/><rect x="1" width="1" height="0.85" fill="var(--walnut)"/><rect x="2" width="1" height="0.85" fill="var(--maple)"/><rect x="3" width="1" height="0.85" fill="var(--walnut)"/><rect x="4" width="1" height="0.85" fill="var(--maple)"/><rect x="5" width="1" height="0.85" fill="var(--walnut)"/><rect x="6" width="1" height="0.85" fill="var(--maple)"/><rect x="7" width="1" height="0.85" fill="var(--walnut)"/></g>
         </g>
       </svg>
       <div class="tile-note">slices unchanged</div>
     </div>
     <div class="tile">
       <div class="tile-label">join 1 (CHECKER!)</div>
-      <svg viewBox="0 0 8 8" width="92%" preserveAspectRatio="xMidYMid meet">
-        <rect width="8" height="8" fill="var(--maple)"/>
-        <g fill="var(--walnut)">
-          <!-- row 0: slice 0, no flip: M W M W M W M W -->
-          <rect x="1" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="5" y="0" width="1" height="1"/><rect x="7" y="0" width="1" height="1"/>
-          <!-- row 1: slice 1 flipped: W M W M W M W M -->
-          <rect x="0" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/>
-          <rect x="1" y="2" width="1" height="1"/><rect x="3" y="2" width="1" height="1"/><rect x="5" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/>
-          <rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/>
-          <rect x="1" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/>
-          <rect x="0" y="5" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/>
-          <rect x="1" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="7" y="6" width="1" height="1"/>
-          <rect x="0" y="7" width="1" height="1"/><rect x="2" y="7" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/><rect x="6" y="7" width="1" height="1"/>
+      <svg viewBox="0 0 8 8" width="80%" preserveAspectRatio="xMidYMid meet">
+        <!-- 8 slices stacked flush. Even slices keep their M W M W M W M W
+             order. Odd slices are rotated 180° → species reversed to W M W M W M W M.
+             Result: 8×8 checker. -->
+        <g>
+          <!-- Slice 0 (even, no flip): M W M W M W M W -->
+          <rect x="0" y="0" width="1" height="1" fill="var(--maple)"/><rect x="1" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="0" width="1" height="1" fill="var(--maple)"/><rect x="3" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="0" width="1" height="1" fill="var(--maple)"/><rect x="5" y="0" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="0" width="1" height="1" fill="var(--maple)"/><rect x="7" y="0" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 1 (odd, flipped 180°): W M W M W M W M -->
+          <rect x="0" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="1" width="1" height="1" fill="var(--maple)"/><rect x="2" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="3" y="1" width="1" height="1" fill="var(--maple)"/><rect x="4" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="5" y="1" width="1" height="1" fill="var(--maple)"/><rect x="6" y="1" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="1" width="1" height="1" fill="var(--maple)"/>
+          <!-- Slice 2 (even): M W M W M W M W -->
+          <rect x="0" y="2" width="1" height="1" fill="var(--maple)"/><rect x="1" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="2" width="1" height="1" fill="var(--maple)"/><rect x="3" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="2" width="1" height="1" fill="var(--maple)"/><rect x="5" y="2" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="2" width="1" height="1" fill="var(--maple)"/><rect x="7" y="2" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 3 (odd, flipped): W M W M W M W M -->
+          <rect x="0" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="3" width="1" height="1" fill="var(--maple)"/><rect x="2" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="3" y="3" width="1" height="1" fill="var(--maple)"/><rect x="4" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="5" y="3" width="1" height="1" fill="var(--maple)"/><rect x="6" y="3" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="3" width="1" height="1" fill="var(--maple)"/>
+          <!-- Slice 4 (even): M W M W M W M W -->
+          <rect x="0" y="4" width="1" height="1" fill="var(--maple)"/><rect x="1" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="4" width="1" height="1" fill="var(--maple)"/><rect x="3" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="4" width="1" height="1" fill="var(--maple)"/><rect x="5" y="4" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="4" width="1" height="1" fill="var(--maple)"/><rect x="7" y="4" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 5 (odd, flipped): W M W M W M W M -->
+          <rect x="0" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="5" width="1" height="1" fill="var(--maple)"/><rect x="2" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="3" y="5" width="1" height="1" fill="var(--maple)"/><rect x="4" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="5" y="5" width="1" height="1" fill="var(--maple)"/><rect x="6" y="5" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="5" width="1" height="1" fill="var(--maple)"/>
+          <!-- Slice 6 (even): M W M W M W M W -->
+          <rect x="0" y="6" width="1" height="1" fill="var(--maple)"/><rect x="1" y="6" width="1" height="1" fill="var(--walnut)"/><rect x="2" y="6" width="1" height="1" fill="var(--maple)"/><rect x="3" y="6" width="1" height="1" fill="var(--walnut)"/><rect x="4" y="6" width="1" height="1" fill="var(--maple)"/><rect x="5" y="6" width="1" height="1" fill="var(--walnut)"/><rect x="6" y="6" width="1" height="1" fill="var(--maple)"/><rect x="7" y="6" width="1" height="1" fill="var(--walnut)"/>
+          <!-- Slice 7 (odd, flipped): W M W M W M W M -->
+          <rect x="0" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="1" y="7" width="1" height="1" fill="var(--maple)"/><rect x="2" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="3" y="7" width="1" height="1" fill="var(--maple)"/><rect x="4" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="5" y="7" width="1" height="1" fill="var(--maple)"/><rect x="6" y="7" width="1" height="1" fill="var(--walnut)"/><rect x="7" y="7" width="1" height="1" fill="var(--maple)"/>
         </g>
         <g stroke="#1a1816" stroke-width="0.03" opacity="0.35">
           <line x1="0" y1="1" x2="8" y2="1"/><line x1="0" y1="2" x2="8" y2="2"/><line x1="0" y1="3" x2="8" y2="3"/><line x1="0" y1="4" x2="8" y2="4"/><line x1="0" y1="5" x2="8" y2="5"/><line x1="0" y1="6" x2="8" y2="6"/><line x1="0" y1="7" x2="8" y2="7"/>
