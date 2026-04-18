@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain v2 — 2D summary preview</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    body {
+      margin: 0;
+      padding: 2rem 2rem 4rem;
+      background: #fafaf7;
+      color: #222;
+    }
+    h1 {
+      margin: 0 0 0.25rem;
+      font-size: 1.5rem;
+      font-weight: 500;
+    }
+    p.intro {
+      margin: 0 0 2rem;
+      color: #666;
+      max-width: 60ch;
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+    .tile {
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .tile h2 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .tile .subtitle {
+      margin: -0.5rem 0 0;
+      font-size: 0.8rem;
+      color: #888;
+    }
+    .tile .render {
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f6f5f1;
+      border-radius: 4px;
+      padding: 0.5rem;
+    }
+    .tile svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .tile .meta {
+      font-size: 0.75rem;
+      color: #555;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <h1>End-grain v2 — 2D summary preview</h1>
+  <p class="intro">
+    Each tile runs a canonical pattern through <code>runPipeline()</code>, takes
+    the final arrange's <code>PanelSnapshot</code>, and renders it via
+    <code>summarize()</code>. Throwaway page; the real app uses the same function.
+  </p>
+  <div class="grid" id="grid"></div>
+
+  <script type="module">
+    import { runPipeline } from './src/v2/state/pipeline.ts';
+    import { defaultTimeline } from './src/v2/state/defaultTimeline.ts';
+    import { createIdCounter, allocateId } from './src/v2/state/ids.ts';
+    import { summarize } from './src/v2/render/summary.ts';
+    import { initManifold } from './src/domain/manifold.ts';
+
+    await initManifold();
+
+    function checkerboardTimeline() {
+      const counter = createIdCounter();
+      const strips = Array.from({ length: 8 }, (_, i) => ({
+        stripId: allocateId(counter, 'strip'),
+        species: i % 2 === 0 ? 'maple' : 'walnut',
+        width: 25,
+      }));
+      allocateId(counter, 'compose');
+      return [
+        {
+          kind: 'composeStrips',
+          id: 'compose-0',
+          strips,
+          stripHeight: 50,
+          stripLength: 200,
+          status: 'ok',
+        },
+        { kind: 'cut', id: allocateId(counter, 'cut'), rip: 0, bevel: 90, pitch: 25, showOffcuts: false, status: 'ok' },
+        { kind: 'arrange', id: allocateId(counter, 'arrange'), layout: 'cursor-slide', status: 'ok' },
+        { kind: 'preset', id: allocateId(counter, 'preset'), arrangeId: 'arrange-0', preset: 'flipAlternate', params: {}, status: 'ok' },
+      ];
+    }
+
+    function brickTimeline() {
+      const counter = createIdCounter();
+      const strips = [
+        { stripId: allocateId(counter, 'strip'), species: 'maple', width: 50 },
+        { stripId: allocateId(counter, 'strip'), species: 'walnut', width: 5 },
+        { stripId: allocateId(counter, 'strip'), species: 'maple', width: 50 },
+        { stripId: allocateId(counter, 'strip'), species: 'walnut', width: 5 },
+        { stripId: allocateId(counter, 'strip'), species: 'maple', width: 50 },
+        { stripId: allocateId(counter, 'strip'), species: 'walnut', width: 5 },
+        { stripId: allocateId(counter, 'strip'), species: 'maple', width: 25 },
+      ];
+      allocateId(counter, 'compose');
+      return [
+        { kind: 'composeStrips', id: 'compose-0', strips, stripHeight: 50, stripLength: 400, status: 'ok' },
+        { kind: 'cut', id: allocateId(counter, 'cut'), rip: 0, bevel: 90, pitch: 50, showOffcuts: false, status: 'ok' },
+        { kind: 'arrange', id: allocateId(counter, 'arrange'), layout: 'cursor-slide', status: 'ok' },
+        { kind: 'preset', id: allocateId(counter, 'preset'), arrangeId: 'arrange-0', preset: 'flipAlternate', params: {}, status: 'ok' },
+        { kind: 'preset', id: allocateId(counter, 'preset'), arrangeId: 'arrange-0', preset: 'spacerEveryRow', params: { species: 'walnut', width: 5 }, status: 'ok' },
+      ];
+    }
+
+    function mitredIdentityTimeline() {
+      const counter = createIdCounter();
+      const t = defaultTimeline(counter);
+      t[1].rip = 30;
+      return t;
+    }
+
+    const tiles = [
+      {
+        title: 'Default timeline',
+        subtitle: '2 strips · pitch=50 · identity arrange',
+        timeline: defaultTimeline(createIdCounter()),
+      },
+      {
+        title: 'Checkerboard',
+        subtitle: '8 strips · flipAlternate preset',
+        timeline: checkerboardTimeline(),
+      },
+      {
+        title: 'Brick',
+        subtitle: 'asymmetric compose · flipAlternate · spacerEveryRow',
+        timeline: brickTimeline(),
+      },
+      {
+        title: 'Mitred identity (rip=30°)',
+        subtitle: 'bbox-level rendering — known gap, see #34',
+        timeline: mitredIdentityTimeline(),
+      },
+    ];
+
+    const grid = document.getElementById('grid');
+
+    for (const { title, subtitle, timeline } of tiles) {
+      const out = runPipeline(timeline);
+      const arrange = out.results['arrange-0'];
+      const svg = summarize(arrange.panel);
+
+      const tile = document.createElement('article');
+      tile.className = 'tile';
+      tile.innerHTML = `
+        <h2>${title}</h2>
+        <p class="subtitle">${subtitle}</p>
+        <div class="render">${svg}</div>
+        <div class="meta">
+          ${arrange.panel.volumes.length} volumes ·
+          bbox ${formatBbox(arrange.panel.bbox)}
+        </div>
+      `;
+      grid.appendChild(tile);
+    }
+
+    function formatBbox(bbox) {
+      const x = (bbox.max[0] - bbox.min[0]).toFixed(0);
+      const y = (bbox.max[1] - bbox.min[1]).toFixed(0);
+      const z = (bbox.max[2] - bbox.min[2]).toFixed(0);
+      return `${x}×${y}×${z} mm`;
+    }
+  </script>
+</body>
+</html>
