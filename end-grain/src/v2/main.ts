@@ -263,28 +263,29 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
 /**
  * Build the Output-tile 3D scene for a Cut-selected view.
  *
- * This mirrors the Operation tile's 2D layout — each piece (offcut,
- * slices, offcut) sits at its ORIGINAL cut position, and we simply
- * push each one apart along the cut-normal by a uniform gap per
- * step. Every piece is rendered directly from its snapshot with no
- * extra rotation, scaling, or lateral re-centering; the 3D model
- * is the source of truth, the scene only adds an explode offset.
+ * This reproduces the Operation tile's layout — the tall panel with
+ * diagonal cut bands, each piece in its baked position — and then
+ * inserts a gap along the panel's long axis (Z) so the pieces
+ * separate without a diagonal staircase.
+ *
+ * Why Z-only and not normal-to-face: the cut-normal at any rip ≠ 0
+ * has both X and Z components, so a gap along it drags each piece
+ * sideways in X on top of its naturally-offset baked X position.
+ * The combined X drift per step produces a staircase that doesn't
+ * match the Operation view's single-column layout. Pushing along
+ * Z alone keeps every piece within the panel's native X column;
+ * pieces stack vertically with 45° band boundaries, matching the
+ * Operation view's layout.
  *
  * Gap: the Y thickness of the panel (≈ the "height" of each segment).
- * At this distance the user can orbit off-axis and the interior cut
- * faces are clearly visible between adjacent pieces, and the rhythm
- * matches something the eye already recognises (panel thickness).
  *
- * Offcuts are translucent so they read as discarded — same vocabulary
- * as the faded offcut shading in the operation SVG.
+ * Offcuts are translucent so they read as discarded.
  */
 function buildCutOutputGroup(cut: CutResult): Group {
   const group = new Group();
-  const ripRad = cutFeature ? (cutFeature.rip * Math.PI) / 180 : 0;
-  const sin = Math.sin(ripRad);
-  const cos = Math.cos(ripRad);
 
-  // Pieces in cut order along the cut-normal.
+  // Pieces in cut order (along the cut-normal, which is also monotonic
+  // along Z for any rip where cos(rip) > 0, so cut-order = Z-order).
   type PieceKind = 'slice' | 'offcut';
   type Piece = { snap: PanelSnapshot; kind: PieceKind };
   const pieces: Piece[] = [];
@@ -293,28 +294,21 @@ function buildCutOutputGroup(cut: CutResult): Group {
   if (cut.offcuts[1]) pieces.push({ snap: cut.offcuts[1], kind: 'offcut' });
   if (pieces.length === 0) return group;
 
-  // Gap = panel Y thickness, measured from the first piece that has
-  // any volume. All pieces share the same thickness.
+  // Gap = panel Y thickness.
   let gap = 0;
   for (const p of pieces) {
     const v = p.snap.volumes[0];
     if (v) { gap = v.bbox.max[1] - v.bbox.min[1]; break; }
   }
 
-  // Centre the explosion around the middle of the row so the scene
-  // doesn't drift off-origin — purely cosmetic, keeps the camera
-  // auto-fit happy.
   const centerIdx = (pieces.length - 1) / 2;
 
   pieces.forEach((piece, i) => {
     const meshGroup = buildGroupFromSnapshot(piece.snap);
-    // Push this piece `offset` mm along the cut-normal. Everything
-    // else about the piece — its shape, its baked position within
-    // the panel frame, its orientation — is left exactly as the 3D
-    // model has it.
-    const offset = (i - centerIdx) * gap;
-    meshGroup.position.x = offset * sin;
-    meshGroup.position.z = offset * cos;
+    // Push along +Z only. No X motion is introduced — each piece
+    // stays in the panel's natural X column, same as the Operation
+    // tile.
+    meshGroup.position.z = (i - centerIdx) * gap;
 
     meshGroup.userData.kind = piece.kind;
     if (piece.kind === 'slice') {
