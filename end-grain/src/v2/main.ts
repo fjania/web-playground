@@ -297,21 +297,62 @@ function setupViewport(
   // Tilt = 20° off straight-down so the board's Y-thickness shows as
   // a side lip rather than the panel reading as a flat rect.
   const tilt = 0.35; // radians ≈ 20°
-  const camDist = Math.max(size.x, size.z) * 1.3;
-  const camera = new PerspectiveCamera(45, 1, 0.5, diag * 10);
+  const fovDeg = 45;
+  const fovRad = (fovDeg * Math.PI) / 180;
+  const halfFovV = fovRad / 2;
+
+  // Project the panel's world extents onto the camera's screen axes:
+  // - screen-horizontal = world X
+  // - screen-vertical = world (Y * sin(tilt) + Z * cos(tilt))
+  //   (the on-screen projection of the panel when viewed through the
+  //   tilted camera; derived from the camera's effective up vector.)
+  const horizontalExtent = size.x;
+  const verticalExtent = size.y * Math.sin(tilt) + size.z * Math.cos(tilt);
+
+  /**
+   * Compute the camera distance that fits `horizontalExtent`
+   * horizontally and `verticalExtent` vertically at the given
+   * viewport aspect, with a small padding multiplier so the panel
+   * doesn't touch the tile edges.
+   */
+  function computeFitDistance(aspect: number): number {
+    const halfFovH = Math.atan(aspect * Math.tan(halfFovV));
+    const distV = horizontalExtentToDist(verticalExtent, halfFovV);
+    const distH = horizontalExtentToDist(horizontalExtent, halfFovH);
+    return Math.max(distV, distH) * 1.18; // ~18% padding (9% per side)
+  }
+  function horizontalExtentToDist(extent: number, halfFov: number): number {
+    return extent / 2 / Math.tan(halfFov);
+  }
+
+  const initialAspect = slot.clientWidth / slot.clientHeight || 1;
+  const camera = new PerspectiveCamera(fovDeg, initialAspect, 0.5, diag * 10);
   camera.up.set(0, 0, -1);
-  camera.position.set(
-    centre.x,
-    centre.y + camDist * Math.cos(tilt),
-    centre.z - camDist * Math.sin(tilt),
-  );
   camera.lookAt(centre);
+  positionCameraAtDistance(computeFitDistance(initialAspect));
+
+  function positionCameraAtDistance(d: number): void {
+    camera.position.set(
+      centre.x,
+      centre.y + d * Math.cos(tilt),
+      centre.z - d * Math.sin(tilt),
+    );
+    camera.lookAt(centre);
+  }
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.copy(centre);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.update();
+
+  // Once the user orbits / dollies, stop auto-fitting on resize so
+  // we don't snap their chosen view. Fires on any user interaction
+  // (mousedown, wheel, touchstart).
+  let userHasInteracted = false;
+  controls.addEventListener('start', () => {
+    userHasInteracted = true;
+  });
 
   const ro = new ResizeObserver(() => fit());
   ro.observe(slot);
@@ -322,8 +363,17 @@ function setupViewport(
     const h = slot!.clientHeight;
     if (w === 0 || h === 0) return;
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    const aspect = w / h;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
+
+    // Re-fit camera distance on resize so a narrower tile (e.g. after
+    // the inspector panel opens) doesn't crop the panel. Skip once the
+    // user has orbited so we don't snap their chosen view.
+    if (!userHasInteracted) {
+      positionCameraAtDistance(computeFitDistance(aspect));
+      controls.update();
+    }
   }
 
   let alive = true;
