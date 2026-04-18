@@ -470,31 +470,42 @@
 
   <div class="pattern-card">
     <h4>Brick <a href="/end-grain/v2.1-brick.html" style="font-size: 10px; font-weight: 400; margin-left: 6px; padding: 1px 6px; border-radius: 3px; background: rgba(96,165,250,0.12); color: var(--new); border: 1px solid rgba(96,165,250,0.35); text-decoration: none; vertical-align: middle; letter-spacing: 0.04em; text-transform: uppercase;">walk-through →</a></h4>
-    <div class="meta">single pass · shift</div>
-    <svg class="pattern-vis" viewBox="0 0 8 4" preserveAspectRatio="none">
-      <rect width="8" height="4" fill="#1a1816"/>
-      <g>
-        <rect x="0.05" y="0.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="2.05" y="0.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="4.05" y="0.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="6.05" y="0.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="-0.95" y="1.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="1.05" y="1.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="3.05" y="1.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="5.05" y="1.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="7.05" y="1.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="0.05" y="2.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="2.05" y="2.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="4.05" y="2.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="6.05" y="2.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="-0.95" y="3.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="1.05" y="3.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="3.05" y="3.05" width="1.9" height="0.9" fill="var(--maple)"/>
-        <rect x="5.05" y="3.05" width="1.9" height="0.9" fill="var(--walnut)"/>
-        <rect x="7.05" y="3.05" width="1.9" height="0.9" fill="var(--maple)"/>
+    <div class="meta">single pass · asymmetric compose + flip</div>
+    <svg class="pattern-vis" viewBox="0 0 12 6" preserveAspectRatio="xMidYMid slice">
+      <!-- Walnut background shows as vertical AND horizontal mortar. -->
+      <rect width="12" height="6" fill="var(--walnut)"/>
+      <!-- Maple bricks. Even rows start with a full brick at x=0; odd rows start with a half-brick
+           (this is what the asymmetric compose + flipAlternate produces — the half-maple at one end
+           of the panel lands at the opposite end after flipping, creating the offset). -->
+      <g fill="var(--maple)">
+        <!-- Row 0 (even, y=0..1): full bricks at x=0,3.3,6.6,9.9 -->
+        <rect x="0"   y="0"   width="3"   height="1"/>
+        <rect x="3.3" y="0"   width="3"   height="1"/>
+        <rect x="6.6" y="0"   width="3"   height="1"/>
+        <rect x="9.9" y="0"   width="1.5" height="1"/> <!-- half-brick at end -->
+        <!-- Row 1 (odd, y=1.2..2.2): starts with half-brick then offset full bricks -->
+        <rect x="0"   y="1.2" width="1.5" height="1"/> <!-- half-brick at start -->
+        <rect x="1.8" y="1.2" width="3"   height="1"/>
+        <rect x="5.1" y="1.2" width="3"   height="1"/>
+        <rect x="8.4" y="1.2" width="3"   height="1"/>
+        <!-- Row 2 (even): same as row 0 -->
+        <rect x="0"   y="2.4" width="3"   height="1"/>
+        <rect x="3.3" y="2.4" width="3"   height="1"/>
+        <rect x="6.6" y="2.4" width="3"   height="1"/>
+        <rect x="9.9" y="2.4" width="1.5" height="1"/>
+        <!-- Row 3 (odd): same as row 1 -->
+        <rect x="0"   y="3.6" width="1.5" height="1"/>
+        <rect x="1.8" y="3.6" width="3"   height="1"/>
+        <rect x="5.1" y="3.6" width="3"   height="1"/>
+        <rect x="8.4" y="3.6" width="3"   height="1"/>
+        <!-- Row 4 (even): same as row 0 -->
+        <rect x="0"   y="4.8" width="3"   height="1"/>
+        <rect x="3.3" y="4.8" width="3"   height="1"/>
+        <rect x="6.6" y="4.8" width="3"   height="1"/>
+        <rect x="9.9" y="4.8" width="1.5" height="1"/>
       </g>
     </svg>
-    <div class="recipe"><code>Compose(A,B,A,B,...)</code> → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(shiftAlternate, ½&nbsp;brick)</code>.</div>
+    <div class="recipe"><code>Compose(M, w, M, w, ..., M/2)</code> → <code>Cut(rip=0)</code> → <code>Arrange</code> + <code>Preset(flipAlternate)</code> + <code>SpacerInsert</code> between each pair of slices (walnut mortar). The offset comes from the half-width maple at one end of the compose — not from a shift op.</div>
   </div>
 
   <div class="pattern-card">
@@ -780,7 +791,7 @@
   </thead>
   <tbody>
     <tr><td>Checkerboard</td><td class="fit-yes">full</td><td>Preset(flipAlternate) available at v2.12.</td></tr>
-    <tr><td>Brick</td><td class="fit-yes">full</td><td>Preset(shiftAlternate) available at v2.12.</td></tr>
+    <tr><td>Brick</td><td class="fit-yes">full</td><td>Asymmetric compose (half-brick at one end) + Preset(flipAlternate) at v2.12 + <code>SpacerInsert</code>s for horizontal mortar at v2.17.</td></tr>
     <tr><td>3D cube / isometric</td><td class="fit-yes">full</td><td>Multi-pass + mitred cuts, available at v2.7 + v2.6.</td></tr>
     <tr><td>Herringbone</td><td class="fit-yes">full</td><td>Mitred cut + flipAlternate preset.</td></tr>
     <tr><td>Chevron</td><td class="fit-yes">full</td><td>Mitred cut + mirrorAlternate preset.</td></tr>
