@@ -38,6 +38,7 @@ import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';
 import { buildPanelGroup, disposePanelGroup } from './scene/meshBuilder';
 import { summarize, summarizeSlices } from './render/summary';
+import { mountInspector } from './ui/debugInspector';
 import type { Panel } from './domain/Panel';
 import type {
   ArrangeResult,
@@ -79,6 +80,9 @@ const cutResult = output.results['cut-0'] as CutResult;
 renderComposeTile(composeResult);
 const cutFeature = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
 renderCutTile(cutResult, cutFeature);
+
+// ---- Debug inspector (read-only panel) ----
+mountInspector({ timeline, output });
 
 // ---- Final output: 3D viewport, always on ----
 const finalTileEl = requireTile(finalArrangeId);

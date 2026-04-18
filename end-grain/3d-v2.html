@@ -17,7 +17,7 @@
       display: flex;
       flex-direction: column;
     }
-    header {
+    body > header {
       padding: 1rem 1.5rem;
       border-bottom: 1px solid #e4e4e0;
       background: #fff;
@@ -25,23 +25,97 @@
       align-items: baseline;
       gap: 1rem;
     }
-    header h1 {
+    body > header h1 {
       margin: 0;
       font-size: 1.1rem;
       font-weight: 600;
     }
-    header .subtitle {
+    body > header .subtitle {
       margin: 0;
       font-size: 0.8rem;
       color: #888;
     }
-    main {
+    .layout {
       flex: 1;
       min-height: 0;
+      display: flex;
+    }
+    main {
+      flex: 1;
+      min-width: 0;
       padding: 1.5rem;
       display: flex;
       gap: 1rem;
       overflow: auto;
+    }
+    #inspector {
+      flex: 0 0 320px;
+      border-left: 1px solid #e4e4e0;
+      background: #fff;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      transition: flex-basis 180ms ease;
+    }
+    #inspector[data-collapsed="true"] {
+      flex-basis: 36px;
+    }
+    #inspector header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fafaf7;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #inspector[data-collapsed="true"] header {
+      padding: 0.75rem 0.5rem;
+      justify-content: center;
+    }
+    #inspector header h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      flex: 1;
+    }
+    #inspector[data-collapsed="true"] header h2 {
+      display: none;
+    }
+    #inspector header button {
+      background: transparent;
+      border: 1px solid #d4d4d0;
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #666;
+    }
+    #inspector header button:hover {
+      background: #f0f0ea;
+    }
+    #inspector .inspector-body {
+      padding: 0.75rem 1rem 1.5rem;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #333;
+    }
+    #inspector[data-collapsed="true"] .inspector-body {
+      display: none;
+    }
+    #inspector section + section {
+      margin-top: 1rem;
+    }
+    #inspector section h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #888;
     }
     .tile {
       background: #fff;
@@ -136,6 +210,7 @@
     <h1>End-grain v2 — 3D bootstrap</h1>
     <p class="subtitle">default timeline · <code>3d-v2.html</code></p>
   </header>
+  <div class="layout">
   <main id="tiles">
     <article class="tile tile--2d" data-stage="compose-0">
       <header>
@@ -168,6 +243,23 @@
       <div class="meta" data-slot="meta"></div>
     </article>
   </main>
+  <aside id="inspector" data-collapsed="false" aria-label="Debug inspector">
+    <header>
+      <h2>Debug inspector</h2>
+      <button type="button" data-role="toggle" title="Toggle inspector">☰</button>
+    </header>
+    <div class="inspector-body" data-slot="inspector-body">
+      <section data-slot="timeline">
+        <h3>Timeline</h3>
+        <div class="placeholder">timeline pending</div>
+      </section>
+      <section data-slot="trace">
+        <h3>Pipeline trace</h3>
+        <div class="placeholder">trace pending</div>
+      </section>
+    </div>
+  </aside>
+  </div>
   <script type="module" src="./src/v2/main.ts"></script>
 </body>
 </html>
