@@ -245,6 +245,7 @@ export class Panel {
           max: [bb.max[0], bb.max[1], bb.max[2]] as [number, number, number],
         },
         contributingStripIds: [...s.contributingStripIds],
+        topFace: extractTopFacePolygon(s.manifold),
       };
     });
     const panelBox = this.boundingBox();
@@ -261,4 +262,60 @@ export class Panel {
     for (const s of this.segments) s.manifold.delete();
     this.segments = [];
   }
+}
+
+/**
+ * Extract the top-face polygon of a manifold in XZ, at y = max Y.
+ *
+ * Strategy:
+ * 1. Read all vertex positions from the mesh.
+ * 2. Find max Y across all vertices.
+ * 3. Collect vertices whose Y is within epsilon of max Y.
+ * 4. Dedupe (a single logical corner may appear multiple times if
+ *    incident triangles each list it).
+ * 5. Sort angularly around the centroid — for a convex top face (which
+ *    all v2 volumes have: cubes, parallelogram prisms, rotated cubes),
+ *    this yields the polygon in a consistent CCW order around the centre.
+ *
+ * Why not use `.getMeshGL()` or face-id routing: manifold's face
+ * tagging is available but overkill here. We only need the vertex
+ * set on the top plane, and all our volumes are convex prisms, so
+ * angular sort around the centroid is sufficient and stable.
+ */
+function extractTopFacePolygon(
+  manifoldHandle: any,
+): Array<{ x: number; z: number }> {
+  const mesh = manifoldHandle.getMesh();
+  const numVerts: number = mesh.numVert;
+  const numProp: number = mesh.numProp;
+
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < numVerts; i++) {
+    const y = mesh.vertProperties[i * numProp + 1];
+    if (y > maxY) maxY = y;
+  }
+
+  const eps = 1e-4;
+  const seen = new Set<string>();
+  const pts: Array<{ x: number; z: number }> = [];
+  for (let i = 0; i < numVerts; i++) {
+    const y = mesh.vertProperties[i * numProp + 1];
+    if (Math.abs(y - maxY) > eps) continue;
+    const x = mesh.vertProperties[i * numProp];
+    const z = mesh.vertProperties[i * numProp + 2];
+    const key = `${x.toFixed(4)},${z.toFixed(4)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pts.push({ x, z });
+  }
+
+  if (pts.length < 3) return pts;
+
+  // Angular sort around centroid (CCW when viewed from +Y).
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cz = pts.reduce((s, p) => s + p.z, 0) / pts.length;
+  pts.sort(
+    (a, b) => Math.atan2(a.z - cz, a.x - cx) - Math.atan2(b.z - cz, b.x - cx),
+  );
+  return pts;
 }

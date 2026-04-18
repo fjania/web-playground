@@ -60,6 +60,22 @@ export interface PanelSnapshot {
      * contribute to multiple volumes after cuts.
      */
     contributingStripIds: string[];
+    /**
+     * Top-face polygon in XZ, at y = bbox.max[1]. Ordered around
+     * the centroid (CCW when viewed from +Y looking down). Captures
+     * the volume's actual top-down footprint — essential for
+     * angled-cut slices (parallelograms) and rotated slices where
+     * the AABB is a loose over-approximation.
+     *
+     * For axis-aligned volumes, topFace is the 4 corners of the bbox
+     * in XZ. For parallelogram slices (rip != 0), it's the actual
+     * parallelogram. For rotated slices, it's the rotated rectangle.
+     *
+     * Rendering consumers (the 2D summary SVG renderer) should emit
+     * <polygon> from this field rather than <rect> from the AABB,
+     * so the view matches the real geometry.
+     */
+    topFace: Array<{ x: number; z: number }>;
   }>;
 }
 

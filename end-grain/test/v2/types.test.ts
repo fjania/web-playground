@@ -186,11 +186,23 @@ describe('JSON round-trip', () => {
           species: 'maple',
           bbox: { min: [0, 0, 0], max: [50, 50, 400] },
           contributingStripIds: ['strip-0'],
+          topFace: [
+            { x: 0, z: 0 },
+            { x: 50, z: 0 },
+            { x: 50, z: 400 },
+            { x: 0, z: 400 },
+          ],
         },
         {
           species: 'walnut',
           bbox: { min: [50, 0, 0], max: [100, 50, 400] },
           contributingStripIds: ['strip-1'],
+          topFace: [
+            { x: 50, z: 0 },
+            { x: 100, z: 0 },
+            { x: 100, z: 400 },
+            { x: 50, z: 400 },
+          ],
         },
       ],
     };
