@@ -259,38 +259,54 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     };
   }
 
-  // Cut normal: rip is rotation of the cut plane about Y, in degrees.
-  // bevel is tilt about X (from vertical). bevel=90 means the plane is
-  // vertical — for this commit we ignore bevel angles != 90 (deferred).
+  // Cut normal: rip is rotation of the cut plane about Y (in XZ), and
+  // bevel is tilt of the plane from vertical about the in-plane chord
+  // axis. Writing α = 90° − bevel (so α is the tilt MAGNITUDE, zero
+  // when the cut is vertical), the normal is constructed by first
+  // taking the rip-only normal (sin θ, 0, cos θ), then rotating it
+  // by α about the cut-chord axis (cos θ, 0, −sin θ). The result:
+  //   n = (sin θ·cos α, −sin α, cos θ·cos α)
+  // α=0   → n = (sin θ, 0, cos θ)    (vertical cut, today's behaviour)
+  // α=45° → n leans 45° down in Y    (classic 45° bevel)
   const ripRad = (f.rip * Math.PI) / 180;
+  const alphaRad = ((90 - f.bevel) * Math.PI) / 180;
+  const sinR = Math.sin(ripRad);
+  const cosR = Math.cos(ripRad);
+  const sinA = Math.sin(alphaRad);
+  const cosA = Math.cos(alphaRad);
   const normal: [number, number, number] = [
-    Math.sin(ripRad),
-    0,
-    Math.cos(ripRad),
+    sinR * cosA,
+    -sinA,
+    cosR * cosA,
   ];
 
-  // Slice count: use the "safe extent" — the range of plane offsets
-  // where the cut plane passes fully across the panel's X width,
-  // producing a full-width parallelogram slice. Outside that range
-  // the plane exits the panel through the ±Z edges before reaching
-  // both X edges, producing a triangular partial slice that isn't a
-  // usable board piece. Those triangles become offcuts.
+  // Safe extent — range of plane offsets (measured along the normal,
+  // in 3D) that produce a full-chord slice.
   //
-  // Formula: safeExtent = panelZ * |cos(rip)| - panelX * |sin(rip)|.
-  //   At rip=0: panelZ  (full length — every plane is safe).
-  //   At rip=45 (panel 100×400): 400*0.707 - 100*0.707 = 212.1.
-  //   At the critical angle arctan(panelZ / panelX), safeExtent→0 (no full slice fits).
+  // At bevel=90° (α=0) the problem reduces to a 2D one in XZ:
+  //   safe = Lz·|cos θ| − Lx·|sin θ|
   //
-  // For angles beyond that critical angle (a crosscut-dominated rip),
-  // the roles of width and length flip and a different formula is
-  // needed. Deferring; typical end-grain rips stay well under the
-  // critical angle.
+  // With bevel<90° two additional things happen:
+  // 1. The rip-based XZ margin (Lz·|cos θ| − Lx·|sin θ|) needs to be
+  //    measured along the 3D normal, not along the XZ projection, so
+  //    it scales by cos α.
+  // 2. The plane now tilts in Y too, sweeping Ly·|sin α| of extra
+  //    offset to get across the Y dimension of the panel. That
+  //    subtracts from the usable range.
+  //
+  // Combined:
+  //   safe = cos α · (Lz·|cos θ| − Lx·|sin θ|) − Ly·|sin α|
+  //
+  // Validated against the bevel=90° base case (α=0 → cos α=1, sin α=0
+  // → matches the original formula exactly).
   const inputBbox = input.boundingBox();
   const panelX = inputBbox.max.x - inputBbox.min.x;
+  const panelY = inputBbox.max.y - inputBbox.min.y;
   const panelZ = inputBbox.max.z - inputBbox.min.z;
   const safeExtent = Math.max(
     0,
-    panelZ * Math.abs(Math.cos(ripRad)) - panelX * Math.abs(Math.sin(ripRad)),
+    cosA * (panelZ * Math.abs(cosR) - panelX * Math.abs(sinR)) -
+      panelY * Math.abs(sinA),
   );
   const count = Math.max(0, Math.floor(safeExtent / f.pitch));
 
