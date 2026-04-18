@@ -12,7 +12,7 @@ import type {
   CutResult,
   Feature,
   FeatureResult,
-  Panel,
+  PanelSnapshot,
   PlaceEdit,
   PlaceEditOp,
   PlaceEditResult,
@@ -72,7 +72,7 @@ describe('defaultTimeline', () => {
     expect(arrange.id).toBe('arrange-0');
     expect(arrange.layout).toBe('cursor-slide');
     expect(arrange.status).toBe('ok');
-    expect((arrange as Record<string, unknown>).placements).toBeUndefined();
+    expect((arrange as unknown as Record<string, unknown>).placements).toBeUndefined();
   });
 
   it('advances the shared counter so a second allocation gets strip-2', () => {
@@ -179,7 +179,7 @@ describe('JSON round-trip', () => {
   });
 
   it('roundtrips one of every FeatureResult kind', () => {
-    const panel: Panel = {
+    const panel: PanelSnapshot = {
       bbox: { min: [0, 0, 0], max: [100, 50, 400] },
       volumes: [
         {

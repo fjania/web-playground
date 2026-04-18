@@ -9,11 +9,15 @@
  * timeline must round-trip through `JSON.stringify` / `JSON.parse`
  * without loss.
  *
- * `Panel` is the one allowed "rich" type because its v2 shape is a
- * serialisable shadow representation (bbox + species-tagged volume
- * list + provenance) sufficient for all rendering. The concrete
- * Panel class arrives with the pipeline in v2.2 (#20); for now we
- * declare the shadow shape so FeatureResult types can reference it.
+ * `PanelSnapshot` is the serialisable shadow of a panel — bbox +
+ * species-tagged volume list + provenance — sufficient for all
+ * rendering. FeatureResult values carry PanelSnapshots (plain data)
+ * so the JSON-roundtrip invariant stays clean.
+ *
+ * The live `Panel` class that wraps manifold handles for geometry
+ * math lands with the pipeline in v2.2 (#20). It exposes its
+ * PanelSnapshot via `toSnapshot()`; pipeline results only ever
+ * surface snapshots, never live Panel instances.
  */
 
 // ---------------------------------------------------------------------------
@@ -33,15 +37,14 @@ export interface StripDef {
 }
 
 /**
- * Serialisable shadow of a Panel. Enough information for both 2D
- * top-down summary rendering and 3D mesh construction. The concrete
- * Panel class (v2.2) will expose this shape via `toJSON()` / a
- * `shadow` field.
+ * Serialisable shadow of a panel. Enough information for both 2D
+ * top-down summary rendering and 3D mesh construction. The live
+ * `Panel` class (v2.2) will expose this shape via `toSnapshot()`.
  *
  * bbox in mm, using the conventional axes: X = strip-width direction,
  * Y = strip-height (vertical), Z = strip-length / cut-normal direction.
  */
-export interface Panel {
+export interface PanelSnapshot {
   bbox: { min: [number, number, number]; max: [number, number, number] };
   /**
    * One entry per species-homogeneous volume inside the panel, in
@@ -232,15 +235,15 @@ export interface ComposeStripsResult {
   featureId: string;
   status: Status;
   statusReason?: string;
-  panel: Panel;
+  panel: PanelSnapshot;
 }
 
 export interface CutResult {
   featureId: string;
   status: Status;
   statusReason?: string;
-  slices: Panel[];
-  offcuts: Panel[];
+  slices: PanelSnapshot[];
+  offcuts: PanelSnapshot[];
   sliceProvenance: Array<{ sliceIdx: number; contributingStripIds: string[] }>;
 }
 
@@ -248,7 +251,7 @@ export interface ArrangeResult {
   featureId: string;
   status: Status;
   statusReason?: string;
-  panel: Panel;
+  panel: PanelSnapshot;
   /** Count of PlaceEdits the Arrange applied this regen. */
   appliedEditCount: number;
   /** Source feature ids, parallel to applied edits. Includes Preset expansions. */
