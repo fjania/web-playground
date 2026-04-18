@@ -53,10 +53,34 @@ export interface PipelineOutput {
   results: Record<string, FeatureResult>;
   /** featureIds in execution order. */
   trace: string[];
+  /**
+   * Live Panel instances per featureId, populated when
+   * `runPipeline(features, { preserveLive: true })` is called.
+   * Present only for features that produce a panel (ComposeStrips
+   * and Arrange for this version; Cut's live slices are not
+   * surfaced). Caller owns these and must call `.dispose()` when
+   * done to free manifold handles.
+   *
+   * Absent for the default (pure-function) call to preserve JSON
+   * serialisability.
+   */
+  livePanels?: Record<string, Panel>;
 }
 
-export function runPipeline(features: Feature[]): PipelineOutput {
+export interface RunOptions {
+  /**
+   * When true, the returned PipelineOutput carries `livePanels`,
+   * and the pipeline does NOT dispose the final live Panels
+   * (compose result and arrange results). Headless callers should
+   * omit this; the 3D viewport passes it so it can build meshes
+   * from manifold geometry.
+   */
+  preserveLive?: boolean;
+}
+
+export function runPipeline(features: Feature[], options: RunOptions = {}): PipelineOutput {
   const ctx = new ExecutionContext();
+  ctx.preserveLive = options.preserveLive === true;
 
   // ---- Phase 1: index features attached to an Arrange. ----
   for (const f of features) {
@@ -109,8 +133,19 @@ export function runPipeline(features: Feature[]): PipelineOutput {
     }
   }
 
-  ctx.disposeLiveGeometry();
-  return { results: ctx.results, trace: ctx.trace };
+  // Snapshot the final lastPanel (if any) for the caller.
+  let livePanels: Record<string, Panel> | undefined;
+  if (ctx.preserveLive && ctx.lastPanel && ctx.lastPanelFeatureId) {
+    livePanels = { [ctx.lastPanelFeatureId]: ctx.lastPanel };
+  }
+
+  ctx.disposeLiveGeometry({ keepLivePanels: ctx.preserveLive });
+
+  return {
+    results: ctx.results,
+    trace: ctx.trace,
+    ...(livePanels ? { livePanels } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +164,16 @@ class ExecutionContext {
   lastSliceProvenance: string[][] = [];
   /** The most recent Cut feature, cached so Arrange can read its rip/bevel. */
   lastCut: Cut | null = null;
+
+  /**
+   * When true, the still-alive panel at pipeline end (the final
+   * arrange's output, or compose's output if no arrange ran) is
+   * surfaced to the caller via `PipelineOutput.livePanels`. Caller
+   * takes ownership and must dispose.
+   */
+  preserveLive = false;
+  /** Which feature last set `lastPanel`. Used to key the preserved output. */
+  lastPanelFeatureId: string | null = null;
 
   private presetIndex = new Map<string, Preset[]>();
   private editIndex = new Map<string, PlaceEdit[]>();
@@ -149,11 +194,14 @@ class ExecutionContext {
     this.trace.push(id);
   }
 
-  disposeLiveGeometry(): void {
-    if (this.lastPanel) {
+  disposeLiveGeometry(opts: { keepLivePanels?: boolean } = {}): void {
+    const keep = opts.keepLivePanels === true;
+    // Slices + mid-pipeline panels always get freed. The caller-
+    // visible livePanelsByFeature map is preserved separately.
+    if (this.lastPanel && !keep) {
       this.lastPanel.dispose();
-      this.lastPanel = null;
     }
+    this.lastPanel = null;
     for (const s of this.lastSlices) s.dispose();
     this.lastSlices = [];
     this.lastSliceProvenance = [];
@@ -183,6 +231,7 @@ function executeComposeStrips(
   // feature, but we stay defensive.
   if (ctx.lastPanel) ctx.lastPanel.dispose();
   ctx.lastPanel = panel;
+  ctx.lastPanelFeatureId = f.id;
   return {
     featureId: f.id,
     status: 'ok',
@@ -366,6 +415,7 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     ctx.lastSlices = [];
     ctx.lastSliceProvenance = [];
     ctx.lastPanel = assembled;
+    ctx.lastPanelFeatureId = f.id;
     return {
       featureId: f.id,
       status: 'ok',
@@ -489,6 +539,7 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   ctx.lastSliceProvenance = [];
 
   ctx.lastPanel = assembled;
+  ctx.lastPanelFeatureId = f.id;
 
   const appliedEditSources = mergedEdits.map((e) => e.source);
 
