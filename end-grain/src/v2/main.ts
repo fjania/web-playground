@@ -68,6 +68,7 @@ import type {
   ComposeStripsResult,
   CutResult,
   Feature,
+  PanelSnapshot,
 } from './state/types';
 
 await initManifold();
@@ -260,35 +261,78 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
 }
 
 /**
- * Build the Output-tile 3D scene for a Cut-selected view. Each slice
- * is rendered from its snapshot in its baked post-cut position. The
- * slices are naturally separated along the cut-normal — Arrange is
- * the later operation that would push them flush. At the Cut stage
- * they're distinct pieces.
+ * Build the Output-tile 3D scene for a Cut-selected view.
  *
- * For visibility we explode slices apart along the cut-normal so
- * interior cut faces are clearly visible. The gap is scaled to the
- * cut pitch (~60% of pitch between adjacent slices) so the explosion
- * feels natural at any pitch — dense cuts get small gaps, coarse
- * cuts get larger ones, and the interior faces are always obvious.
+ * Layout: the pieces (offcut, slices, offcut) stay at their **original
+ * cut angle** — they remain the parallelogram prisms the saw actually
+ * produced — and each one is translated along the cut-normal by a
+ * uniform gap. Adjacent pieces no longer touch at their cut faces,
+ * so the cut surfaces are clearly visible between them.
+ *
+ * We don't axis-align the pieces. Keeping the rip angle makes the
+ * geometry honest — the viewer sees the shape the blade left behind,
+ * not a tidied-up rectangle.
+ *
+ * Offcuts are included at the row ends with reduced opacity so they
+ * read as "discarded" — present for context, but visually secondary
+ * to the slices that survive. Matches the dimmed-discard treatment
+ * in the operation-view SVG.
  */
 function buildCutOutputGroup(cut: CutResult): Group {
   const group = new Group();
-  // Derive cut-normal from the Cut feature (rotation about Y by rip).
   const ripRad = cutFeature ? (cutFeature.rip * Math.PI) / 180 : 0;
-  const normal = new Vector3(Math.sin(ripRad), 0, Math.cos(ripRad));
-  const pitch = cutFeature?.pitch ?? 50;
-  const gapPerSlice = pitch * 0.6;
+  const sin = Math.sin(ripRad);
+  const cos = Math.cos(ripRad);
 
-  cut.slices.forEach((sliceSnap, sliceIdx) => {
-    const sliceGroup = buildGroupFromSnapshot(sliceSnap);
-    // Centre-relative offset: slices near the middle stay put;
-    // slices further out get pushed further from centre.
-    const offset = (sliceIdx - (cut.slices.length - 1) / 2) * gapPerSlice;
-    sliceGroup.position.addScaledVector(normal, offset);
-    sliceGroup.userData.sliceIdx = sliceIdx;
-    group.add(sliceGroup);
+  // Pieces in cut order along the cut-normal: leading offcut, slices,
+  // trailing offcut. Offcuts may be absent (count === 0) but for the
+  // default timeline we always have the two triangles.
+  type PieceKind = 'slice' | 'offcut';
+  type Piece = { snap: PanelSnapshot; kind: PieceKind };
+  const pieces: Piece[] = [];
+  if (cut.offcuts[0]) pieces.push({ snap: cut.offcuts[0], kind: 'offcut' });
+  for (const s of cut.slices) pieces.push({ snap: s, kind: 'slice' });
+  if (cut.offcuts[1]) pieces.push({ snap: cut.offcuts[1], kind: 'offcut' });
+  if (pieces.length === 0) return group;
+
+  // Gap between pieces, measured along the cut-normal. Uniform so
+  // the visual rhythm is even regardless of piece kind.
+  const gap = 20;
+  const explodeIndex = (i: number) => (i - (pieces.length - 1) / 2) * gap;
+
+  pieces.forEach((piece, i) => {
+    const meshGroup = buildGroupFromSnapshot(piece.snap);
+    // Additional translation along the cut-normal — symmetric about
+    // the mid-piece so the row stays centred on the original panel.
+    const offset = explodeIndex(i);
+    meshGroup.position.x += offset * sin;
+    meshGroup.position.z += offset * cos;
+
+    meshGroup.userData.kind = piece.kind;
+    if (piece.kind === 'slice') {
+      meshGroup.userData.sliceIdx = i - (cut.offcuts[0] ? 1 : 0);
+    }
+
+    // Offcut treatment: dim meshes + edges so they read as discarded.
+    if (piece.kind === 'offcut') {
+      meshGroup.traverse((obj) => {
+        const anyObj = obj as any;
+        if (anyObj.isMesh && anyObj.material) {
+          const mat = anyObj.material;
+          mat.transparent = true;
+          mat.opacity = 0.2;
+          mat.depthWrite = false;
+        }
+        if (anyObj.isLineSegments && anyObj.material) {
+          anyObj.material.transparent = true;
+          anyObj.material.opacity = 0.15;
+        }
+      });
+    }
+
+    group.add(meshGroup);
   });
+
   return group;
 }
 

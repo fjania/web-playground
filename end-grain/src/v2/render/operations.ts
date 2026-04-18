@@ -147,9 +147,12 @@ function offcutShade(
 
   if (out.length < 3) return '';
   const pts = out.map((p) => `${fmt(p.x)},${fmt(p.z)}`).join(' ');
+  // Light fill (~5% black) so offcuts read as ghosted / discarded
+  // rather than solid shading. Matches the dim treatment in the
+  // 3D Output tile.
   return (
     `<polygon points="${pts}" ` +
-    `fill="#00000022" stroke="none" pointer-events="none"/>`
+    `fill="#0000000d" stroke="none" pointer-events="none"/>`
   );
 }
 
