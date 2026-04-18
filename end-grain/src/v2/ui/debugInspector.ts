@@ -65,9 +65,76 @@ export function mountInspector(initial: InspectorMountInput): InspectorHandle {
 function renderTimeline(root: HTMLElement, timeline: Feature[]): void {
   const section = root.querySelector<HTMLElement>('[data-slot="timeline"]');
   if (!section) return;
-  // Commit (a) just confirms the section exists; rows land in (b).
-  const pending = section.querySelector<HTMLElement>('.placeholder');
-  if (pending) pending.textContent = `${timeline.length} features (rendering pending)`;
+  section.innerHTML = '<h3>Timeline</h3>';
+  for (const f of timeline) {
+    section.appendChild(makeTimelineRow(f));
+  }
+}
+
+function makeTimelineRow(f: Feature): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.dataset.featureId = f.id;
+
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.textContent = KIND_ICON[f.kind] ?? '•';
+  row.appendChild(icon);
+
+  const body = document.createElement('div');
+  const id = document.createElement('span');
+  id.className = 'id';
+  id.textContent = f.id;
+  body.appendChild(id);
+
+  const params = document.createElement('span');
+  params.className = 'params';
+  params.textContent = paramsSummary(f);
+  body.appendChild(params);
+  row.appendChild(body);
+
+  const badge = document.createElement('span');
+  badge.className = `badge ${f.status}`;
+  badge.textContent = f.status;
+  row.appendChild(badge);
+
+  return row;
+}
+
+const KIND_ICON: Record<Feature['kind'], string> = {
+  composeStrips: '▤',
+  cut: '⫽',
+  arrange: '▦',
+  placeEdit: '✎',
+  preset: '⚙',
+  spacerInsert: '┃',
+};
+
+function paramsSummary(f: Feature): string {
+  switch (f.kind) {
+    case 'composeStrips': {
+      const total = f.strips.reduce((s, st) => s + st.width, 0);
+      return `${f.strips.length} strips · ${total}×${f.stripHeight}×${f.stripLength}`;
+    }
+    case 'cut':
+      return `rip ${f.rip}° · bevel ${f.bevel}° · pitch ${f.pitch}`;
+    case 'arrange':
+      return f.layout;
+    case 'placeEdit': {
+      const op = f.op;
+      const opStr =
+        op.kind === 'rotate'
+          ? `rotate ${op.degrees}°`
+          : op.kind === 'shift'
+            ? `shift ${op.delta}`
+            : `reorder → ${op.newIdx}`;
+      return `${f.target.arrangeId}[${f.target.sliceIdx}] · ${opStr}`;
+    }
+    case 'preset':
+      return `${f.preset} → ${f.arrangeId}`;
+    case 'spacerInsert':
+      return `${f.arrangeId} after ${f.afterSliceIdx} · ${f.species} ${f.width}mm`;
+  }
 }
 
 function renderTrace(root: HTMLElement, output: PipelineOutput): void {
