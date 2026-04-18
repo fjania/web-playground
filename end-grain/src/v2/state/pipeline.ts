@@ -269,9 +269,30 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     Math.cos(ripRad),
   ];
 
-  // Slice count: measure extent along cut-normal, divide by pitch.
-  const { extent } = input.measureAlong(normal);
-  const count = Math.max(0, Math.floor(extent / f.pitch));
+  // Slice count: use the "safe extent" — the range of plane offsets
+  // where the cut plane passes fully across the panel's X width,
+  // producing a full-width parallelogram slice. Outside that range
+  // the plane exits the panel through the ±Z edges before reaching
+  // both X edges, producing a triangular partial slice that isn't a
+  // usable board piece. Those triangles become offcuts.
+  //
+  // Formula: safeExtent = panelZ * |cos(rip)| - panelX * |sin(rip)|.
+  //   At rip=0: panelZ  (full length — every plane is safe).
+  //   At rip=45 (panel 100×400): 400*0.707 - 100*0.707 = 212.1.
+  //   At the critical angle arctan(panelZ / panelX), safeExtent→0 (no full slice fits).
+  //
+  // For angles beyond that critical angle (a crosscut-dominated rip),
+  // the roles of width and length flip and a different formula is
+  // needed. Deferring; typical end-grain rips stay well under the
+  // critical angle.
+  const inputBbox = input.boundingBox();
+  const panelX = inputBbox.max.x - inputBbox.min.x;
+  const panelZ = inputBbox.max.z - inputBbox.min.z;
+  const safeExtent = Math.max(
+    0,
+    panelZ * Math.abs(Math.cos(ripRad)) - panelX * Math.abs(Math.sin(ripRad)),
+  );
+  const count = Math.max(0, Math.floor(safeExtent / f.pitch));
 
   const { slices, offcuts } = input.cutRepeated(normal, f.pitch, count, 0);
 

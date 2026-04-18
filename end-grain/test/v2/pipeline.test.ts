@@ -135,16 +135,16 @@ describe('runPipeline — slice provenance', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Mitred identity — rip=30°, no edits. Tests the cursor-slide algorithm's
-// ability to reassemble flush at any cut angle.
+// Mitred cut — rip=30° identity arrange. The pipeline discards partial
+// triangular end slices (planes that don't pass fully across the panel's
+// X width), so the output bbox is strictly inside the input bbox: full
+// width, reduced Z.
 // ---------------------------------------------------------------------------
 
-describe('runPipeline — mitred identity (rip=30°)', () => {
-  it('output bbox equals input bbox within epsilon', () => {
+describe('runPipeline — mitred cut (rip=30°) discards partial slices', () => {
+  it('retains full-width slices only; output Z extent matches the safe-extent formula', () => {
     const counter = createIdCounter();
     const timeline = defaultTimeline(counter);
-    // Mutate the cut feature's rip. Safe because the array hasn't
-    // been frozen and this is the only timeline we're using.
     const cut = timeline[1];
     if (cut.kind !== 'cut') throw new Error('unexpected timeline shape');
     cut.rip = 30;
@@ -153,15 +153,30 @@ describe('runPipeline — mitred identity (rip=30°)', () => {
     const compose = out.results['compose-0'] as ComposeStripsResult;
     const arrange = out.results['arrange-0'] as ArrangeResult;
 
-    // bbox-of-whole-panel should match within epsilon. Individual
-    // slice bboxes are AABBs that over-approximate the parallelogram
-    // volumes, but summed/concatenated the reassembly is flush.
-    const eps = 0.5; // mm. The Z-extent may round differently because
-    // measureAlong is AABB-based for rotated segments.
-    expect(Math.abs(arrange.panel.bbox.min[2] - compose.panel.bbox.min[2])).toBeLessThan(eps);
-    expect(Math.abs(arrange.panel.bbox.max[2] - compose.panel.bbox.max[2])).toBeLessThan(eps);
-    expect(Math.abs(arrange.panel.bbox.min[0] - compose.panel.bbox.min[0])).toBeLessThan(eps);
-    expect(Math.abs(arrange.panel.bbox.max[0] - compose.panel.bbox.max[0])).toBeLessThan(eps);
+    const panelX = compose.panel.bbox.max[0] - compose.panel.bbox.min[0];
+    const panelZ = compose.panel.bbox.max[2] - compose.panel.bbox.min[2];
+    const rip = 30;
+    const ripRad = (rip * Math.PI) / 180;
+
+    // Safe-extent formula from executeCut: planes only produce full
+    // slices within this range of offsets.
+    const safeExtent = panelZ * Math.cos(ripRad) - panelX * Math.sin(ripRad);
+    const count = Math.floor(safeExtent / cut.pitch);
+    expect(count).toBe(5); // 100×400 at rip=30, pitch=50
+
+    // Output Z extent derives from the outermost plane positions
+    // projected through the panel width: (count*pitch + panelX*sinθ)/cosθ.
+    const expectedZExtent =
+      (count * cut.pitch + panelX * Math.sin(ripRad)) / Math.cos(ripRad);
+    const arrangeZExtent = arrange.panel.bbox.max[2] - arrange.panel.bbox.min[2];
+    expect(arrangeZExtent).toBeCloseTo(expectedZExtent, 1);
+
+    // Full width preserved (cuts only trim along the cut-normal).
+    expect(arrange.panel.bbox.max[0] - arrange.panel.bbox.min[0]).toBeCloseTo(panelX, 3);
+
+    // Output bbox sits strictly inside the input bbox (some material
+    // was discarded as triangular offcuts).
+    expect(arrangeZExtent).toBeLessThan(panelZ);
   });
 });
 
