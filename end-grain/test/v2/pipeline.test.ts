@@ -135,6 +135,84 @@ describe('runPipeline — slice provenance', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Rip-angle sweep — verifies the safe-extent formula and identity
+// reassembly bbox at several angles. Catches regressions in the
+// "discard partial end-slices" behaviour.
+// ---------------------------------------------------------------------------
+
+describe.each([
+  // expectedCount derives from safeExtent = panelZ*cos(rip) - panelX*sin(rip),
+  // with panelZ=400, panelX=100, pitch=50.
+  { rip: 0, expectedCount: 8 },   // safeExtent = 400
+  { rip: 15, expectedCount: 7 },  // safeExtent ≈ 360.5
+  { rip: 30, expectedCount: 5 },  // safeExtent ≈ 296.4
+  { rip: 45, expectedCount: 4 },  // safeExtent ≈ 212.1
+  { rip: 60, expectedCount: 2 },  // safeExtent ≈ 113.4
+])('runPipeline — rip=$rip° on default 100×50×400 panel', ({ rip, expectedCount }) => {
+  function runAtRip(): { compose: ComposeStripsResult; arrange: ArrangeResult; cut: CutResult } {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    const cutFeature = timeline[1];
+    if (cutFeature.kind !== 'cut') throw new Error('unexpected shape');
+    cutFeature.rip = rip;
+    const out = runPipeline(timeline);
+    return {
+      compose: out.results['compose-0'] as ComposeStripsResult,
+      arrange: out.results['arrange-0'] as ArrangeResult,
+      cut: out.results['cut-0'] as CutResult,
+    };
+  }
+
+  it(`produces ${expectedCount} inner slices per safe-extent formula`, () => {
+    const { cut } = runAtRip();
+    expect(cut.slices.length).toBe(expectedCount);
+  });
+
+  it('identity arrange preserves full X width', () => {
+    const { compose, arrange } = runAtRip();
+    const inputX = compose.panel.bbox.max[0] - compose.panel.bbox.min[0];
+    const outputX = arrange.panel.bbox.max[0] - arrange.panel.bbox.min[0];
+    expect(outputX).toBeCloseTo(inputX, 2);
+  });
+
+  it('output Z extent matches (count*pitch + panelX*sinθ)/cosθ', () => {
+    const { compose, arrange } = runAtRip();
+    const panelX = compose.panel.bbox.max[0] - compose.panel.bbox.min[0];
+    const ripRad = (rip * Math.PI) / 180;
+    // pitch = 50 from default timeline
+    const pitch = 50;
+    const expectedZ =
+      (expectedCount * pitch + panelX * Math.sin(ripRad)) / Math.cos(ripRad);
+    const outputZ = arrange.panel.bbox.max[2] - arrange.panel.bbox.min[2];
+    expect(outputZ).toBeCloseTo(expectedZ, 1);
+  });
+
+  it('output bbox fits within input bbox (no overflow from identity reassembly)', () => {
+    const { compose, arrange } = runAtRip();
+    const eps = 0.5;
+    expect(arrange.panel.bbox.min[0]).toBeGreaterThanOrEqual(compose.panel.bbox.min[0] - eps);
+    expect(arrange.panel.bbox.max[0]).toBeLessThanOrEqual(compose.panel.bbox.max[0] + eps);
+    expect(arrange.panel.bbox.min[2]).toBeGreaterThanOrEqual(compose.panel.bbox.min[2] - eps);
+    expect(arrange.panel.bbox.max[2]).toBeLessThanOrEqual(compose.panel.bbox.max[2] + eps);
+  });
+
+  it('output bbox is centered (symmetric about origin)', () => {
+    const { arrange } = runAtRip();
+    expect(arrange.panel.bbox.min[0] + arrange.panel.bbox.max[0]).toBeCloseTo(0, 2);
+    expect(arrange.panel.bbox.min[2] + arrange.panel.bbox.max[2]).toBeCloseTo(0, 2);
+  });
+
+  it('every slice has topFace polygon with 3+ points (no degenerate slices)', () => {
+    const { cut } = runAtRip();
+    for (const slice of cut.slices) {
+      for (const v of slice.volumes) {
+        expect(v.topFace.length).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Mitred cut — rip=30° identity arrange. The pipeline discards partial
 // triangular end slices (planes that don't pass fully across the panel's
 // X width), so the output bbox is strictly inside the input bbox: full
