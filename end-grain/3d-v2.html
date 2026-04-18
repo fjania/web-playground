@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain v2 — 3D bootstrap</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: #fafaf7;
+      color: #222;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    header .subtitle {
+      margin: 0;
+      font-size: 0.8rem;
+      color: #888;
+    }
+    main {
+      flex: 1;
+      min-height: 0;
+      padding: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      overflow: auto;
+    }
+    .tile {
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 0.75rem 0.75rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+      min-width: 0;
+    }
+    .tile.tile--2d {
+      flex: 0 0 240px;
+    }
+    .tile.tile--3d {
+      flex: 1 1 0;
+      min-width: 360px;
+    }
+    .tile header {
+      padding: 0;
+      border: none;
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .tile h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .tile .subtitle {
+      margin: 0;
+      font-size: 0.7rem;
+      color: #888;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .tile .render {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f6f5f1;
+      border-radius: 4px;
+      padding: 0.5rem;
+      min-height: 180px;
+      overflow: hidden;
+      position: relative;
+    }
+    .tile--3d .render {
+      padding: 0;
+    }
+    .tile svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+    .tile canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .tile .meta {
+      font-size: 0.7rem;
+      color: #666;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.4;
+    }
+    .placeholder {
+      font-size: 0.75rem;
+      color: #999;
+      text-align: center;
+      padding: 2rem 1rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>End-grain v2 — 3D bootstrap</h1>
+    <p class="subtitle">default timeline · <code>3d-v2.html</code></p>
+  </header>
+  <main id="tiles">
+    <article class="tile tile--2d" data-stage="compose-0">
+      <header>
+        <h2>Starting panel</h2>
+        <p class="subtitle">compose-0</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">2D summary pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+    <article class="tile tile--2d" data-stage="cut-0">
+      <header>
+        <h2>Cut A</h2>
+        <p class="subtitle">cut-0 · slice 0 of N</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">2D summary pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+    <article class="tile tile--3d" data-stage="arrange-0">
+      <header>
+        <h2>Final output</h2>
+        <p class="subtitle">arrange-0 · 3D viewport</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">3D viewport pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+  </main>
+  <script type="module" src="./src/v2/main.ts"></script>
+</body>
+</html>

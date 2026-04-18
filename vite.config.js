@@ -20,6 +20,7 @@ export default defineConfig({
         'cubewise': 'cubewise/index.html',
         'end-grain': 'end-grain/index.html',
         'end-grain-3d': 'end-grain/3d.html',
+        'end-grain-3d-v2': 'end-grain/3d-v2.html',
       }
     }
   }
