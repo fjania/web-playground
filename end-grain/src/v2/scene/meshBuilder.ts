@@ -14,7 +14,10 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  EdgesGeometry,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
   type Material,
 } from 'three';
@@ -41,6 +44,28 @@ export function buildPanelGroup(panel: Panel): Group {
     mesh.userData.species = seg.species;
     mesh.userData.contributingStripIds = [...seg.contributingStripIds];
     group.add(mesh);
+
+    // Overlay edge lines at the segment's sharp corners. This makes
+    // slice boundaries visible in the output viewport — adjacent
+    // same-species segments would otherwise render as continuous
+    // material, hiding the cut structure. Also delineates the
+    // species boundary (X=0 face between maple and walnut strips)
+    // and the panel's outer edges.
+    //
+    // Threshold 1° catches any non-coplanar face pair. Each segment
+    // draws its own edges; at a shared cut face both adjacent
+    // segments contribute to the same line, which is fine visually.
+    const edgesGeo = new EdgesGeometry(mesh.geometry, 1);
+    const edgesMat = new LineBasicMaterial({
+      color: 0x1a1a1a,
+      transparent: true,
+      opacity: 0.45,
+      depthTest: true,
+    });
+    const edges = new LineSegments(edgesGeo, edgesMat);
+    edges.userData.role = 'segment-edges';
+    edges.userData.segIdx = i;
+    group.add(edges);
   });
   return group;
 }
@@ -82,8 +107,20 @@ function segmentToMesh(seg: Segment): Mesh {
  */
 export function disposePanelGroup(group: Group): void {
   group.traverse((obj) => {
-    const g = (obj as Mesh).geometry;
-    if (g && typeof g.dispose === 'function') g.dispose();
+    const withGeo = obj as Mesh | LineSegments;
+    if (withGeo.geometry && typeof withGeo.geometry.dispose === 'function') {
+      withGeo.geometry.dispose();
+    }
+    // Edge materials are per-segment (not shared like SPECIES_DEFS);
+    // dispose them too.
+    if (obj instanceof LineSegments) {
+      const mat = obj.material;
+      if (Array.isArray(mat)) {
+        for (const m of mat) m.dispose?.();
+      } else if (mat && 'dispose' in mat) {
+        (mat as { dispose: () => void }).dispose();
+      }
+    }
   });
   while (group.children.length) group.remove(group.children[0]);
 }
