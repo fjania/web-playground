@@ -263,28 +263,20 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
 /**
  * Build the Output-tile 3D scene for a Cut-selected view.
  *
- * Layout: the pieces (offcut, slices, offcut) stay at their **original
- * cut angle** — they remain the parallelogram prisms the saw actually
- * produced — and are laid out along the cut-normal through the origin
- * with a uniform gap between each. All pieces share a single axis
- * (their lateral, perpendicular-to-normal offsets from the baked
- * panel position are cancelled), so the row marches cleanly along
- * the normal rather than stair-stepping.
+ * This mirrors the Operation tile's 2D layout — each piece (offcut,
+ * slices, offcut) sits at its ORIGINAL cut position, and we simply
+ * push each one apart along the cut-normal by a uniform gap per
+ * step. Every piece is rendered directly from its snapshot with no
+ * extra rotation, scaling, or lateral re-centering; the 3D model
+ * is the source of truth, the scene only adds an explode offset.
  *
- * Gap sizing — derived from the geometry, not picked by eye. The
- * interior cut face is perpendicular to the cut-normal, dimensioned
- * by (face_chord × panel_thickness). As the user orbits off-normal
- * by angle α, the neighbour's near edge starts occluding the face.
- * Line-of-sight clears when G ≥ face_dim / tan(α). For a generous
- * 45° orbital range in any direction, G = max(face_chord, Y_extent).
- * The chord length is taken as the longest topFace edge (the two
- * cut-plane edges of a slice's topFace are longer than the
- * pitch-boundary edges at any non-degenerate rip).
+ * Gap: the Y thickness of the panel (≈ the "height" of each segment).
+ * At this distance the user can orbit off-axis and the interior cut
+ * faces are clearly visible between adjacent pieces, and the rhythm
+ * matches something the eye already recognises (panel thickness).
  *
- * Offcuts are included at the row ends with reduced opacity so they
- * read as "discarded" — present for context, but visually secondary
- * to the slices that survive. Matches the dimmed-discard treatment
- * in the operation-view SVG.
+ * Offcuts are translucent so they read as discarded — same vocabulary
+ * as the faded offcut shading in the operation SVG.
  */
 function buildCutOutputGroup(cut: CutResult): Group {
   const group = new Group();
@@ -292,9 +284,7 @@ function buildCutOutputGroup(cut: CutResult): Group {
   const sin = Math.sin(ripRad);
   const cos = Math.cos(ripRad);
 
-  // Pieces in cut order along the cut-normal: leading offcut, slices,
-  // trailing offcut. Offcuts may be absent (count === 0) but for the
-  // default timeline we always have the two triangles.
+  // Pieces in cut order along the cut-normal.
   type PieceKind = 'slice' | 'offcut';
   type Piece = { snap: PanelSnapshot; kind: PieceKind };
   const pieces: Piece[] = [];
@@ -303,90 +293,35 @@ function buildCutOutputGroup(cut: CutResult): Group {
   if (cut.offcuts[1]) pieces.push({ snap: cut.offcuts[1], kind: 'offcut' });
   if (pieces.length === 0) return group;
 
-  // Measure each piece along and perpendicular to the cut-normal.
-  // We also track the longest topFace edge (≈ cut-face chord length)
-  // and the Y extent (≈ panel thickness) for gap sizing.
-  type Measured = {
-    piece: Piece;
-    widthD: number;      // thickness along cut-normal
-    centerD: number;     // centroid along cut-normal
-    centerP: number;     // centroid perpendicular to normal (in XZ)
-    centerY: number;     // centroid along Y
-    maxEdgeXZ: number;   // longest topFace edge (cut-face chord)
-    yExtent: number;     // Y extent of the piece
-  };
-  const measured: Measured[] = pieces.map((piece) => {
-    let minD = Infinity, maxD = -Infinity;
-    let minP = Infinity, maxP = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-    let longestEdge = 0;
-    for (const vol of piece.snap.volumes) {
-      const f = vol.topFace;
-      for (let i = 0; i < f.length; i++) {
-        const p = f[i];
-        const d = p.x * sin + p.z * cos;
-        const t = -p.x * cos + p.z * sin;
-        if (d < minD) minD = d;
-        if (d > maxD) maxD = d;
-        if (t < minP) minP = t;
-        if (t > maxP) maxP = t;
-        const q = f[(i + 1) % f.length];
-        const elen = Math.hypot(q.x - p.x, q.z - p.z);
-        if (elen > longestEdge) longestEdge = elen;
-      }
-      if (vol.bbox.min[1] < minY) minY = vol.bbox.min[1];
-      if (vol.bbox.max[1] > maxY) maxY = vol.bbox.max[1];
-    }
-    return {
-      piece,
-      widthD: Math.max(0, maxD - minD),
-      centerD: (minD + maxD) / 2,
-      centerP: (minP + maxP) / 2,
-      centerY: (minY + maxY) / 2,
-      maxEdgeXZ: longestEdge,
-      yExtent: Math.max(0, maxY - minY),
-    };
-  });
+  // Gap = panel Y thickness, measured from the first piece that has
+  // any volume. All pieces share the same thickness.
+  let gap = 0;
+  for (const p of pieces) {
+    const v = p.snap.volumes[0];
+    if (v) { gap = v.bbox.max[1] - v.bbox.min[1]; break; }
+  }
 
-  // Gap ≥ max(cut-face chord, panel Y thickness) gives a clear
-  // line-of-sight to the whole interior face from ~45° off-normal.
-  const gap = measured.reduce(
-    (g, m) => Math.max(g, m.maxEdgeXZ, m.yExtent),
-    0,
-  );
+  // Centre the explosion around the middle of the row so the scene
+  // doesn't drift off-origin — purely cosmetic, keeps the camera
+  // auto-fit happy.
+  const centerIdx = (pieces.length - 1) / 2;
 
-  // Lay the pieces out on a common axis running along the cut-normal
-  // through the origin. Each piece's baked lateral offset (its
-  // perpendicular-to-normal position in the original panel) is
-  // cancelled, so the row doesn't stair-step sideways.
-  const totalWidth =
-    measured.reduce((a, m) => a + m.widthD, 0) + gap * (measured.length - 1);
-  let cursor = -totalWidth / 2;
+  pieces.forEach((piece, i) => {
+    const meshGroup = buildGroupFromSnapshot(piece.snap);
+    // Push this piece `offset` mm along the cut-normal. Everything
+    // else about the piece — its shape, its baked position within
+    // the panel frame, its orientation — is left exactly as the 3D
+    // model has it.
+    const offset = (i - centerIdx) * gap;
+    meshGroup.position.x = offset * sin;
+    meshGroup.position.z = offset * cos;
 
-  let sliceIdx = 0;
-  for (const m of measured) {
-    const meshGroup = buildGroupFromSnapshot(m.piece.snap);
-    // Target centroid: on the cut-normal axis through origin, at
-    // along-normal distance targetD. The piece's current baked
-    // centroid is at (currentX, centerY, currentZ); translate it to
-    // (targetX, 0, targetZ).
-    const targetD = cursor + m.widthD / 2;
-    const currentX = m.centerD * sin - m.centerP * cos;
-    const currentZ = m.centerD * cos + m.centerP * sin;
-    const targetX = targetD * sin;
-    const targetZ = targetD * cos;
-    meshGroup.position.set(
-      targetX - currentX,
-      -m.centerY,
-      targetZ - currentZ,
-    );
-
-    meshGroup.userData.kind = m.piece.kind;
-    if (m.piece.kind === 'slice') {
-      meshGroup.userData.sliceIdx = sliceIdx++;
+    meshGroup.userData.kind = piece.kind;
+    if (piece.kind === 'slice') {
+      meshGroup.userData.sliceIdx = i - (cut.offcuts[0] ? 1 : 0);
     }
 
-    if (m.piece.kind === 'offcut') {
+    if (piece.kind === 'offcut') {
       meshGroup.traverse((obj) => {
         const anyObj = obj as any;
         if (anyObj.isMesh && anyObj.material) {
@@ -402,8 +337,7 @@ function buildCutOutputGroup(cut: CutResult): Group {
     }
 
     group.add(meshGroup);
-    cursor += m.widthD + gap;
-  }
+  });
 
   return group;
 }

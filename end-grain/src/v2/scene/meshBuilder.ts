@@ -128,10 +128,19 @@ export function buildGroupFromSnapshot(snap: PanelSnapshot): Group {
   snap.volumes.forEach((vol, i) => {
     if (vol.topFace.length < 3) return;
 
+    // Build the shape in the XY plane of the extruder (its native
+    // frame). We want world coordinates to match the snapshot: a
+    // vertex at topFace (x, z) should end up at world (x, *, z) with
+    // no sign flip. The subsequent rotateX(-π/2) sends shape.y to
+    // world −z, so we pre-negate z here. That mirrors the polygon
+    // across shape.x, which reverses winding; reversing traversal
+    // order brings it back to the original winding so face normals
+    // still point outward correctly.
+    const src = vol.topFace.slice().reverse();
     const shape = new Shape();
-    shape.moveTo(vol.topFace[0].x, vol.topFace[0].z);
-    for (let k = 1; k < vol.topFace.length; k++) {
-      shape.lineTo(vol.topFace[k].x, vol.topFace[k].z);
+    shape.moveTo(src[0].x, -src[0].z);
+    for (let k = 1; k < src.length; k++) {
+      shape.lineTo(src[k].x, -src[k].z);
     }
     shape.closePath();
 
@@ -140,9 +149,11 @@ export function buildGroupFromSnapshot(snap: PanelSnapshot): Group {
       depth: Math.max(depth, 0.001),
       bevelEnabled: false,
     });
-    // ExtrudeGeometry extrudes along +Z in its local space. Our
-    // extrusion axis is world Y, so rotate -90° about X (brings
-    // +Z to +Y) and translate into Y range.
+    // ExtrudeGeometry extrudes along +Z in its local space. Rotate
+    // −90° about X to bring that extrusion axis to world +Y. Combined
+    // with the shape.y = −topFace.z pre-flip above, the final world Z
+    // equals topFace.z (the same convention the 2D summary uses), so
+    // 3D and 2D views stay orientation-consistent.
     geo.rotateX(-Math.PI / 2);
     geo.translate(0, vol.bbox.min[1], 0);
     geo.computeVertexNormals();
