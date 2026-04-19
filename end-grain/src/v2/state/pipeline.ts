@@ -345,7 +345,29 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     effectivePitch = f.pitch;
   }
 
-  const { slices, offcuts } = input.cutRepeated(normal, effectivePitch, count, 0);
+  const { slices, offcuts: rawOffcuts } = input.cutRepeated(normal, effectivePitch, count, 0);
+
+  // Drop no-op offcuts — at rip=0/bevel=90 (or whenever the slice
+  // count evenly divides the safe extent) the outer cut planes sit
+  // exactly on the panel edges, so the "offcut" is either a
+  // zero-vertex panel or a zero-thickness degenerate slab. Neither
+  // represents discarded material; surfacing them would have the
+  // UI claim "2 offcuts discarded" when no material was lost.
+  //
+  // Test: non-negligible bbox volume. Use 0.01 mm³ as the floor —
+  // well below anything a real cut produces, well above numerical
+  // noise from manifold's plane-intersection results.
+  const OFFCUT_MIN_VOLUME = 0.01;
+  const hasRealVolume = (p: Panel): boolean => {
+    if (p.segments.length === 0) return false;
+    const bb = p.boundingBox();
+    const vol = (bb.max.x - bb.min.x) * (bb.max.y - bb.min.y) * (bb.max.z - bb.min.z);
+    return vol > OFFCUT_MIN_VOLUME;
+  };
+  const offcuts = rawOffcuts.filter(hasRealVolume);
+  for (const p of rawOffcuts) {
+    if (!hasRealVolume(p)) p.dispose();
+  }
 
   // Tag every segment of each slice with this Cut's slice id so the
   // view layer can group / explode by slice origin. Mutates segments

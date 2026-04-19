@@ -280,7 +280,9 @@ function renderOperationTile(
   }
   if (meta) {
     meta.textContent =
-      `→ ${cutResult.slices.length} inner slices (${cutResult.offcuts.length} offcuts discarded)`;
+      cutResult.offcuts.length > 0
+        ? `→ ${cutResult.slices.length} inner slices (${cutResult.offcuts.length} offcuts discarded)`
+        : `→ ${cutResult.slices.length} slices (no offcuts — cuts span the full panel)`;
   }
 }
 
@@ -406,7 +408,9 @@ function updateOutputMeta(tileEl: HTMLElement, cut: CutResult): void {
   if (!meta) return;
   const totalVolumes = cut.slices.reduce((n, s) => n + s.volumes.length, 0);
   meta.textContent =
-    `${cut.slices.length} slices · ${totalVolumes} segments · ${cut.offcuts.length} offcuts discarded`;
+    cut.offcuts.length > 0
+      ? `${cut.slices.length} slices · ${totalVolumes} segments · ${cut.offcuts.length} offcuts discarded`
+      : `${cut.slices.length} slices · ${totalVolumes} segments`;
 }
 
 // ---- Viewport setup (shared between 3d-final and 3d-active) ----
