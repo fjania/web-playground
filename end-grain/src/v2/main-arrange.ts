@@ -46,6 +46,7 @@ import type {
   Feature,
   FeatureResult,
   PlaceEdit,
+  Preset,
   SpacerInsert,
   Species,
 } from './state/types';
@@ -154,6 +155,60 @@ for (const afterSliceIdx of listParam('spacer')) {
   timeline.push(spacer);
 }
 
+// Presets — ?preset=<name>[:<param>[:<param2>]]. Multiple presets
+// allowed via comma separation: ?preset=flipAlternate,spacerEveryRow:5.
+// Param formats per preset:
+//   flipAlternate            — no params
+//   rotateAlternate:<deg>    — 90|180|270
+//   mirrorAlternate          — no params
+//   rotate4way               — no params
+//   shiftAlternate:<mm>      — shift in mm
+//   spacerEveryRow:<width>[:<species>]  — width mm, species default walnut
+const presetParam = params.get('preset');
+if (presetParam) {
+  for (const spec of presetParam.split(',')) {
+    const [name, ...rest] = spec.trim().split(':');
+    const id = allocateId(counter, 'preset');
+    const preset = buildPreset(name, rest, id, arrangeId);
+    if (preset) timeline.push(preset);
+  }
+}
+
+function buildPreset(
+  name: string,
+  args: string[],
+  id: string,
+  targetArrange: string,
+): Preset | null {
+  const base = { kind: 'preset' as const, id, arrangeId: targetArrange, status: 'ok' as const };
+  switch (name) {
+    case 'flipAlternate':
+      return { ...base, preset: 'flipAlternate', params: {} };
+    case 'mirrorAlternate':
+      return { ...base, preset: 'mirrorAlternate', params: {} };
+    case 'rotate4way':
+      return { ...base, preset: 'rotate4way', params: {} };
+    case 'rotateAlternate': {
+      const deg = Number(args[0]);
+      if (deg !== 90 && deg !== 180 && deg !== 270) return null;
+      return { ...base, preset: 'rotateAlternate', params: { degrees: deg } };
+    }
+    case 'shiftAlternate': {
+      const shift = Number(args[0]);
+      if (!Number.isFinite(shift)) return null;
+      return { ...base, preset: 'shiftAlternate', params: { shift } };
+    }
+    case 'spacerEveryRow': {
+      const width = Number(args[0]);
+      if (!Number.isFinite(width) || width <= 0) return null;
+      const species = (args[1] ?? 'walnut') as Species;
+      return { ...base, preset: 'spacerEveryRow', params: { species, width } };
+    }
+    default:
+      return null;
+  }
+}
+
 // ---- Run pipeline ----
 
 const output = runPipeline(timeline, { preserveLive: true });
@@ -186,8 +241,23 @@ setMeta(inputTile, `${cutResult.slices.length} slices feeding arrange`);
 
 const opTile = requireTile('arrange-0-op');
 const opSlot = opTile.querySelector<HTMLElement>('[data-slot="render"]');
-const edits = timeline.filter((f): f is PlaceEdit => f.kind === 'placeEdit');
-const spacers = timeline.filter((f): f is SpacerInsert => f.kind === 'spacerInsert');
+// Collect every edit/spacer the Arrange will actually apply: the
+// ones the user wrote directly into the timeline PLUS the ones
+// presets expand into at pipeline time. Preset expansions live on
+// the corresponding PresetResult, not in the user timeline.
+const timelineEdits = timeline.filter((f): f is PlaceEdit => f.kind === 'placeEdit');
+const timelineSpacers = timeline.filter((f): f is SpacerInsert => f.kind === 'spacerInsert');
+const presetEdits: PlaceEdit[] = [];
+const presetSpacers: SpacerInsert[] = [];
+for (const f of timeline) {
+  if (f.kind !== 'preset') continue;
+  const r = output.results[f.id];
+  if (!r) continue;
+  if ('expandedPlaceEdits' in r) presetEdits.push(...r.expandedPlaceEdits);
+  if ('expandedSpacers' in r) presetSpacers.push(...r.expandedSpacers);
+}
+const edits = [...timelineEdits, ...presetEdits];
+const spacers = [...timelineSpacers, ...presetSpacers];
 if (opSlot) {
   opSlot.innerHTML = renderArrangeOperation(cutResult, arrangeResult, edits, spacers);
 }

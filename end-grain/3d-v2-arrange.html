@@ -236,8 +236,20 @@ Spacers (between slices)
   <code>?spacerWidth=10</code>  width in mm
   <code>?spacerSpecies=maple</code>  species
 
+Presets (expand into edits/spacers at pipeline time)
+  <code>?preset=flipAlternate</code>
+  <code>?preset=rotateAlternate:90</code>   (90|180|270)
+  <code>?preset=mirrorAlternate</code>
+  <code>?preset=rotate4way</code>
+  <code>?preset=shiftAlternate:25</code>    (shift mm)
+  <code>?preset=spacerEveryRow:6</code>      (width mm)
+  <code>?preset=spacerEveryRow:6:maple</code>
+  Multiple: <code>?preset=flipAlternate,spacerEveryRow:5</code>
+
 Example
   <code>?slices=4&amp;flip=1,3&amp;spacer=1</code>
+  <code>?slices=8&amp;preset=flipAlternate</code>
+  <code>?slices=8&amp;preset=rotate4way</code>
         </div>
       </section>
       <section>

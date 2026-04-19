@@ -428,14 +428,26 @@ export function renderArrangeOperation(
     }
   }
 
-  // Per-edit glyphs at slice centroids.
-  const badges: string[] = [];
+  // Per-edit glyphs at slice centroids. When a single slice has
+  // multiple edits (e.g. flip + shift), stack the glyphs vertically
+  // around the centroid so they don't overlap.
+  const editsPerSlice = new Map<number, string[]>();
   for (const edit of edits) {
-    const centroid = sliceCentroids.get(edit.target.sliceIdx);
-    if (!centroid) continue;
     const label = editLabel(edit);
     if (!label) continue;
-    badges.push(renderBadge(centroid.x, centroid.z, label));
+    const arr = editsPerSlice.get(edit.target.sliceIdx);
+    if (arr) arr.push(label);
+    else editsPerSlice.set(edit.target.sliceIdx, [label]);
+  }
+  const badges: string[] = [];
+  const BADGE_LINE_HEIGHT = 22;
+  for (const [sliceIdx, labels] of editsPerSlice) {
+    const centroid = sliceCentroids.get(sliceIdx);
+    if (!centroid) continue;
+    const baseline = centroid.z - ((labels.length - 1) * BADGE_LINE_HEIGHT) / 2;
+    labels.forEach((label, i) => {
+      badges.push(renderBadge(centroid.x, baseline + i * BADGE_LINE_HEIGHT, label));
+    });
   }
 
   const defsBlock = defs.length > 0 ? `<defs>${defs.join('')}</defs>` : '';
