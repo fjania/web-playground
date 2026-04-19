@@ -289,7 +289,7 @@ function rerunPipeline(): void {
     viewportHandle = null;
   }
   const panelGroup = buildPanelGroup(livePanel);
-  viewportHandle = setupViewport(outputTile, panelGroup);
+  viewportHandle = setupViewport(outputTile, panelGroup, { vertical: 'x' });
   const bb = composeResult.panel.bbox;
   const sx = (bb.max[0] - bb.min[0]).toFixed(0);
   const sy = (bb.max[1] - bb.min[1]).toFixed(0);

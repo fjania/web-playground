@@ -50,13 +50,27 @@ export interface ViewportOptions {
    * cosmetic.
    */
   mode?: '3d-final' | '3d-active';
+  /**
+   * Which world axis maps to the screen-vertical direction (with that
+   * axis's +side pointing DOWN on screen). Default `'z'` matches the
+   * 2D summary-tile convention (+X right, +Z down) used by Cut,
+   * Arrange, and Trim.
+   *
+   * ComposeStrips uses `'x'`: strip length (world Z) runs horizontally
+   * and the stack (world +X) builds downward — so the 3D output and
+   * the Operation tile read as the same panel viewed the same way,
+   * and the Input inventory list's top-to-bottom species order lines
+   * up with the 3D panel top-to-bottom.
+   */
+  vertical?: 'z' | 'x';
 }
 
 export function setupViewport(
   tileEl: HTMLElement,
   panelGroup: Group,
-  _options: ViewportOptions = {},
+  options: ViewportOptions = {},
 ): ViewportHandle {
+  const vertical: 'z' | 'x' = options.vertical ?? 'z';
   const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
   if (!slot) throw new Error('tile missing render slot');
   slot.innerHTML = '';
@@ -100,25 +114,36 @@ export function setupViewport(
   bbox.getCenter(centre);
   const diag = size.length();
 
-  // Camera orientation matches the 2D summary's top-down convention:
-  // +X horizontal (right), +Z going down on screen. A viewer can look
-  // at a 2D tile, find the same slice in the 3D viewport, and trace
-  // both in the same orientation.
+  // Camera orientation matches the 2D summary's top-down convention.
   //
-  // camera.up = (0, 0, -1) makes world -Z the screen-up direction,
-  // which maps world +Z to screen-down (matching the SVG convention).
-  // Tilt = 20° off straight-down so the board's Y-thickness shows as
-  // a side lip rather than the panel reading as a flat rect.
+  //   vertical='z' (default):  screen-horizontal = world X,
+  //                            screen-vertical   = world Z (+Z down).
+  //                            camera.up = (0, 0, -1). Used by Cut,
+  //                            Arrange, Trim.
+  //
+  //   vertical='x':            screen-horizontal = world Z,
+  //                            screen-vertical   = world X (+X down).
+  //                            camera.up = (-1, 0, 0). Used by
+  //                            ComposeStrips so the 3D panel reads
+  //                            top-to-bottom like the Input
+  //                            inventory list and the Operation
+  //                            tile's rotated layout.
+  //
+  // In both cases, the tilt angle is 20° off straight-down along the
+  // screen-vertical axis, so the panel reads as a slightly-tilted
+  // 3/4 view with the Y thickness showing as a side lip. The tilt
+  // moves the camera toward the -side of the screen-vertical axis,
+  // so the +side (which is at the bottom of screen) is closer and
+  // visually nearer.
   const tilt = 0.35; // radians ≈ 20°
   const fovDeg = 45;
   const fovRad = (fovDeg * Math.PI) / 180;
   const halfFovV = fovRad / 2;
 
-  // Project the panel's world extents onto the camera's screen axes:
-  // - screen-horizontal = world X
-  // - screen-vertical = world (Y * sin(tilt) + Z * cos(tilt))
-  const horizontalExtent = size.x;
-  const verticalExtent = size.y * Math.sin(tilt) + size.z * Math.cos(tilt);
+  // Project the panel's world extents onto the camera's screen axes.
+  const horizontalExtent = vertical === 'z' ? size.x : size.z;
+  const verticalSizeAxis = vertical === 'z' ? size.z : size.x;
+  const verticalExtent = size.y * Math.sin(tilt) + verticalSizeAxis * Math.cos(tilt);
 
   function computeFitDistance(aspect: number): number {
     const halfFovH = Math.atan(aspect * Math.tan(halfFovV));
@@ -132,16 +157,26 @@ export function setupViewport(
 
   const initialAspect = slot.clientWidth / slot.clientHeight || 1;
   const camera = new PerspectiveCamera(fovDeg, initialAspect, 0.5, diag * 10);
-  camera.up.set(0, 0, -1);
+  const initialUp: [number, number, number] =
+    vertical === 'z' ? [0, 0, -1] : [-1, 0, 0];
+  camera.up.set(initialUp[0], initialUp[1], initialUp[2]);
   camera.lookAt(centre);
   positionCameraAtDistance(computeFitDistance(initialAspect));
 
   function positionCameraAtDistance(d: number): void {
-    camera.position.set(
-      centre.x,
-      centre.y + d * Math.cos(tilt),
-      centre.z - d * Math.sin(tilt),
-    );
+    if (vertical === 'z') {
+      camera.position.set(
+        centre.x,
+        centre.y + d * Math.cos(tilt),
+        centre.z - d * Math.sin(tilt),
+      );
+    } else {
+      camera.position.set(
+        centre.x - d * Math.sin(tilt),
+        centre.y + d * Math.cos(tilt),
+        centre.z,
+      );
+    }
     camera.lookAt(centre);
   }
 
@@ -172,7 +207,7 @@ export function setupViewport(
 
   // Wire the home button: reset orbit to the initial top-down fit.
   homeButton.addEventListener('click', () => {
-    camera.up.set(0, 0, -1);
+    camera.up.set(initialUp[0], initialUp[1], initialUp[2]);
     const aspect = slot.clientWidth / slot.clientHeight || 1;
     positionCameraAtDistance(computeFitDistance(aspect));
     controls.target.copy(centre);
