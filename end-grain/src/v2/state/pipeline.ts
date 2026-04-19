@@ -629,7 +629,7 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     // references just like edits).
     const here = spacersByAfterIdx.get(sliceIdx) ?? [];
     for (const { spacer, source } of here) {
-      const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0]);
+      const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0], normalAxis);
       const sm = spacerPanel.projectOnto(normalAxis);
       const sOffset = cursor - sm.min;
       placedSlices.push(
@@ -713,20 +713,55 @@ function reorderSequence(seq: number[], fromIdx: number, newIdx: number): number
 
 /**
  * Build a spacer slab as a Panel — a single-segment panel whose
- * species matches the SpacerInsert, Z-extent = spacer.width, and
- * X/Y extents match the reference slice's. contributingStripIds is
- * [spacer.id] so the resulting snapshot's volume is attributable
- * back to the originating SpacerInsert feature.
+ * species matches the SpacerInsert and whose faces are oriented to
+ * mate flush with adjacent slices at the upstream Cut's angle.
+ *
+ * Construction:
+ *   1. Axis-aligned cube of (chord_length × panel_Y × spacer.width).
+ *      chord_length = panel_X projected along the cut chord, so the
+ *      rotated spacer ends up with panel_X along its world-X AABB
+ *      (matching the adjacent slices).
+ *   2. Rotate the cube so its natural "+Z" face normal aligns with
+ *      the Cut's normal. At rip=0/bevel=90 this is identity. At
+ *      rip!=0 or bevel!=90 the spacer becomes a parallelogram-
+ *      shaped slab whose cut faces lie on the same plane family as
+ *      the slices' cut faces, so they mate flush with no wedge gap.
+ *
+ * Physical analogue: the woodworker pre-cuts the spacer strip at
+ * the same blade angle as the main cuts, so when clamped between
+ * two slices it fills the gap without a visible seam.
+ *
+ * contributingStripIds = [spacer.id] so the resulting snapshot's
+ * volume is attributable back to the originating SpacerInsert.
  */
-function makeSpacerPanel(spacer: SpacerInsert, reference: Panel): Panel {
+function makeSpacerPanel(
+  spacer: SpacerInsert,
+  reference: Panel,
+  cutNormal: [number, number, number],
+): Panel {
   const Manifold = getManifold();
   const bb = reference.boundingBox();
   const xExtent = bb.max.x - bb.min.x;
   const yExtent = bb.max.y - bb.min.y;
-  const mf = Manifold.cube([xExtent, yExtent, spacer.width], true);
-  return new Panel([
+
+  // Decompose the cut-normal into a Y-rotation (rip) and a
+  // chord-axis rotation (bevel). If the normal is already +Z, both
+  // angles are zero and the spacer is just an axis-aligned cube.
+  const [nx, ny, nz] = cutNormal;
+  const nxzLen = Math.hypot(nx, nz);
+  const ripAngleRad = Math.atan2(nx, nz); // 0 when normal has no X component
+  const bevelTiltRad = Math.atan2(-ny, nxzLen); // 0 when normal lies in XZ
+
+  // Inflate X so the rotated spacer's chord extent matches the
+  // slice's chord extent (chord = xExtent / cos(rip)). Without this
+  // the spacer would be shorter than the slice's cut face and leave
+  // triangular gaps at the ends.
+  const cosRip = Math.cos(ripAngleRad);
+  const chordLen = Math.abs(cosRip) > 1e-6 ? xExtent / Math.abs(cosRip) : xExtent;
+
+  let panel = new Panel([
     {
-      manifold: mf,
+      manifold: Manifold.cube([chordLen, yExtent, spacer.width], true),
       species: spacer.species,
       contributingStripIds: [spacer.id],
       // Spacers don't descend from a Cut — they're fresh material
@@ -734,6 +769,29 @@ function makeSpacerPanel(spacer: SpacerInsert, reference: Panel): Panel {
       contributingSliceIds: [],
     },
   ]);
+
+  // Apply rip rotation (about Y). Pivot at origin — the spacer is
+  // centred there from Manifold.cube(..., true).
+  if (Math.abs(ripAngleRad) > 1e-9) {
+    const rotated = panel.rotateAbout(
+      new Vector3(0, 1, 0),
+      ripAngleRad,
+      new Vector3(0, 0, 0),
+    );
+    panel.dispose();
+    panel = rotated;
+  }
+
+  // Apply bevel tilt about the (now world-space) chord axis. After
+  // the Y-rotation above, the chord axis is (cos(rip), 0, -sin(rip)).
+  if (Math.abs(bevelTiltRad) > 1e-9) {
+    const chordAxis = new Vector3(Math.cos(ripAngleRad), 0, -Math.sin(ripAngleRad));
+    const tilted = panel.rotateAbout(chordAxis, bevelTiltRad, new Vector3(0, 0, 0));
+    panel.dispose();
+    panel = tilted;
+  }
+
+  return panel;
 }
 
 // ---------------------------------------------------------------------------
