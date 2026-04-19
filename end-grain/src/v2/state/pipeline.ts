@@ -431,7 +431,8 @@ function collectStripIds(panel: Panel): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Arrange (cursor-slide with PlaceEdits, Preset expansion, SpacerInsert)
+// Arrange — mate faces successively along the cut-normal.
+// Applies PlaceEdits per slice, expands Presets, inserts SpacerInserts.
 // ---------------------------------------------------------------------------
 
 function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
@@ -516,36 +517,6 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     ...userSpacers,
   ];
 
-  // ---- 3.5 Identity fast path. ----
-  // If there are no edits and no spacers, slices are already in
-  // their baked post-cut positions — concat in place. This is
-  // correct by construction at any rip angle (AABB-based
-  // measureAlong overestimates parallelogram thickness, so naive
-  // cursor-slide would break bbox invariants here).
-  if (mergedEdits.length === 0 && mergedSpacers.length === 0) {
-    let assembled = upstreamSlices[0].clone();
-    for (let i = 1; i < upstreamSlices.length; i++) {
-      const next = assembled.concat(upstreamSlices[i]);
-      assembled.dispose();
-      assembled = next;
-    }
-    for (const s of upstreamSlices) s.dispose();
-    ctx.lastSlices = [];
-    ctx.lastSliceProvenance = [];
-    ctx.lastPanel = assembled;
-    ctx.lastPanelFeatureId = f.id;
-    if (ctx.preserveLive) ctx.livePanelsByFeature[f.id] = assembled;
-    return {
-      featureId: f.id,
-      status: 'ok',
-      panel: assembled.toSnapshot(),
-      appliedEditCount: 0,
-      appliedEditSources: [],
-      appliedSpacerCount: 0,
-      appliedSpacerSources: [],
-    };
-  }
-
   // ---- 4. Apply PlaceEdits per slice. ----
   // Group edits by sliceIdx. rotate and shift accumulate; reorder is
   // collected separately and applied to the output sequence.
@@ -592,19 +563,38 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     }
   }
 
-  // ---- 5. Cursor-slide along +Z. ----
-  // Each slice is axis-aligned-after-edit (rotations are multiples of
-  // 90° about Y; shifts are along X; reorders don't rotate), so
-  // measureAlong([0,0,1]) is exact. For rip != 0 the upstream Cut
-  // produces parallelogram slices; this executor currently assumes
-  // rip=0 for edit-application correctness. rip != 0 with edits is
-  // a known gap tracked in #20 and will be generalised when the
-  // renderer demands it.
-  const slideAxis: [number, number, number] = [0, 0, 1];
-  // Seed cursor at first slice's min-along-Z (preserves bbox
-  // position; output panel aligns with input panel's Z range).
+  // ---- 5. Mate faces successively along the cut-normal. ----
+  //
+  // Physical analogue: the woodworker holds the first slice still,
+  // then takes each subsequent slice and mates its "low" cut face
+  // against the previous slice's "high" cut face, clamping flush
+  // (with glue in between). Spacers drop into the sequence between
+  // slices the same way.
+  //
+  // Algorithmically: pick an axis (the Cut's normal), walk each
+  // piece in output order, and translate it along that axis so
+  // its min-along-axis sits exactly at the running cursor (which
+  // tracks the previous piece's max-along-axis). Advance cursor
+  // by the piece's along-axis extent.
+  //
+  // We measure extent with `projectOnto` (exact, walks mesh
+  // vertices) rather than `measureAlong` (AABB over-approximation).
+  // This matters at rip != 0 where each slice is a parallelogram
+  // prism: its AABB Z-extent is larger than its true along-normal
+  // pitch, and the old cursor-slide over-advanced, leaving visible
+  // gaps. Along-cut-normal projection recovers the true pitch and
+  // the faces mate flush at any rip or bevel.
+  //
+  // Identity arrange (no edits, no spacers) also flows through
+  // this code path: the slices are already at their baked cut
+  // positions, so every offset works out to zero and the piece
+  // stays where it was — mathematically equivalent to concatenating
+  // them in place, no special case needed.
+  const normalAxis: [number, number, number] = ctx.lastCut
+    ? computeCutNormalForArrange(ctx.lastCut)
+    : [0, 0, 1];
   const firstSlice = transformedSlices[sliceOrder[0]];
-  let cursor = firstSlice.measureAlong(slideAxis).min;
+  let cursor = firstSlice.projectOnto(normalAxis).min;
 
   const placedSlices: Panel[] = [];
   // Spacer placement: at each afterSliceIdx, after placing the slice
@@ -622,9 +612,15 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   for (let outIdx = 0; outIdx < sliceOrder.length; outIdx++) {
     const sliceIdx = sliceOrder[outIdx];
     const slice = transformedSlices[sliceIdx];
-    const m = slice.measureAlong(slideAxis);
-    const dz = cursor - m.min;
-    placedSlices.push(slice.translate(0, 0, dz));
+    const m = slice.projectOnto(normalAxis);
+    const offset = cursor - m.min;
+    placedSlices.push(
+      slice.translate(
+        normalAxis[0] * offset,
+        normalAxis[1] * offset,
+        normalAxis[2] * offset,
+      ),
+    );
     cursor += m.extent;
 
     // After placing slice-at-sliceIdx, insert any spacers keyed on
@@ -634,9 +630,15 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     const here = spacersByAfterIdx.get(sliceIdx) ?? [];
     for (const { spacer, source } of here) {
       const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0]);
-      const sm = spacerPanel.measureAlong(slideAxis);
-      const sdz = cursor - sm.min;
-      placedSlices.push(spacerPanel.translate(0, 0, sdz));
+      const sm = spacerPanel.projectOnto(normalAxis);
+      const sOffset = cursor - sm.min;
+      placedSlices.push(
+        spacerPanel.translate(
+          normalAxis[0] * sOffset,
+          normalAxis[1] * sOffset,
+          normalAxis[2] * sOffset,
+        ),
+      );
       spacerPanel.dispose();
       cursor += sm.extent;
       appliedSpacerSources.push(source);
@@ -672,6 +674,27 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     appliedSpacerCount,
     appliedSpacerSources,
   };
+}
+
+/**
+ * Compute the Cut's unit normal from its rip + bevel. Same formula
+ * as executeCut; duplicated here so executeArrange can align its
+ * mate-faces axis with the upstream cut without importing math from
+ * the Cut executor's private state.
+ *
+ * α = 90° − bevel is the tilt magnitude (0 when cut is vertical).
+ * The normal is the rip-only normal (sin θ, 0, cos θ) rotated by α
+ * about the in-plane chord axis (cos θ, 0, −sin θ), yielding:
+ *   n = (sin θ·cos α,  −sin α,  cos θ·cos α).
+ */
+function computeCutNormalForArrange(cut: Cut): [number, number, number] {
+  const ripRad = (cut.rip * Math.PI) / 180;
+  const alphaRad = ((90 - cut.bevel) * Math.PI) / 180;
+  return [
+    Math.sin(ripRad) * Math.cos(alphaRad),
+    -Math.sin(alphaRad),
+    Math.cos(ripRad) * Math.cos(alphaRad),
+  ];
 }
 
 /**

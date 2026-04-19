@@ -213,9 +213,9 @@ describe('renderArrangeOperation', () => {
     });
     const preset = timeline.find((f) => f.kind === 'preset');
     const presetResult = preset ? results[preset.id] : undefined;
-    const presetEdits =
+    const presetEdits: PlaceEdit[] =
       presetResult && 'expandedPlaceEdits' in presetResult
-        ? presetResult.expandedPlaceEdits
+        ? (presetResult as { expandedPlaceEdits: PlaceEdit[] }).expandedPlaceEdits
         : [];
     const svg = renderArrangeOperation(cutResult, arrangeResult, presetEdits, []);
     // flipAlternate on 4 slices → 2 flipped (indices 1, 3).

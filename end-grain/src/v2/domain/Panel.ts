@@ -246,6 +246,41 @@ export class Panel {
   }
 
   /**
+   * Exact projection onto an axis — walks every mesh vertex rather
+   * than the AABB corners. Unlike `measureAlong`, this gives the
+   * true extent even for non-axis-aligned geometry (e.g. a
+   * parallelogram-prism slice from a rip-angled Cut projected onto
+   * its own cut-normal). Use this when the precision matters —
+   * e.g. assembling slices face-to-face in Arrange, where the
+   * AABB over-approximation would leave visible gaps.
+   *
+   * Cost: one getMesh() per segment + a linear scan of vertices.
+   * Manifold caches the mesh, so repeated calls are cheap.
+   */
+  projectOnto(axis: [number, number, number]): { min: number; max: number; extent: number } {
+    const len = Math.hypot(axis[0], axis[1], axis[2]);
+    if (len < 1e-12) throw new Error('projectOnto: axis has zero length');
+    const n: [number, number, number] = [axis[0] / len, axis[1] / len, axis[2] / len];
+
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const s of this.segments) {
+      const mesh = s.manifold.getMesh();
+      const numVerts: number = mesh.numVert;
+      const numProp: number = mesh.numProp;
+      for (let i = 0; i < numVerts; i++) {
+        const x = mesh.vertProperties[i * numProp];
+        const y = mesh.vertProperties[i * numProp + 1];
+        const z = mesh.vertProperties[i * numProp + 2];
+        const p = x * n[0] + y * n[1] + z * n[2];
+        if (p < min) min = p;
+        if (p > max) max = p;
+      }
+    }
+    return { min, max, extent: max - min };
+  }
+
+  /**
    * Produce the serialisable shadow of this panel. One volume entry
    * per segment, carrying species + AABB + provenance. This is the
    * type pipeline results surface — live Panel instances never cross
