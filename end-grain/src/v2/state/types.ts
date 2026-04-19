@@ -175,10 +175,19 @@ export interface PlaceEditTarget {
 /**
  * A PlaceEdit's operation. `flip` is UI shorthand for
  * `{ kind: 'rotate', degrees: 180 }` — no separate op kind.
+ *
+ * `rotate.degrees` is a free-angle number. The authoring UI
+ * typically restricts it to the physically-meaningful 90/180/270
+ * set (which preserve cut-face planes at rip=0 and 180° preserves
+ * them at any rip), but the type allows any angle so harnesses can
+ * explore arbitrary rotations and surface what breaks when the
+ * rotated slice's cut faces no longer lie on the expected plane
+ * family. Authoring UI constraints live at the input layer, not
+ * on the type.
  */
 export type PlaceEditOp =
   | { kind: 'reorder'; newIdx: number }
-  | { kind: 'rotate'; degrees: 90 | 180 | 270 }
+  | { kind: 'rotate'; degrees: number }
   /** mm, perpendicular to cut normal (along +X for an unrotated cut). */
   | { kind: 'shift'; delta: number };
 

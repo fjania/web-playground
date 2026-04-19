@@ -116,6 +116,29 @@ if (shiftParam) {
   }
 }
 
+// Free-angle rotate edits — `sliceIdx:degrees` pairs, angle in
+// degrees (any finite number — not clamped to 90/180/270). Rotation
+// is about the slice's centroid around +Y. Useful for exploring
+// what happens when cut faces no longer lie on the expected plane
+// family (see harness help for caveats).
+const rotateParam = params.get('rotate');
+if (rotateParam) {
+  for (const pair of rotateParam.split(',')) {
+    const [idxStr, degStr] = pair.split(':');
+    const idx = Number(idxStr);
+    const degrees = Number(degStr);
+    if (!Number.isFinite(idx) || !Number.isFinite(degrees)) continue;
+    const edit: PlaceEdit = {
+      kind: 'placeEdit',
+      id: allocateId(counter, 'edit'),
+      target: { arrangeId, sliceIdx: Math.floor(idx) },
+      op: { kind: 'rotate', degrees },
+      status: 'ok',
+    };
+    timeline.push(edit);
+  }
+}
+
 // Reorder — ?reorder=2:0,3:1 "move slice at current position 2 to
 // position 0, then move slice at current position 3 to position 1".
 //

@@ -299,6 +299,13 @@ Per-slice edits
   <code>?flip=1,3</code>   rotate 180° on these slice indices
   <code>?shift=1:25</code> shift slice 1 by 25 mm along X
                  (multiple: <code>?shift=1:25,3:-10</code>)
+  <code>?rotate=1:37</code>  free-angle Y rotation (any degrees)
+                 e.g. <code>?rotate=0:15,2:-25</code>
+                 Caveat: mating breaks at non-90/180/270 angles —
+                 the rotated slice's cut faces no longer lie on
+                 the same plane family as its neighbours, so
+                 there'll be visible gaps. Useful for exploration,
+                 not for producing buildable panels.
   <code>?reorder=2:0</code>   move slice at current position 2 to
                  position 0. Chain with comma; each move is applied
                  in order so later moves see the already-reordered
