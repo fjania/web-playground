@@ -38,7 +38,13 @@
  */
 
 import { summarize } from './summary';
-import type { CutResult, PanelSnapshot } from '../state/types';
+import type {
+  ArrangeResult,
+  CutResult,
+  PanelSnapshot,
+  PlaceEdit,
+  SpacerInsert,
+} from '../state/types';
 
 type HtmlString = string;
 type SvgString = string;
@@ -358,4 +364,141 @@ function fmt(n: number): string {
   if (!Number.isFinite(n)) return '0';
   const r = Math.round(n * 1000) / 1000;
   return String(Object.is(r, -0) ? 0 : r);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Arrange operation view                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Render an Arrange operation — the reassembled panel (from the
+ * ArrangeResult snapshot, which is the pipeline's truth) with
+ * overlays showing which per-slice edits and spacer inserts were
+ * applied.
+ *
+ * Overlays, per the shared visual vocabulary in #31:
+ * - Each PlaceEdit gets a glyph at its target slice's centroid in
+ *   the arranged panel:
+ *     rotate 180  → '↻' (flip indicator)
+ *     rotate  90  → '↻90°'
+ *     rotate 270  → '↻270°'
+ *     shift       → '→ Δmm' with sign
+ *     reorder     → '#N' showing the slice's new position
+ * - Each SpacerInsert's volumes get a diagonal-hatched overlay so
+ *   inserted material reads as distinct from adjacent slice
+ *   material even when the spacer's species matches a neighbour.
+ *
+ * The annotations are derived from the ArrangeResult volumes'
+ * `contributingSliceIds` and `contributingStripIds` — the pipeline's
+ * output is the source of truth, the renderer just overlays glyphs
+ * derived from the feature list.
+ */
+export function renderArrangeOperation(
+  _input: CutResult,
+  arrangeResult: ArrangeResult,
+  edits: PlaceEdit[],
+  spacers: SpacerInsert[],
+): SvgString {
+  const base = summarize(arrangeResult.panel);
+
+  const sliceCentroids = computeSliceCentroids(arrangeResult.panel);
+
+  // Spacer overlays: hatch the volumes whose contributingStripIds
+  // include a spacer id. Attach one pattern def per spacer so
+  // overlapping fill rules don't interfere.
+  const defs: string[] = [];
+  const spacerFills: string[] = [];
+  if (spacers.length > 0) {
+    defs.push(
+      `<pattern id="arrange-op-spacer-hatch" patternUnits="userSpaceOnUse" ` +
+        `width="6" height="6" patternTransform="rotate(45)">` +
+        `<line x1="0" y1="0" x2="0" y2="6" stroke="#00000055" stroke-width="1.2" ` +
+        `vector-effect="non-scaling-stroke"/>` +
+        `</pattern>`,
+    );
+    const spacerIds = new Set(spacers.map((s) => s.id));
+    for (const vol of arrangeResult.panel.volumes) {
+      if (!vol.contributingStripIds.some((id) => spacerIds.has(id))) continue;
+      if (vol.topFace.length < 3) continue;
+      const pts = vol.topFace.map((p) => `${fmt(p.x)},${fmt(p.z)}`).join(' ');
+      spacerFills.push(
+        `<polygon points="${pts}" fill="url(#arrange-op-spacer-hatch)" ` +
+          `stroke="none" pointer-events="none"/>`,
+      );
+    }
+  }
+
+  // Per-edit glyphs at slice centroids.
+  const badges: string[] = [];
+  for (const edit of edits) {
+    const centroid = sliceCentroids.get(edit.target.sliceIdx);
+    if (!centroid) continue;
+    const label = editLabel(edit);
+    if (!label) continue;
+    badges.push(renderBadge(centroid.x, centroid.z, label));
+  }
+
+  const defsBlock = defs.length > 0 ? `<defs>${defs.join('')}</defs>` : '';
+
+  return base.replace(
+    '</svg>',
+    `${defsBlock}${spacerFills.join('')}${badges.join('')}</svg>`,
+  );
+}
+
+function editLabel(edit: PlaceEdit): string {
+  switch (edit.op.kind) {
+    case 'rotate':
+      return edit.op.degrees === 180 ? '↻' : `↻${edit.op.degrees}°`;
+    case 'shift': {
+      const d = edit.op.delta;
+      const sign = d > 0 ? '+' : '';
+      return `⇢ ${sign}${fmt(d)}`;
+    }
+    case 'reorder':
+      return `#${edit.op.newIdx}`;
+    default:
+      return '';
+  }
+}
+
+/**
+ * Render a small white-on-black badge at (x, z) in SVG user space.
+ * Uses a tiny paint-order trick (stroke under fill) so the text
+ * stays legible over any underlying fill colour without a backing
+ * rectangle cluttering the view.
+ */
+function renderBadge(x: number, z: number, label: string): string {
+  return (
+    `<text x="${fmt(x)}" y="${fmt(z)}" ` +
+    `font-family="system-ui, -apple-system, Segoe UI, sans-serif" ` +
+    `font-size="18" font-weight="700" ` +
+    `text-anchor="middle" dominant-baseline="middle" ` +
+    `fill="#1a1a1a" stroke="#fafaf7" stroke-width="4" ` +
+    `paint-order="stroke" ` +
+    `style="--foo:0" pointer-events="none">${label}</text>`
+  );
+}
+
+function computeSliceCentroids(panel: PanelSnapshot): Map<number, Point2D> {
+  const groups = new Map<number, Point2D[]>();
+  for (const vol of panel.volumes) {
+    const sid = vol.contributingSliceIds[0];
+    if (!sid) continue;
+    const m = sid.match(/-slice-(\d+)$/);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    const cx = (vol.bbox.min[0] + vol.bbox.max[0]) / 2;
+    const cz = (vol.bbox.min[2] + vol.bbox.max[2]) / 2;
+    const arr = groups.get(idx);
+    if (arr) arr.push({ x: cx, z: cz });
+    else groups.set(idx, [{ x: cx, z: cz }]);
+  }
+  const centroids = new Map<number, Point2D>();
+  for (const [idx, pts] of groups) {
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const cz = pts.reduce((s, p) => s + p.z, 0) / pts.length;
+    centroids.set(idx, { x: cx, z: cz });
+  }
+  return centroids;
 }
