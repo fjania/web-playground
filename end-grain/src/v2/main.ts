@@ -56,7 +56,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 
 import { initManifold } from '../domain/manifold';
 import { defaultTimeline } from './state/defaultTimeline';
@@ -494,25 +494,22 @@ function setupViewport(
     camera.lookAt(centre);
   }
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  // TrackballControls instead of OrbitControls so the user can freely
+  // rotate around every axis — including roll about the view direction
+  // (which OrbitControls prevents by keeping camera.up fixed). This
+  // means: full 360° around X, full 360° around Y, full 360° around Z.
+  const controls = new TrackballControls(camera, renderer.domElement);
   controls.target.copy(centre);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  // Let the user orbit all the way around the panel — no polar- or
-  // azimuth-angle fencing. Three.js defaults the polar range to
-  // [0, π] which stops the camera at straight-up / straight-down
-  // and prevents viewing the panel from beneath; widening both
-  // bounds to ±∞ gives a true sphere of viewpoints. Pan and zoom
-  // likewise stay fully unlocked so the user can frame any angle.
-  controls.minPolarAngle = -Infinity;
-  controls.maxPolarAngle = Infinity;
-  controls.minAzimuthAngle = -Infinity;
-  controls.maxAzimuthAngle = Infinity;
+  controls.rotateSpeed = 3.0;
+  controls.zoomSpeed = 1.2;
+  controls.panSpeed = 0.8;
+  controls.noRotate = false;
+  controls.noZoom = false;
+  controls.noPan = false;
+  controls.staticMoving = false;
+  controls.dynamicDampingFactor = 0.15;
   controls.minDistance = 0;
   controls.maxDistance = Infinity;
-  controls.enableRotate = true;
-  controls.enableZoom = true;
-  controls.enablePan = true;
   controls.update();
 
   // Once the user orbits / dollies, stop auto-fitting on resize so
@@ -535,6 +532,9 @@ function setupViewport(
     const aspect = w / h;
     camera.aspect = aspect;
     camera.updateProjectionMatrix();
+    // TrackballControls caches the canvas rect; ping it on resize
+    // so mouse coordinates keep mapping correctly to drag direction.
+    controls.handleResize();
 
     // Re-fit camera distance on resize so a narrower tile (e.g. after
     // the inspector panel opens) doesn't crop the panel. Skip once the
