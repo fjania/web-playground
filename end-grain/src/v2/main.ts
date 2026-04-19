@@ -573,7 +573,9 @@ function setupViewport(
 
     // Gizmo pass — match the main camera's rotation, then render
     // in a small corner viewport with depth cleared so it sits on
-    // top regardless of main-scene geometry depth.
+    // top regardless of main-scene geometry depth. autoClearColor
+    // is suppressed so the gizmo floats over the existing scene
+    // without painting a backing rectangle.
     gizmoCamera.quaternion.copy(camera.quaternion);
     gizmoCamera.position
       .set(0, 0, GIZMO_CAMERA_DISTANCE)
@@ -585,7 +587,10 @@ function setupViewport(
     renderer.setScissor(gx, gy, GIZMO_PX, GIZMO_PX);
     renderer.setScissorTest(true);
     renderer.clearDepth();
+    const prevAutoClearColor = renderer.autoClearColor;
+    renderer.autoClearColor = false;
     renderer.render(gizmoScene, gizmoCamera);
+    renderer.autoClearColor = prevAutoClearColor;
     renderer.setScissorTest(false);
 
     requestAnimationFrame(tick);
