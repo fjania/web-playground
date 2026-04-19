@@ -763,16 +763,40 @@ function makeSpacerPanel(
   const ripAngleRad = Math.atan2(nx, nz); // 0 when normal has no X component
   const bevelTiltRad = Math.atan2(-ny, nxzLen); // 0 when normal lies in XZ
 
-  // Inflate X so the rotated spacer's chord extent matches the
-  // slice's chord extent (chord = xExtent / cos(rip)). Without this
-  // the spacer would be shorter than the slice's cut face and leave
-  // triangular gaps at the ends.
+  // Inflate the chord and thickness directions so the rotated
+  // spacer's low AND high cut faces both fully span the slice's
+  // X × Y extents — no triangular gaps where the spacer tapers
+  // past the slice at non-zero rip or bevel.
+  //
+  // Geometry: after rotating a cube of (a × b × W) by rip about Y
+  // and bevel α about the chord, each cut face's projection onto
+  // the world X axis shifts by ±W/2 · sin(rip) (relative to the
+  // cube's own X center), and onto world Y by ±W/2 · sin(α).
+  // Adjacent cut planes therefore have their material staggered
+  // in X by W · sin(rip) and in Y by W · sin(α). To make every
+  // cut face span xExtent × yExtent after rotation, the cube
+  // needs that same stagger added to its pre-rotation size, then
+  // divided by the cos factor that the rotation introduces:
+  //   a = (xExtent + W · |sin rip|) / |cos rip|
+  //   b = (yExtent + W · |sin α|)   / |cos α|
+  // At rip = 0 (|sin| = 0, |cos| = 1) this reduces to a = xExtent;
+  // at α = 0 to b = yExtent. No geometric penalty on the easy case.
   const cosRip = Math.cos(ripAngleRad);
-  const chordLen = Math.abs(cosRip) > 1e-6 ? xExtent / Math.abs(cosRip) : xExtent;
+  const sinRipMag = Math.abs(Math.sin(ripAngleRad));
+  const cosBevel = Math.cos(bevelTiltRad);
+  const sinBevelMag = Math.abs(Math.sin(bevelTiltRad));
+  const chordLen =
+    Math.abs(cosRip) > 1e-6
+      ? (xExtent + spacer.width * sinRipMag) / Math.abs(cosRip)
+      : xExtent;
+  const thicknessHeight =
+    Math.abs(cosBevel) > 1e-6
+      ? (yExtent + spacer.width * sinBevelMag) / Math.abs(cosBevel)
+      : yExtent;
 
   let panel = new Panel([
     {
-      manifold: Manifold.cube([chordLen, yExtent, spacer.width], true),
+      manifold: Manifold.cube([chordLen, thicknessHeight, spacer.width], true),
       species: spacer.species,
       contributingStripIds: [spacer.id],
       // Spacers don't descend from a Cut — they're fresh material
