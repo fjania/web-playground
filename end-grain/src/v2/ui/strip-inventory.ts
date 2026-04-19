@@ -43,6 +43,15 @@ const SPECIES_LIST: Species[] = [
 export const MIN_STRIPS = 1;
 export const MAX_STRIPS = 64;
 
+/**
+ * Shared grid template for header + rows so columns line up perfectly.
+ *   swatch | species | width | duplicate | remove
+ *   16px   | 1fr     | 72px  | 24px      | 24px
+ */
+const ROW_TEMPLATE = '16px 1fr 72px 24px 24px';
+const SWATCH_W = 12;
+const SWATCH_H = 18;
+
 export interface InventoryState {
   inventory: StripDef[];
   /**
@@ -170,17 +179,18 @@ export function mountStripInventory(
 
     wrap.appendChild(toolbar);
 
-    // Header row
+    // Header row — tracks row's column template below. Swatch /
+    // species / width / duplicate / remove.
     const header = document.createElement('div');
     header.style.flex = '0 0 auto';
     header.style.display = 'grid';
-    header.style.gridTemplateColumns = '20px 1.2fr 1fr 24px';
+    header.style.gridTemplateColumns = ROW_TEMPLATE;
     header.style.gap = '0.4rem';
     header.style.fontSize = '0.68rem';
     header.style.textTransform = 'uppercase';
     header.style.letterSpacing = '0.03em';
     header.style.color = '#888';
-    for (const t of ['#', 'Species', 'Width (mm)', '']) {
+    for (const t of ['', 'Species', 'Width (mm)', '', '']) {
       const cell = document.createElement('div');
       cell.textContent = t;
       header.appendChild(cell);
@@ -211,32 +221,28 @@ export function mountStripInventory(
     return wrap;
   }
 
-  function buildRow(strip: StripDef, idx: number): HTMLElement {
+  function buildRow(strip: StripDef, _idx: number): HTMLElement {
     const row = document.createElement('div');
     row.style.display = 'grid';
-    row.style.gridTemplateColumns = '20px 1.2fr 1fr 24px';
+    row.style.gridTemplateColumns = ROW_TEMPLATE;
     row.style.gap = '0.4rem';
     row.style.alignItems = 'center';
 
-    // Colour swatch + idx
-    const sw = document.createElement('div');
-    sw.style.display = 'flex';
-    sw.style.alignItems = 'center';
-    sw.style.gap = '4px';
-    const dot = document.createElement('span');
-    dot.style.display = 'inline-block';
-    dot.style.width = '10px';
-    dot.style.height = '10px';
-    dot.style.borderRadius = '50%';
-    dot.style.background = SPECIES_COLOURS[strip.species];
-    dot.style.border = '1px solid #00000033';
-    sw.appendChild(dot);
-    const idxLabel = document.createElement('span');
-    idxLabel.style.fontSize = '0.68rem';
-    idxLabel.style.color = '#888';
-    idxLabel.textContent = String(idx);
-    sw.appendChild(idxLabel);
-    row.appendChild(sw);
+    // Uniform swatch rectangle (same size for every species — hints
+    // at a strip's cross-section by being taller than wide).
+    const swatchCell = document.createElement('div');
+    swatchCell.style.display = 'flex';
+    swatchCell.style.alignItems = 'center';
+    swatchCell.style.justifyContent = 'center';
+    const swatch = document.createElement('span');
+    swatch.style.display = 'inline-block';
+    swatch.style.width = `${SWATCH_W}px`;
+    swatch.style.height = `${SWATCH_H}px`;
+    swatch.style.borderRadius = '1px';
+    swatch.style.background = SPECIES_COLOURS[strip.species];
+    swatch.style.border = '1px solid #00000033';
+    swatchCell.appendChild(swatch);
+    row.appendChild(swatchCell);
 
     // Species dropdown
     const select = document.createElement('select');
@@ -256,12 +262,13 @@ export function mountStripInventory(
         s.stripId === strip.stripId ? { ...s, species: sp } : s,
       );
       emit();
-      // Update dot colour without a full re-render.
-      dot.style.background = SPECIES_COLOURS[sp];
+      // Update swatch colour without a full re-render.
+      swatch.style.background = SPECIES_COLOURS[sp];
     });
     row.appendChild(select);
 
-    // Width input
+    // Width input — compact fixed width, no spinner arrows, right-aligned
+    // numbers read more naturally as a column of values.
     const widthInput = buildNumberInput(strip.width, (v) => {
       if (!Number.isFinite(v) || v <= 0) return;
       state.inventory = state.inventory.map((s) =>
@@ -270,6 +277,44 @@ export function mountStripInventory(
       emit();
     });
     row.appendChild(widthInput);
+
+    // Duplicate button — inserts a copy of this strip immediately
+    // below it in the arrangement. Handy for building repeating
+    // species/width patterns without reaching for Add + editing the
+    // defaults every time.
+    const dup = document.createElement('button');
+    dup.type = 'button';
+    dup.textContent = '+';
+    styleButton(dup);
+    dup.style.padding = '0';
+    dup.style.width = '22px';
+    dup.style.height = '22px';
+    dup.style.fontSize = '0.95rem';
+    dup.style.lineHeight = '1';
+    dup.disabled = state.inventory.length >= MAX_STRIPS;
+    dup.title = 'Duplicate strip below';
+    dup.addEventListener('click', () => {
+      if (state.inventory.length >= MAX_STRIPS) return;
+      const copy: StripDef = {
+        stripId: options.allocateStripId(),
+        species: strip.species,
+        width: strip.width,
+      };
+      state.inventory = [...state.inventory, copy];
+      const pos = state.order.indexOf(strip.stripId);
+      if (pos < 0) {
+        state.order = [...state.order, copy.stripId];
+      } else {
+        state.order = [
+          ...state.order.slice(0, pos + 1),
+          copy.stripId,
+          ...state.order.slice(pos + 1),
+        ];
+      }
+      emit();
+      render();
+    });
+    row.appendChild(dup);
 
     // Remove button
     const rm = document.createElement('button');
@@ -280,6 +325,7 @@ export function mountStripInventory(
     rm.style.width = '22px';
     rm.style.height = '22px';
     rm.style.fontSize = '0.9rem';
+    rm.style.lineHeight = '1';
     rm.disabled = state.inventory.length <= MIN_STRIPS;
     rm.title = 'Remove strip';
     rm.addEventListener('click', () => {
