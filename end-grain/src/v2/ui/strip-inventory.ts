@@ -94,9 +94,16 @@ export function mountStripInventory(
     wrap.style.gap = '0.5rem';
     wrap.style.fontSize = '0.78rem';
     wrap.style.lineHeight = '1.3';
+    // Fill the render slot vertically so the list can expand to the
+    // full tile height. `minHeight: 0` is required so the inner
+    // flex:1 list can shrink and scroll rather than pushing the
+    // outer container taller than its parent.
+    wrap.style.flex = '1 1 auto';
+    wrap.style.minHeight = '0';
 
     // Global controls (thickness + length + strip count summary)
     const globals = document.createElement('div');
+    globals.style.flex = '0 0 auto';
     globals.style.display = 'grid';
     globals.style.gridTemplateColumns = 'auto 1fr auto 1fr';
     globals.style.gap = '0.35rem 0.5rem';
@@ -120,49 +127,14 @@ export function mountStripInventory(
     );
     wrap.appendChild(globals);
 
-    // Header row
-    const header = document.createElement('div');
-    header.style.display = 'grid';
-    header.style.gridTemplateColumns = '20px 1.2fr 1fr 24px';
-    header.style.gap = '0.4rem';
-    header.style.fontSize = '0.68rem';
-    header.style.textTransform = 'uppercase';
-    header.style.letterSpacing = '0.03em';
-    header.style.color = '#888';
-    header.style.marginTop = '0.25rem';
-    for (const t of ['#', 'Species', 'Width (mm)', '']) {
-      const cell = document.createElement('div');
-      cell.textContent = t;
-      header.appendChild(cell);
-    }
-    wrap.appendChild(header);
-
-    // Strip rows — scrollable
-    const list = document.createElement('div');
-    list.style.display = 'flex';
-    list.style.flexDirection = 'column';
-    list.style.gap = '0.25rem';
-    list.style.maxHeight = '320px';
-    list.style.overflowY = 'auto';
-    list.style.paddingRight = '4px';
-
-    // Render rows in arrangement order (state.order), not inventory
-    // insertion order. Keeps the list visually synced with the
-    // Operation tile and the 3D Output.
-    const byId = new Map(state.inventory.map((s) => [s.stripId, s]));
-    state.order.forEach((stripId, idx) => {
-      const strip = byId.get(stripId);
-      if (!strip) return; // defensive — should never happen if order is a permutation
-      list.appendChild(buildRow(strip, idx));
-    });
-    wrap.appendChild(list);
-
-    // Add button + count summary
-    const footer = document.createElement('div');
-    footer.style.display = 'flex';
-    footer.style.alignItems = 'center';
-    footer.style.gap = '0.5rem';
-    footer.style.marginTop = '0.25rem';
+    // Add button + count summary — pulled above the list so the list
+    // can use all remaining vertical space in the tile.
+    const toolbar = document.createElement('div');
+    toolbar.style.flex = '0 0 auto';
+    toolbar.style.display = 'flex';
+    toolbar.style.alignItems = 'center';
+    toolbar.style.gap = '0.5rem';
+    toolbar.style.marginTop = '0.15rem';
 
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
@@ -188,15 +160,53 @@ export function mountStripInventory(
       emit();
       render();
     });
-    footer.appendChild(addBtn);
+    toolbar.appendChild(addBtn);
 
     const count = document.createElement('span');
     count.style.color = '#888';
     count.style.fontSize = '0.7rem';
     count.textContent = `${state.inventory.length} / ${MAX_STRIPS} strips`;
-    footer.appendChild(count);
+    toolbar.appendChild(count);
 
-    wrap.appendChild(footer);
+    wrap.appendChild(toolbar);
+
+    // Header row
+    const header = document.createElement('div');
+    header.style.flex = '0 0 auto';
+    header.style.display = 'grid';
+    header.style.gridTemplateColumns = '20px 1.2fr 1fr 24px';
+    header.style.gap = '0.4rem';
+    header.style.fontSize = '0.68rem';
+    header.style.textTransform = 'uppercase';
+    header.style.letterSpacing = '0.03em';
+    header.style.color = '#888';
+    for (const t of ['#', 'Species', 'Width (mm)', '']) {
+      const cell = document.createElement('div');
+      cell.textContent = t;
+      header.appendChild(cell);
+    }
+    wrap.appendChild(header);
+
+    // Strip rows — fill remaining height, scroll if overflow.
+    const list = document.createElement('div');
+    list.style.flex = '1 1 0';
+    list.style.minHeight = '0';
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '0.25rem';
+    list.style.overflowY = 'auto';
+    list.style.paddingRight = '4px';
+
+    // Render rows in arrangement order (state.order), not inventory
+    // insertion order. Keeps the list visually synced with the
+    // Operation tile and the 3D Output.
+    const byId = new Map(state.inventory.map((s) => [s.stripId, s]));
+    state.order.forEach((stripId, idx) => {
+      const strip = byId.get(stripId);
+      if (!strip) return; // defensive — should never happen if order is a permutation
+      list.appendChild(buildRow(strip, idx));
+    });
+    wrap.appendChild(list);
 
     return wrap;
   }
