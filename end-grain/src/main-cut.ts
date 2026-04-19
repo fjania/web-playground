@@ -1,39 +1,19 @@
 /**
- * End-grain v2.3b bootstrap — wires pipeline output into the tile grid.
+ * Cut harness — wires the Cut feature's I/X/O tiles with an interactive
+ * CutControls component mounted inside the Operation tile.
  *
- * Mental model for the three tiles (Input → Operation → Output):
- *
- *   Tile 1 — INPUT.     The panel being operated on. For the default
- *                       timeline this is compose-0's output.
- *
- *   Tile 2 — OPERATION. The operation being performed (and its
- *                       parameters), not its output. Renders via
- *                       operations.ts — e.g. a Cut draws cut-plane
- *                       lines overlaid on the input panel plus a
- *                       params label.
- *
- *   Tile 3 — OUTPUT.    3D viewport of the result. For the bootstrap
- *                       this is the final arrange's panel; once the
- *                       timeline panel UI (#31) lands, this will
- *                       reflect only the currently-selected
- *                       operation's output.
- *
- * The 3-tile view is an editor for a SINGLE selected operation. The
- * timeline (debug inspector + eventually #31) is the navigator that
- * lists all features and lets the user pick which one to focus on.
- *
- * Today the selected operation is hardcoded to cut-0 (the only Cut
- * in the default timeline). Selection-driven rebinding arrives with
- * #31. This bootstrap establishes the mental model and the I/X/O
- * layout; authoring issues (#27–#36) will add edit affordances to
- * the operation tile.
+ * URL params (`?rip=`, `?bevel=`, `?pitch=`, `?slices=`, `?mode=`)
+ * still seed initial state — refresh returns to the URL-seeded
+ * values — but after load, all editing happens through the controls
+ * in the Operation tile. Same component ships into the workbench
+ * canvas so harness and canvas don't diverge.
  *
  * Tile modes (unchanged from earlier commits):
  *   '2d-summary'  — static SVG view (input / operation diagrams)
  *   '3d-active'   — live Three.js viewport (promoted tile)
  *   '3d-final'    — live Three.js viewport (always-on output tile)
  *
- * WebGL budget: ≤ 2 concurrent viewports — enforced architecturally.
+ * WebGL budget: ≤ 2 concurrent viewports, enforced architecturally.
  */
 
 import { Group } from 'three';
@@ -41,7 +21,7 @@ import { Group } from 'three';
 import { initManifold } from './domain/manifold';
 import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
-import { runPipeline } from './state/pipeline';
+import { runPipeline, type PipelineOutput } from './state/pipeline';
 import {
   buildGroupFromSnapshot,
   buildPanelGroup,
@@ -50,10 +30,16 @@ import { setupViewport, type ViewportHandle } from './scene/viewport';
 import { summarize } from './render/summary';
 import { renderCutOperation } from './render/operations';
 import { mountInspector } from './ui/debugInspector';
+import {
+  mountCutControls,
+  type CutControlsHandle,
+  type CutControlsState,
+} from './ui/cut-controls';
 import type { Panel } from './domain/Panel';
 import type {
   ArrangeResult,
   ComposeStripsResult,
+  Cut,
   CutResult,
   Feature,
   PanelSnapshot,
@@ -61,94 +47,78 @@ import type {
 
 await initManifold();
 
-// ---- Pipeline ----
+// ---- Timeline setup -------------------------------------------------
+
 const timeline = defaultTimeline(createIdCounter());
 
-// Optional: override the cut's angles via `?rip=30&bevel=60` in the
-// URL. Useful for visually verifying the pipeline + operation-view
-// behaviour at non-default angles (mitred identity, bevelled cuts).
-// No effect on the default load.
-const params = new URLSearchParams(window.location.search);
-const cutOverride = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
-if (cutOverride) {
-  const ripOverride = params.get('rip');
-  if (ripOverride !== null) {
-    const v = Number(ripOverride);
-    if (Number.isFinite(v)) cutOverride.rip = v;
-  }
-  const bevelOverride = params.get('bevel');
-  if (bevelOverride !== null) {
-    const v = Number(bevelOverride);
-    if (Number.isFinite(v)) cutOverride.bevel = v;
-  }
-  const pitchOverride = params.get('pitch');
-  if (pitchOverride !== null) {
-    const v = Number(pitchOverride);
-    if (Number.isFinite(v) && v > 0) {
-      cutOverride.pitch = v;
-      cutOverride.spacingMode = 'pitch';
-    }
-  }
-  const slicesOverride = params.get('slices');
-  if (slicesOverride !== null) {
-    const v = Number(slicesOverride);
-    if (Number.isFinite(v) && v > 0) {
-      cutOverride.slices = Math.floor(v);
-      cutOverride.spacingMode = 'slices';
-    }
-  }
-  const modeOverride = params.get('mode');
-  if (modeOverride === 'pitch' || modeOverride === 'slices') {
-    cutOverride.spacingMode = modeOverride;
-  }
-}
+// Find the Cut feature and apply URL-param seeds.
+const cut = timeline.find((f): f is Cut => f.kind === 'cut');
+if (!cut) throw new Error('default timeline missing a Cut feature');
 
-const output = runPipeline(timeline, { preserveLive: true });
-const livePanels = output.livePanels ?? {};
-const liveCutSlices = output.liveCutSlices ?? {};
+applyCutUrlSeeds(cut);
 
 const finalArrangeId = findLastArrangeId(timeline);
 if (!finalArrangeId) throw new Error('no arrange in timeline');
-const finalPanel = livePanels[finalArrangeId];
-if (!finalPanel) throw new Error('pipeline did not preserve final arrange panel');
 
-// ---- Input + Operation tiles (2D) ----
-const composeResult = output.results['compose-0'] as ComposeStripsResult;
-const cutResult = output.results['cut-0'] as CutResult;
-const cutFeature = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
-renderInputTile(composeResult);
-renderOperationTile(composeResult, cutResult, cutFeature);
+// ---- Mount CutControls in the Operation tile ------------------------
 
-// ---- Debug inspector (read-only panel) ----
-mountInspector({ timeline, output });
+const operationTileEl = requireTile('cut-0');
+const opRenderSlot = operationTileEl.querySelector<HTMLElement>('[data-slot="render"]');
+if (!opRenderSlot) throw new Error('cut-0 tile missing render slot');
 
-// ---- Output tile: 3D viewport of the SELECTED operation's output ----
-// For the current bootstrap the selected operation is cut-0, so the
-// output is cut-0's slices. Rendered from LIVE Panel meshes so the
-// actual manifold geometry (including bevel-angled end faces) shows
-// up correctly — snapshot-based rendering only knows the top face
-// polygon and would extrude it straight up, giving a wrong mesh at
-// bevel ≠ 90°.
-//
-// The snapshot `cutResult` is still passed to `buildCutOutputGroup`
-// alongside the live slices, because layout decisions (gap size,
-// offcut detection) are computed from the snapshot's plain-data
-// views. The tile's DOM still uses data-stage="arrange-0" for
-// back-compat with the tile-promotion logic; that gets reworked
-// when #31 lands selection-driven rebinding.
-const outputTileEl = requireTile(finalArrangeId);
-const liveCutSlicesForSelected = liveCutSlices['cut-0'] ?? [];
-const cutOutputGroup = buildCutOutputGroup(cutResult, liveCutSlicesForSelected);
-const finalViewport = setupViewport(outputTileEl, cutOutputGroup, { mode: '3d-final' });
-updateOutputMeta(outputTileEl, cutResult);
+// The Operation tile now has two sub-regions:
+//   - controls (top, fixed height) → CutControls
+//   - preview  (below, flex) → the existing SVG cut-operation diagram
+// A small wrapper div manages the layout so we keep the outer slot's
+// grey background + border-radius unchanged.
+opRenderSlot.innerHTML = '';
+opRenderSlot.style.display = 'flex';
+opRenderSlot.style.flexDirection = 'column';
+opRenderSlot.style.gap = '0.4rem';
+opRenderSlot.style.padding = '0.5rem';
 
-// ---- Tile-mode state + click handlers ----
+const opControlsSlot = document.createElement('div');
+opControlsSlot.style.background = '#fff';
+opControlsSlot.style.border = '1px solid #e4e4e0';
+opControlsSlot.style.borderRadius = '4px';
+opControlsSlot.style.padding = '0.45rem 0.55rem';
+opControlsSlot.style.flex = '0 0 auto';
+opRenderSlot.appendChild(opControlsSlot);
+
+const opPreviewSlot = document.createElement('div');
+opPreviewSlot.style.flex = '1 1 0';
+opPreviewSlot.style.minHeight = '0';
+opPreviewSlot.style.display = 'flex';
+opPreviewSlot.style.alignItems = 'stretch';
+opPreviewSlot.style.justifyContent = 'stretch';
+opRenderSlot.appendChild(opPreviewSlot);
+
+const cutControls: CutControlsHandle = mountCutControls(
+  opControlsSlot,
+  cutToControlsState(cut),
+  {
+    onChange(next) {
+      applyControlsState(cut, next);
+      rerun();
+    },
+  },
+);
+
+// ---- Pipeline + render state ---------------------------------------
+
+let output: PipelineOutput;
+let finalViewport: ViewportHandle | null = null;
+
 interface ActiveViewport {
   tileEl: HTMLElement;
   dispose: () => void;
   featureId: string;
 }
 let activePromoted: ActiveViewport | null = null;
+
+rerun();
+
+// ---- Tile-click-to-promote wiring (runs once) ----------------------
 
 document.querySelectorAll<HTMLElement>('.tile').forEach((tile) => {
   const stageId = tile.dataset.stage;
@@ -158,16 +128,19 @@ document.querySelectorAll<HTMLElement>('.tile').forEach((tile) => {
     return;
   }
   tile.dataset.mode = '2d-summary';
-  tile.addEventListener('click', () => handleTileClick(stageId, tile));
+  tile.addEventListener('click', (e) => {
+    // Ignore clicks that originate inside the controls region so
+    // slider / button interactions don't toggle the tile.
+    if ((e.target as Element).closest('.cut-controls')) return;
+    handleTileClick(stageId, tile);
+  });
 });
 
 function handleTileClick(stageId: string, tileEl: HTMLElement): void {
-  // Only tiles with a live panel can be promoted to 3D.
-  const panel = livePanels[stageId];
+  const panel = output.livePanels?.[stageId];
   if (!panel) return;
 
   if (tileEl.dataset.mode === '3d-active') {
-    // Demote back to 2D summary.
     activePromoted?.dispose();
     activePromoted = null;
     tileEl.dataset.mode = '2d-summary';
@@ -175,8 +148,6 @@ function handleTileClick(stageId: string, tileEl: HTMLElement): void {
     return;
   }
 
-  // Promote. If another tile is already 3d-active, demote it first
-  // so the WebGL-viewport budget stays ≤ 2 (final + this one).
   if (activePromoted) {
     activePromoted.dispose();
     activePromoted.tileEl.dataset.mode = '2d-summary';
@@ -193,7 +164,108 @@ function handleTileClick(stageId: string, tileEl: HTMLElement): void {
   };
 }
 
-// ---- Helpers ----
+// ---- Rerun: pipeline + tile renders ---------------------------------
+
+function rerun(): void {
+  // Dispose live viewports before running so the previous live Panels
+  // can be freed cleanly.
+  activePromoted?.dispose();
+  activePromoted = null;
+  finalViewport?.dispose();
+  finalViewport = null;
+
+  output = runPipeline(timeline, { preserveLive: true });
+  const livePanels = output.livePanels ?? {};
+  const liveCutSlices = output.liveCutSlices ?? {};
+
+  const finalPanel = livePanels[finalArrangeId];
+  if (!finalPanel) throw new Error('pipeline did not preserve final arrange panel');
+
+  const composeResult = output.results['compose-0'] as ComposeStripsResult;
+  const cutResult = output.results['cut-0'] as CutResult;
+  renderInputTile(composeResult);
+  renderOperationPreview(composeResult, cutResult, cut);
+  updateOperationSubtitle(cut, cutResult);
+
+  mountInspector({ timeline, output });
+
+  const outputTileEl = requireTile(finalArrangeId);
+  // The "final" tile shows the CUT output (slices) per original design —
+  // selection-driven rebinding to other ops arrives with the workbench.
+  const liveCutSlicesForSelected = liveCutSlices['cut-0'] ?? [];
+  const cutOutputGroup = buildCutOutputGroup(cutResult, liveCutSlicesForSelected);
+  finalViewport = setupViewport(outputTileEl, cutOutputGroup, { mode: '3d-final' });
+  updateOutputMeta(outputTileEl, cutResult);
+  // Reset to 3d-final in case a rerun follows a promote/demote cycle.
+  outputTileEl.dataset.mode = '3d-final';
+
+  // Any previously-promoted non-final tile returns to 2D summary —
+  // the old activePromoted was disposed above, so we just need to
+  // refresh the summary in whatever tile was promoted.
+  document.querySelectorAll<HTMLElement>('.tile').forEach((tile) => {
+    const stageId = tile.dataset.stage;
+    if (!stageId || stageId === finalArrangeId) return;
+    if (tile.dataset.mode !== '3d-active') {
+      restoreSummary(stageId, tile);
+    }
+  });
+}
+
+// ---- URL seeds ------------------------------------------------------
+
+function applyCutUrlSeeds(c: Cut): void {
+  const params = new URLSearchParams(window.location.search);
+  const rip = params.get('rip');
+  if (rip !== null) {
+    const v = Number(rip);
+    if (Number.isFinite(v)) c.rip = v;
+  }
+  const bevel = params.get('bevel');
+  if (bevel !== null) {
+    const v = Number(bevel);
+    if (Number.isFinite(v)) c.bevel = v;
+  }
+  const pitch = params.get('pitch');
+  if (pitch !== null) {
+    const v = Number(pitch);
+    if (Number.isFinite(v) && v > 0) {
+      c.pitch = v;
+      c.spacingMode = 'pitch';
+    }
+  }
+  const slices = params.get('slices');
+  if (slices !== null) {
+    const v = Number(slices);
+    if (Number.isFinite(v) && v > 0) {
+      c.slices = Math.floor(v);
+      c.spacingMode = 'slices';
+    }
+  }
+  const mode = params.get('mode');
+  if (mode === 'pitch' || mode === 'slices') c.spacingMode = mode;
+}
+
+function cutToControlsState(c: Cut): CutControlsState {
+  return {
+    rip: c.rip,
+    bevel: c.bevel,
+    spacingMode: c.spacingMode,
+    pitch: c.pitch,
+    slices: c.slices,
+    showOffcuts: c.showOffcuts,
+  };
+}
+
+function applyControlsState(c: Cut, next: CutControlsState): void {
+  c.rip = next.rip;
+  c.bevel = next.bevel;
+  c.spacingMode = next.spacingMode;
+  c.pitch = next.pitch;
+  c.slices = next.slices;
+  c.showOffcuts = next.showOffcuts;
+}
+
+// ---- Tile renders ---------------------------------------------------
 
 function findLastArrangeId(features: Feature[]): string | null {
   for (let i = features.length - 1; i >= 0; i--) {
@@ -209,10 +281,6 @@ function requireTile(stageId: string): HTMLElement {
   return el;
 }
 
-/**
- * Input tile: top-down view of the panel being operated on. For the
- * current bootstrap, that's the compose result.
- */
 function renderInputTile(result: ComposeStripsResult): void {
   const tile = requireTile('compose-0');
   const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
@@ -225,38 +293,25 @@ function renderInputTile(result: ComposeStripsResult): void {
   }
 }
 
-/**
- * Operation tile: renders the Cut as an operation diagram — the
- * input panel's top-down view with cut-plane lines overlaid and
- * offcut regions lightly shaded. The subtitle carries the key
- * params (rip, pitch, bevel); the meta slot carries the derived
- * slice count so the viewer can see what N pieces this operation
- * will produce when applied.
- */
-function renderOperationTile(
+function renderOperationPreview(
   inputResult: ComposeStripsResult,
   cutResult: CutResult,
-  cut: (Feature & { kind: 'cut' }) | undefined,
+  c: Cut,
 ): void {
+  if (!c) return;
+  opPreviewSlot.innerHTML = renderCutOperation(inputResult.panel, cutResult);
+}
+
+function updateOperationSubtitle(c: Cut, cutResult: CutResult): void {
   const tile = requireTile('cut-0');
-  const slot = tile.querySelector<HTMLElement>('[data-slot="render"]');
   const subtitle = tile.querySelector<HTMLElement>('.subtitle');
   const meta = tile.querySelector<HTMLElement>('[data-slot="meta"]');
-
-  if (!cut) {
-    if (slot) slot.innerHTML = '<div class="placeholder">cut feature missing</div>';
-    return;
-  }
-
-  if (slot) {
-    slot.innerHTML = renderCutOperation(inputResult.panel, cutResult);
-  }
   if (subtitle) {
     const density =
-      cut.spacingMode === 'slices'
-        ? `${cut.slices} slices`
-        : `pitch ${cut.pitch}`;
-    subtitle.textContent = `cut-0 · rip ${cut.rip}° · ${density} · bevel ${cut.bevel}°`;
+      c.spacingMode === 'slices'
+        ? `${c.slices} slices`
+        : `pitch ${c.pitch}`;
+    subtitle.textContent = `cut-0 · rip ${c.rip}° · ${density} · bevel ${c.bevel}°`;
   }
   if (meta) {
     meta.textContent =
@@ -266,75 +321,50 @@ function renderOperationTile(
   }
 }
 
-/**
- * Re-render a tile's 2D view after demoting from 3D. Dispatches by
- * the tile's role (input panel / cut operation / etc) rather than
- * just stage id, so the right 2D rendering gets restored.
- */
 function restoreSummary(stageId: string, tileEl: HTMLElement): void {
+  if (stageId === 'compose-0') {
+    const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
+    const composeResult = output.results['compose-0'] as ComposeStripsResult;
+    if (slot && composeResult) slot.innerHTML = summarize(composeResult.panel);
+    return;
+  }
+  if (stageId === 'cut-0') {
+    // The cut-0 tile has the compound controls+preview layout; the
+    // preview slot is the one that holds the operation diagram.
+    const composeResult = output.results['compose-0'] as ComposeStripsResult;
+    const cutResult = output.results['cut-0'] as CutResult;
+    if (composeResult && cutResult) {
+      opPreviewSlot.innerHTML = renderCutOperation(composeResult.panel, cutResult);
+    }
+    return;
+  }
   const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
   if (!slot) return;
-  if (stageId === 'compose-0') {
-    slot.innerHTML = summarize(composeResult.panel);
-  } else if (stageId === 'cut-0') {
-    slot.innerHTML = renderCutOperation(composeResult.panel, cutResult);
-  } else {
-    const result = output.results[stageId];
-    if (result && 'panel' in result) {
-      slot.innerHTML = summarize((result as ArrangeResult).panel);
-    }
+  const result = output.results[stageId];
+  if (result && 'panel' in result) {
+    slot.innerHTML = summarize((result as ArrangeResult).panel);
   }
 }
 
-/**
- * Build the Output-tile 3D scene for a Cut-selected view.
- *
- * This reproduces the Operation tile's layout — the tall panel with
- * diagonal cut bands, each piece in its baked position — and then
- * inserts a gap along the panel's long axis (Z) so the pieces
- * separate without a diagonal staircase.
- *
- * Slice meshes come from LIVE Panels (via buildPanelGroup), so the
- * actual manifold geometry renders correctly even when the cut has
- * a non-vertical bevel. The snapshot-based builder (used for the
- * offcuts, where live Panels aren't surfaced today) extrudes the
- * topFace straight along Y — that only matches truth at bevel=90°.
- * The layout math still uses the snapshot because it's the plain
- * data structure with bbox and topFace already computed.
- *
- * Why Z-only gap and not normal-to-face: the cut-normal at any rip
- * ≠ 0 has both X and Z components, so a gap along it drags each
- * piece sideways in X on top of its naturally-offset baked X
- * position. The combined X drift per step produces a staircase that
- * doesn't match the Operation view's single-column layout. Pushing
- * along Z alone keeps every piece within the panel's native X
- * column; pieces stack vertically with the cut-plane band
- * boundaries, matching the Operation view's layout.
- *
- * Gap: the Y thickness of the panel (≈ the "height" of each segment).
- *
- * Offcuts are translucent so they read as discarded.
- */
-function buildCutOutputGroup(cut: CutResult, liveSlices: Panel[]): Group {
+// ---- 3D Cut-output group builder -----------------------------------
+
+function buildCutOutputGroup(cutResult: CutResult, liveSlices: Panel[]): Group {
   const group = new Group();
 
-  // Pieces in cut order (along the cut-normal, which is also monotonic
-  // along Z for any rip where cos(rip) > 0, so cut-order = Z-order).
   type PieceKind = 'slice' | 'offcut';
   type Piece = {
     snap: PanelSnapshot;
     kind: PieceKind;
-    live?: Panel; // present for slices under preserveLive
+    live?: Panel;
   };
   const pieces: Piece[] = [];
-  if (cut.offcuts[0]) pieces.push({ snap: cut.offcuts[0], kind: 'offcut' });
-  cut.slices.forEach((s, i) => {
+  if (cutResult.offcuts[0]) pieces.push({ snap: cutResult.offcuts[0], kind: 'offcut' });
+  cutResult.slices.forEach((s, i) => {
     pieces.push({ snap: s, kind: 'slice', live: liveSlices[i] });
   });
-  if (cut.offcuts[1]) pieces.push({ snap: cut.offcuts[1], kind: 'offcut' });
+  if (cutResult.offcuts[1]) pieces.push({ snap: cutResult.offcuts[1], kind: 'offcut' });
   if (pieces.length === 0) return group;
 
-  // Gap = panel Y thickness.
   let gap = 0;
   for (const p of pieces) {
     const v = p.snap.volumes[0];
@@ -344,26 +374,27 @@ function buildCutOutputGroup(cut: CutResult, liveSlices: Panel[]): Group {
   const centerIdx = (pieces.length - 1) / 2;
 
   pieces.forEach((piece, i) => {
-    // Live Panel when available (slices under preserveLive) — the
-    // manifold mesh captures bevel-angled end faces faithfully.
-    // Fall back to snapshot extrusion for offcuts (which aren't
-    // surfaced live) and for the headless / no-preserveLive path.
     const meshGroup = piece.live
       ? buildPanelGroup(piece.live)
       : buildGroupFromSnapshot(piece.snap);
-    // Push along +Z only. No X motion is introduced — each piece
-    // stays in the panel's natural X column, same as the Operation
-    // tile.
     meshGroup.position.z = (i - centerIdx) * gap;
 
     meshGroup.userData.kind = piece.kind;
     if (piece.kind === 'slice') {
-      meshGroup.userData.sliceIdx = i - (cut.offcuts[0] ? 1 : 0);
+      meshGroup.userData.sliceIdx = i - (cutResult.offcuts[0] ? 1 : 0);
     }
 
     if (piece.kind === 'offcut') {
       meshGroup.traverse((obj) => {
-        const anyObj = obj as any;
+        const anyObj = obj as unknown as {
+          isMesh?: boolean;
+          isLineSegments?: boolean;
+          material?: {
+            transparent: boolean;
+            opacity: number;
+            depthWrite?: boolean;
+          };
+        };
         if (anyObj.isMesh && anyObj.material) {
           anyObj.material.transparent = true;
           anyObj.material.opacity = 0.2;
@@ -382,17 +413,15 @@ function buildCutOutputGroup(cut: CutResult, liveSlices: Panel[]): Group {
   return group;
 }
 
-/** Meta line on the Output tile — describes what the Cut produced. */
-function updateOutputMeta(tileEl: HTMLElement, cut: CutResult): void {
+function updateOutputMeta(tileEl: HTMLElement, cutResult: CutResult): void {
   const meta = tileEl.querySelector<HTMLElement>('[data-slot="meta"]');
   if (!meta) return;
-  const totalVolumes = cut.slices.reduce((n, s) => n + s.volumes.length, 0);
+  const totalVolumes = cutResult.slices.reduce((n, s) => n + s.volumes.length, 0);
   meta.textContent =
-    cut.offcuts.length > 0
-      ? `${cut.slices.length} slices · ${totalVolumes} segments · ${cut.offcuts.length} offcuts discarded`
-      : `${cut.slices.length} slices · ${totalVolumes} segments`;
+    cutResult.offcuts.length > 0
+      ? `${cutResult.slices.length} slices · ${totalVolumes} segments · ${cutResult.offcuts.length} offcuts discarded`
+      : `${cutResult.slices.length} slices · ${totalVolumes} segments`;
 }
 
-
-// Mark final viewport explicitly so lint does not complain about the unused handle.
-void finalViewport;
+// Silence the "unused" lint; the handle is held for the page's lifetime.
+void cutControls;
