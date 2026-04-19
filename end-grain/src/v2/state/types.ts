@@ -125,8 +125,23 @@ export interface Cut {
   rip: number;
   /** 45..90 degrees. Tilt of cut-plane from vertical (bevel angle). */
   bevel: number;
-  /** mm, slice pitch along cut-normal. */
+  /**
+   * Which parameter drives slice density:
+   *   'pitch'  — user specifies the perpendicular cut spacing; the
+   *              pipeline derives how many slices fit.
+   *   'slices' — user specifies the slice count; the pipeline derives
+   *              the cut spacing so the slices distribute evenly
+   *              across the panel's safe extent.
+   *
+   * The field not being driven is still carried on the feature (as
+   * a stale value the user last dialled in), so switching modes
+   * preserves whatever they had in the non-active knob.
+   */
+  spacingMode: 'pitch' | 'slices';
+  /** mm, slice pitch along cut-normal. Used when spacingMode='pitch'. */
   pitch: number;
+  /** Number of slices to produce. Used when spacingMode='slices'. */
+  slices: number;
   showOffcuts: boolean;
   status: Status;
   statusReason?: string;

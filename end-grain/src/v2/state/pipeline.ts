@@ -327,9 +327,25 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     cosA * (panelZ * Math.abs(cosR) - panelX * Math.abs(sinR)) -
       panelY * Math.abs(sinA),
   );
-  const count = Math.max(0, Math.floor(safeExtent / f.pitch));
 
-  const { slices, offcuts } = input.cutRepeated(normal, f.pitch, count, 0);
+  // Two density modes:
+  //   'pitch'  — user dialled the cut spacing; pipeline floors the
+  //              safe extent by pitch to get the slice count.
+  //   'slices' — user dialled the slice count; pipeline divides the
+  //              safe extent by count to get the spacing.
+  // Either way, `count` (slice count) and `effectivePitch` (spacing
+  // used for the cut) are the two values fed into cutRepeated below.
+  let count: number;
+  let effectivePitch: number;
+  if (f.spacingMode === 'slices') {
+    count = Math.max(0, Math.floor(f.slices));
+    effectivePitch = count > 0 ? safeExtent / count : 0;
+  } else {
+    count = f.pitch > 0 ? Math.max(0, Math.floor(safeExtent / f.pitch)) : 0;
+    effectivePitch = f.pitch;
+  }
+
+  const { slices, offcuts } = input.cutRepeated(normal, effectivePitch, count, 0);
 
   // Tag every segment of each slice with this Cut's slice id so the
   // view layer can group / explode by slice origin. Mutates segments

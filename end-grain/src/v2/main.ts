@@ -104,7 +104,22 @@ if (cutOverride) {
   const pitchOverride = params.get('pitch');
   if (pitchOverride !== null) {
     const v = Number(pitchOverride);
-    if (Number.isFinite(v) && v > 0) cutOverride.pitch = v;
+    if (Number.isFinite(v) && v > 0) {
+      cutOverride.pitch = v;
+      cutOverride.spacingMode = 'pitch';
+    }
+  }
+  const slicesOverride = params.get('slices');
+  if (slicesOverride !== null) {
+    const v = Number(slicesOverride);
+    if (Number.isFinite(v) && v > 0) {
+      cutOverride.slices = Math.floor(v);
+      cutOverride.spacingMode = 'slices';
+    }
+  }
+  const modeOverride = params.get('mode');
+  if (modeOverride === 'pitch' || modeOverride === 'slices') {
+    cutOverride.spacingMode = modeOverride;
   }
 }
 
@@ -257,7 +272,11 @@ function renderOperationTile(
     slot.innerHTML = renderCutOperation(inputResult.panel, cutResult);
   }
   if (subtitle) {
-    subtitle.textContent = `cut-0 · rip ${cut.rip}° · pitch ${cut.pitch} · bevel ${cut.bevel}°`;
+    const density =
+      cut.spacingMode === 'slices'
+        ? `${cut.slices} slices`
+        : `pitch ${cut.pitch}`;
+    subtitle.textContent = `cut-0 · rip ${cut.rip}° · ${density} · bevel ${cut.bevel}°`;
   }
   if (meta) {
     meta.textContent =

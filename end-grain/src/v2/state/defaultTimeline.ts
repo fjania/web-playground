@@ -47,7 +47,12 @@ export function defaultTimeline(counter: IdCounter): Feature[] {
     id: allocateId(counter, 'cut'),
     rip: 0,
     bevel: 90,
+    spacingMode: 'pitch',
     pitch: 50,
+    // Slices carries the value the user would see if they switched
+    // to slices mode on the default panel (safeExtent=400, so
+    // 400/50 = 8). Makes mode-switches preserve the intent.
+    slices: 8,
     showOffcuts: false,
     status: 'ok',
   };

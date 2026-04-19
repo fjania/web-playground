@@ -90,7 +90,9 @@ export function summarizeSlices(
           max: [v.bbox.max[0], v.bbox.max[1], v.bbox.max[2] + dz] as [number, number, number],
         },
         contributingStripIds: [...v.contributingStripIds],
+        contributingSliceIds: [...v.contributingSliceIds],
         topFace: v.topFace.map((p) => ({ x: p.x, z: p.z + dz })),
+        bottomFace: v.bottomFace.map((p) => ({ x: p.x, z: p.z + dz })),
       };
       shiftedVolumes.push(shifted);
       if (shifted.bbox.min[0] < minX) minX = shifted.bbox.min[0];

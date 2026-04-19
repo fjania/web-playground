@@ -386,6 +386,85 @@ describe.each([
   });
 });
 
+// ---------------------------------------------------------------------------
+// Slice-count mode sweep — the alternative density driver. User specifies
+// N slices, the pipeline derives pitch = safeExtent / N so the slices
+// distribute evenly. Parallel to the pitch-mode sweep above.
+// ---------------------------------------------------------------------------
+
+describe.each([
+  { slices: 4, expectedPitch: 100 },  // 400 / 4
+  { slices: 8, expectedPitch: 50 },   // 400 / 8 (matches default)
+  { slices: 10, expectedPitch: 40 },  // 400 / 10
+  { slices: 16, expectedPitch: 25 },  // 400 / 16
+])('runPipeline — spacingMode=slices, slices=$slices on default 100×50×400 panel', ({ slices, expectedPitch }) => {
+  function runAtSliceCount(): {
+    compose: ComposeStripsResult;
+    arrange: ArrangeResult;
+    cut: CutResult;
+  } {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    const cutFeature = timeline[1];
+    if (cutFeature.kind !== 'cut') throw new Error('unexpected shape');
+    cutFeature.spacingMode = 'slices';
+    cutFeature.slices = slices;
+    const out = runPipeline(timeline);
+    return {
+      compose: out.results['compose-0'] as ComposeStripsResult,
+      arrange: out.results['arrange-0'] as ArrangeResult,
+      cut: out.results['cut-0'] as CutResult,
+    };
+  }
+
+  it(`produces exactly ${slices} slices`, () => {
+    const { cut } = runAtSliceCount();
+    expect(cut.slices.length).toBe(slices);
+  });
+
+  it(`derives pitch = ${expectedPitch} mm (safeExtent/slices)`, () => {
+    const { cut } = runAtSliceCount();
+    // Each slice's Z extent (at bevel=90, rip=0) equals the derived
+    // pitch — single-cut slices are axis-aligned prisms.
+    if (cut.slices.length > 0) {
+      const sliceZ =
+        cut.slices[0].bbox.max[2] - cut.slices[0].bbox.min[2];
+      expect(sliceZ).toBeCloseTo(expectedPitch, 1);
+    }
+  });
+
+  it('identity arrange preserves full X width', () => {
+    const { compose, arrange } = runAtSliceCount();
+    const inputX = compose.panel.bbox.max[0] - compose.panel.bbox.min[0];
+    const outputX = arrange.panel.bbox.max[0] - arrange.panel.bbox.min[0];
+    expect(outputX).toBeCloseTo(inputX, 2);
+  });
+});
+
+describe('runPipeline — spacingMode switches independently', () => {
+  it('pitch-mode ignores the slices field', () => {
+    const timeline = defaultTimeline(createIdCounter());
+    const cut = timeline[1];
+    if (cut.kind !== 'cut') throw new Error('bad shape');
+    cut.spacingMode = 'pitch';
+    cut.pitch = 50;
+    cut.slices = 999; // should be ignored
+    const out = runPipeline(timeline);
+    expect((out.results['cut-0'] as CutResult).slices.length).toBe(8);
+  });
+
+  it('slices-mode ignores the pitch field', () => {
+    const timeline = defaultTimeline(createIdCounter());
+    const cut = timeline[1];
+    if (cut.kind !== 'cut') throw new Error('bad shape');
+    cut.spacingMode = 'slices';
+    cut.pitch = 9999; // should be ignored
+    cut.slices = 5;
+    const out = runPipeline(timeline);
+    expect((out.results['cut-0'] as CutResult).slices.length).toBe(5);
+  });
+});
+
 describe('runPipeline — liveCutSlices surfaced under preserveLive', () => {
   it('populates liveCutSlices for each Cut with one Panel per slice', () => {
     const timeline = defaultTimeline(createIdCounter());
@@ -481,7 +560,9 @@ function checkerboardTimeline(): Feature[] {
       id: allocateId(counter, 'cut'),
       rip: 0,
       bevel: 90,
+      spacingMode: 'pitch',
       pitch: 25,
+      slices: 16,
       showOffcuts: false,
       status: 'ok',
     },
@@ -580,7 +661,9 @@ function brickTimelineNoSpacers(): Feature[] {
       id: allocateId(counter, 'cut'),
       rip: 0,
       bevel: 90,
+      spacingMode: 'pitch',
       pitch: 50,
+      slices: 8,
       showOffcuts: false,
       status: 'ok',
     },
@@ -730,7 +813,9 @@ describe('runPipeline — malformed timelines', () => {
         id: 'cut-0',
         rip: 0,
         bevel: 90,
+        spacingMode: 'pitch',
         pitch: 50,
+        slices: 8,
         showOffcuts: false,
         status: 'ok',
       },
