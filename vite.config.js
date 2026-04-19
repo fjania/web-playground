@@ -9,6 +9,12 @@ export default defineConfig({
     jsx: 'automatic',
   },
   build: {
+    // Top-level `await initManifold()` in each end-grain main-*.ts
+    // requires a target that supports top-level await. esbuild's
+    // default is es2020 which doesn't. esnext covers every modern
+    // browser that can also run WebGL2 + WebAssembly, which is our
+    // de-facto floor for end-grain anyway. (#41)
+    target: 'esnext',
     rollupOptions: {
       input: {
         main: 'index.html',
