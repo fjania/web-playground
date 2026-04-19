@@ -122,7 +122,7 @@
     .tile.tile--interactive {
       flex: 0 0 320px;
     }
-    .tile.tile--operation {
+    .tile.tile--2d {
       flex: 1 1 0;
       min-width: 320px;
     }
@@ -165,8 +165,7 @@
     .tile--3d .render {
       padding: 0;
     }
-    .tile--interactive .render,
-    .tile--operation .render {
+    .tile--interactive .render {
       background: #fff;
       padding: 0.5rem;
       align-items: stretch;
@@ -266,10 +265,12 @@
         the arrangement order downstream; that lives in the Operation
         tile.</li>
       <li><strong>Operation</strong> (interactive) — drag strips to
-        reorder them. Shown <em>exploded</em> with gaps so narrow
-        strips are easier to grab; widths are true (1mm ≈ 1px, with a
-        28px minimum hit area) so the pattern you see is the pattern
-        you'll get. Flush assembly happens downstream.</li>
+        reorder them. Rendered in the same top-down SVG vocabulary as
+        the Arrange operation tile — species-coloured polygons, muted
+        strokes, real mm-scaled widths and lengths — but with small
+        gaps between strips so the pieces read as "not yet flush" and
+        narrow strips stay grabbable. Flush assembly happens
+        downstream in the Output tile.</li>
       <li><strong>Output</strong> — the composed panel in 3D. Free
         orbit, home button, XYZ axis gizmo in the upper-right.</li>
     </ul>
@@ -292,7 +293,7 @@
       </div>
       <div class="meta" data-slot="meta"></div>
     </article>
-    <article class="tile tile--operation" data-stage="compose-0-op" data-role="operation">
+    <article class="tile tile--2d" data-stage="compose-0-op" data-role="operation">
       <header>
         <h2>Operation: ComposeStrips</h2>
         <p class="subtitle">drag to reorder · exploded</p>

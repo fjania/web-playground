@@ -210,7 +210,11 @@ const opSlot = requireSlot(opTile);
 
 const reorderHandle: ReorderHandle = mountStripReorder(
   opSlot,
-  { inventory: state.inventory, order: state.order },
+  {
+    inventory: state.inventory,
+    order: state.order,
+    stripLength: state.stripLength,
+  },
   {
     onChange: (nextOrder) => {
       state = { ...state, order: nextOrder };
@@ -264,7 +268,11 @@ function rerunPipeline(): void {
   // reflected. A pure reorder from the reorder UI itself already
   // repaints — calling update() again on the same order is a no-op
   // visually beyond the DOM rebuild.
-  reorderHandle.update({ inventory: state.inventory, order: state.order });
+  reorderHandle.update({
+    inventory: state.inventory,
+    order: state.order,
+    stripLength: state.stripLength,
+  });
   setSubtitle(opTile, `compose-0 · ${state.order.length} strips arranged`);
   setMeta(
     opTile,

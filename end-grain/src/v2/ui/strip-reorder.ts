@@ -1,28 +1,31 @@
 /**
- * Strip reorder — framework-agnostic drag-to-reorder UI for the
- * ComposeStrips arrangement.
+ * Strip reorder — drag-to-reorder UI for the ComposeStrips arrangement.
  *
- * Renders the strips as horizontal boxes with **exploded gaps**
- * between them (so narrow strips are easier to grab). Widths in the
- * render mirror the actual strip widths so the maker can see the
- * pattern they're making, but each strip has a generous hit area
- * (enforced min of 28px) so drags work even on very narrow strips.
+ * Visual language matches the Arrange operation tile
+ * (`renderArrangeOperation` → `summarize(panel)`): strips are rendered
+ * as SVG `<polygon>` fills using `SPECIES_COLOURS`, with the same
+ * muted stroke (`#00000022`, 0.5 mm width). The viewBox is in mm — 1
+ * unit == 1 mm — so strip widths and lengths display in true relative
+ * proportion, exactly like every other IXO tile.
  *
- * Interaction: pointer-down on a strip captures the pointer, the
- * strip follows the cursor (translated), neighbours animate to their
- * new positions as the cursor crosses midpoints, and on pointer-up
- * the new order commits via `onChange(newOrder)`.
+ * Strips are shown **exploded** with small gaps (GAP_MM) so narrow
+ * strips stay grabbable, and so the render reads as "pieces not yet
+ * flush" (composition happens downstream in the 3D Output tile).
  *
- * Deliberately uses pointer events rather than HTML5 drag-and-drop
- * (the user's explicit preference — DnD is clunky for this kind of
- * interaction).
+ * Interaction: pointer-down on a strip polygon captures the pointer,
+ * a CSS transform follows the cursor, neighbours animate into their
+ * rehearsal positions as the cursor crosses midpoints, and on
+ * pointer-up the new order commits via `onChange(newOrder)`.
+ *
+ * No HTML5 drag-and-drop (clunky). No drop shadows, no rounded
+ * background boxes, no in-strip width labels — the visual vocabulary
+ * is intentionally the same as every other 2D operation tile.
  *
  * State:
  *   - inventory: StripDef[] — the full set of available strips.
- *   - order: string[] — ordered strip ids. Must be a permutation of
- *     inventory's stripIds. If inventory and order ever get out of
- *     sync (e.g. the owner adds/removes strips in the inventory
- *     component), call `update(next)` to refresh.
+ *   - order: string[] — ordered strip ids (permutation of inventory).
+ *   - stripLength: number — mm, panel Z extent. Drives the SVG
+ *     viewBox's Z dimension so the aspect ratio matches the 3D panel.
  *
  * Downstream: the pipeline sees `order.map(id => inventory[id])`.
  */
@@ -33,6 +36,7 @@ import { SPECIES_COLOURS } from '../render/summary';
 export interface ReorderState {
   inventory: StripDef[];
   order: string[];
+  stripLength: number;
 }
 
 export interface ReorderMountOptions {
@@ -45,11 +49,25 @@ export interface ReorderHandle {
   dispose: () => void;
 }
 
-// Visual constants.
-const STRIP_HEIGHT_PX = 84; // "thickness" shown on screen
-const MIN_STRIP_WIDTH_PX = 28; // minimum hit area, regardless of mm width
-const MM_PER_PX = 1; // 1mm = 1px at default zoom; narrow strips still get MIN_STRIP_WIDTH_PX
-const STRIP_GAP_PX = 8; // explode gap between strips
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Visual constants (mm units — consistent with summarize()).
+const GAP_MM = 5;
+const STROKE = '#00000022';
+const STROKE_WIDTH_MM = 0.5;
+const DRAG_STROKE = '#1a1a1a';
+const DRAG_STROKE_WIDTH_MM = 1.2;
+const DRAG_LIFT_MM = 6;
+
+// Animations measured in ms (CSS), hit-padding in mm (SVG user units).
+const ANIM_MS = 140;
+/**
+ * Minimum hit width in mm. Narrow strips get a transparent rect
+ * behind them extending the grab target. 20 mm is ≈ 3/4" which is
+ * roughly the smallest strip a hand-tool maker would realistically
+ * want.
+ */
+const MIN_HIT_WIDTH_MM = 20;
 
 export function mountStripReorder(
   el: HTMLElement,
@@ -57,9 +75,7 @@ export function mountStripReorder(
   options: ReorderMountOptions,
 ): ReorderHandle {
   let state: ReorderState = cloneState(initial);
-  let containerEl: HTMLElement | null = null;
 
-  // Resources we need to clean up on dispose / rerender.
   let pointerCleanup: (() => void) | null = null;
 
   function render(): void {
@@ -67,52 +83,105 @@ export function mountStripReorder(
     pointerCleanup?.();
     pointerCleanup = null;
 
-    const wrap = document.createElement('div');
-    wrap.className = 'strip-reorder';
-    wrap.style.position = 'relative';
-    wrap.style.width = '100%';
-    wrap.style.minHeight = `${STRIP_HEIGHT_PX + 40}px`;
-    wrap.style.padding = '18px 8px';
-    wrap.style.overflowX = 'auto';
-    wrap.style.overflowY = 'hidden';
-    wrap.style.userSelect = 'none';
-    wrap.style.background = '#f6f5f1';
-    wrap.style.borderRadius = '4px';
-
     const strips = resolveStrips(state);
-    const widths = strips.map(stripPxWidth);
+    const widths = strips.map((s) => s.width);
     const totalWidth =
       widths.reduce((s, w) => s + w, 0) +
-      Math.max(0, strips.length - 1) * STRIP_GAP_PX;
+      Math.max(0, strips.length - 1) * GAP_MM;
 
-    // Track container for strips
-    const track = document.createElement('div');
-    track.style.position = 'relative';
-    track.style.height = `${STRIP_HEIGHT_PX + 18}px`;
-    track.style.width = `${Math.max(totalWidth, 100)}px`;
-    track.style.margin = '0 auto';
-    wrap.appendChild(track);
+    const Z = Math.max(1, state.stripLength);
 
-    // Each strip becomes a positioned element. We keep references so
-    // drag can update their transforms.
-    const stripEls: HTMLElement[] = strips.map((strip, i) => {
-      const box = buildStripEl(strip, i, widths[i]);
-      track.appendChild(box);
-      return box;
+    // Outer centring wrapper — keeps SVG centred in the tile's render
+    // slot at any aspect ratio.
+    const wrap = document.createElement('div');
+    wrap.style.width = '100%';
+    wrap.style.height = '100%';
+    wrap.style.display = 'flex';
+    wrap.style.alignItems = 'center';
+    wrap.style.justifyContent = 'center';
+    wrap.style.userSelect = 'none';
+    wrap.style.touchAction = 'none';
+
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('xmlns', SVG_NS);
+    svg.setAttribute(
+      'viewBox',
+      `${fmt(-GAP_MM)} ${fmt(-GAP_MM)} ${fmt(totalWidth + 2 * GAP_MM)} ${fmt(Z + 2 * GAP_MM)}`,
+    );
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.display = 'block';
+    svg.style.overflow = 'visible';
+
+    // Compute per-slot X offsets (cumulative with gaps).
+    const slotX: number[] = [];
+    {
+      let x = 0;
+      for (let i = 0; i < strips.length; i++) {
+        slotX.push(x);
+        x += widths[i] + GAP_MM;
+      }
+    }
+
+    // One <g> per strip so we can transform each independently on drag.
+    const stripGroups: SVGGElement[] = strips.map((strip, i) => {
+      const g = document.createElementNS(SVG_NS, 'g');
+      g.dataset.stripId = strip.stripId;
+      g.dataset.slotIdx = String(i);
+      g.style.transition = `transform ${ANIM_MS}ms ease`;
+      g.style.cursor = 'grab';
+
+      // Generous hit rect — transparent, extends beneath narrow strips
+      // so they remain grabbable. Centred on the visible polygon.
+      const w = widths[i];
+      const hitW = Math.max(MIN_HIT_WIDTH_MM, w);
+      const hitXOff = (hitW - w) / 2;
+      const hit = document.createElementNS(SVG_NS, 'rect');
+      hit.setAttribute('x', fmt(slotX[i] - hitXOff));
+      hit.setAttribute('y', fmt(0));
+      hit.setAttribute('width', fmt(hitW));
+      hit.setAttribute('height', fmt(Z));
+      hit.setAttribute('fill', 'transparent');
+      hit.setAttribute('pointer-events', 'all');
+      g.appendChild(hit);
+
+      // Visible polygon — actual strip width.
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', fmt(slotX[i]));
+      rect.setAttribute('y', fmt(0));
+      rect.setAttribute('width', fmt(w));
+      rect.setAttribute('height', fmt(Z));
+      rect.setAttribute('fill', SPECIES_COLOURS[strip.species]);
+      rect.setAttribute('stroke', STROKE);
+      rect.setAttribute('stroke-width', fmt(STROKE_WIDTH_MM));
+      rect.setAttribute('vector-effect', 'non-scaling-stroke');
+      rect.setAttribute('data-species', strip.species);
+      rect.setAttribute('pointer-events', 'none');
+      g.appendChild(rect);
+
+      svg.appendChild(g);
+      return g;
     });
 
-    // Layout strips at their slots
-    layout(stripEls, widths, null, 0);
-
-    // Wire drag
-    pointerCleanup = attachDrag(track, stripEls, widths, state, (nextOrder) => {
-      state = { ...state, order: nextOrder };
-      options.onChange([...nextOrder]);
-      render();
-    });
-
+    wrap.appendChild(svg);
     el.appendChild(wrap);
-    containerEl = wrap;
+
+    // Wire drag (needs the SVG + slots + widths in closure).
+    if (strips.length > 1) {
+      pointerCleanup = attachDrag(
+        svg,
+        stripGroups,
+        widths,
+        slotX,
+        state,
+        (nextOrder) => {
+          state = { ...state, order: nextOrder };
+          options.onChange([...nextOrder]);
+          render();
+        },
+      );
+    }
   }
 
   render();
@@ -126,293 +195,220 @@ export function mountStripReorder(
       pointerCleanup?.();
       pointerCleanup = null;
       el.innerHTML = '';
-      containerEl = null;
     },
   };
-  // suppress "unused" lint
-  void containerEl;
 }
 
-// ---- strip widget ----
-
-function buildStripEl(
-  strip: StripDef,
-  idx: number,
-  pxWidth: number,
-): HTMLElement {
-  const box = document.createElement('div');
-  box.dataset.stripId = strip.stripId;
-  box.dataset.slotIdx = String(idx);
-  box.style.position = 'absolute';
-  box.style.top = '0px';
-  box.style.left = '0px';
-  box.style.width = `${pxWidth}px`;
-  box.style.height = `${STRIP_HEIGHT_PX}px`;
-  box.style.background = SPECIES_COLOURS[strip.species];
-  box.style.border = '1px solid #00000033';
-  box.style.borderRadius = '3px';
-  box.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
-  box.style.cursor = 'grab';
-  box.style.touchAction = 'none';
-  box.style.display = 'flex';
-  box.style.flexDirection = 'column';
-  box.style.alignItems = 'center';
-  box.style.justifyContent = 'flex-end';
-  box.style.paddingBottom = '4px';
-  box.style.transition = 'transform 140ms ease, left 140ms ease';
-  box.style.willChange = 'transform, left';
-
-  // Index label below the strip
-  const label = document.createElement('div');
-  label.style.position = 'absolute';
-  label.style.top = `${STRIP_HEIGHT_PX + 4}px`;
-  label.style.left = '0';
-  label.style.right = '0';
-  label.style.textAlign = 'center';
-  label.style.fontSize = '0.65rem';
-  label.style.color = '#666';
-  label.style.fontFamily =
-    'ui-monospace, SFMono-Regular, Menlo, monospace';
-  label.textContent = `${idx}`;
-  box.appendChild(label);
-
-  // Width label inside the strip (bottom) — shows actual mm.
-  const widthLabel = document.createElement('div');
-  widthLabel.style.fontSize = '0.6rem';
-  widthLabel.style.color = isLightSpecies(strip) ? '#333' : '#f2efe8';
-  widthLabel.style.fontFamily =
-    'ui-monospace, SFMono-Regular, Menlo, monospace';
-  widthLabel.style.textShadow = isLightSpecies(strip)
-    ? 'none'
-    : '0 1px 0 rgba(0,0,0,0.3)';
-  widthLabel.textContent = `${strip.width}`;
-  box.appendChild(widthLabel);
-
-  return box;
-}
-
-function isLightSpecies(strip: StripDef): boolean {
-  return strip.species === 'maple';
-}
-
-function stripPxWidth(s: StripDef): number {
-  return Math.max(MIN_STRIP_WIDTH_PX, s.width * MM_PER_PX);
-}
-
-// ---- layout ----
-
-/**
- * Compute the absolute left-offset for the slot at `idx`, given the
- * natural slot widths.
- */
-function slotLeft(widths: number[], idx: number): number {
-  let x = 0;
-  for (let i = 0; i < idx; i++) x += widths[i] + STRIP_GAP_PX;
-  return x;
-}
-
-function layout(
-  stripEls: HTMLElement[],
-  widths: number[],
-  draggingIdx: number | null,
-  dragDx: number,
-): void {
-  stripEls.forEach((el, i) => {
-    const x = slotLeft(widths, i);
-    el.style.left = `${x}px`;
-    if (i === draggingIdx) {
-      el.style.transform = `translate(${dragDx}px, -4px)`;
-      el.style.transition = 'none';
-      el.style.zIndex = '10';
-      el.style.boxShadow = '0 6px 12px rgba(0,0,0,0.22)';
-      el.style.cursor = 'grabbing';
-    } else {
-      el.style.transform = 'translate(0px, 0px)';
-      el.style.transition = 'transform 140ms ease, left 140ms ease';
-      el.style.zIndex = '1';
-      el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
-      el.style.cursor = 'grab';
-    }
-  });
-}
-
-// ---- drag machinery ----
+// ---- drag machinery -------------------------------------------------------
 
 function attachDrag(
-  track: HTMLElement,
-  stripEls: HTMLElement[],
+  svg: SVGSVGElement,
+  stripGroups: SVGGElement[],
   widths: number[],
+  slotX: number[],
   state: ReorderState,
   commit: (newOrder: string[]) => void,
 ): () => void {
-  // Closure state — which strip is currently being dragged.
   let dragging: {
     fromSlot: number;
     currentSlot: number;
     stripId: string;
-    startX: number;
-    dx: number;
-    el: HTMLElement;
+    startClientX: number;
+    el: SVGGElement;
+    // Cached mm-per-px at drag start so pointermove converts correctly
+    // even if layout shifts mid-gesture.
+    mmPerPx: number;
   } | null = null;
 
-  const onPointerDown = (e: PointerEvent) => {
-    const target = e.target as HTMLElement;
-    const stripEl = findStripAncestor(target);
-    if (!stripEl) return;
-    const fromSlotStr = stripEl.dataset.slotIdx;
-    if (fromSlotStr === undefined) return;
-    const fromSlot = Number(fromSlotStr);
-    const stripId = stripEl.dataset.stripId!;
+  function mmPerPx(): number {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    if (rect.width === 0 || !vb || vb.width === 0) return 1;
+    return vb.width / rect.width;
+  }
+
+  const onPointerDown = (e: PointerEvent): void => {
+    const target = e.target as Element;
+    const g = findStripAncestor(target);
+    if (!g) return;
+    const fromSlot = Number(g.dataset.slotIdx);
+    if (!Number.isFinite(fromSlot)) return;
+    const stripId = g.dataset.stripId!;
     e.preventDefault();
-    stripEl.setPointerCapture(e.pointerId);
+    try {
+      g.setPointerCapture(e.pointerId);
+    } catch {
+      // Some browsers disallow capture on SVG <g>. Fine — doc-level
+      // move listeners still receive events.
+    }
 
     dragging = {
       fromSlot,
       currentSlot: fromSlot,
       stripId,
-      startX: e.clientX,
-      dx: 0,
-      el: stripEl,
+      startClientX: e.clientX,
+      el: g,
+      mmPerPx: mmPerPx(),
     };
-    layout(stripEls, widths, fromSlot, 0);
+    setDraggingStyle(g, 0, true);
   };
 
-  const onPointerMove = (e: PointerEvent) => {
+  const onPointerMove = (e: PointerEvent): void => {
     if (!dragging) return;
-    dragging.dx = e.clientX - dragging.startX;
-    // Compute which slot the dragged item's centre currently sits in.
-    const halfW = widths[dragging.fromSlot] / 2;
-    const origLeft = slotLeft(widths, dragging.fromSlot);
-    const centreX = origLeft + halfW + dragging.dx;
-    const newSlot = slotAtX(widths, centreX);
+    const dxPx = e.clientX - dragging.startClientX;
+    const dxMm = dxPx * dragging.mmPerPx;
+    setDraggingStyle(dragging.el, dxMm, true);
+
+    const origCentre = slotX[dragging.fromSlot] + widths[dragging.fromSlot] / 2;
+    const centre = origCentre + dxMm;
+    const newSlot = slotAtCentreX(widths, slotX, centre);
     if (newSlot !== dragging.currentSlot) {
       dragging.currentSlot = newSlot;
-      // Repaint: ghosts of non-dragged strips shift to make room.
-      layoutWithRehearsal(
-        stripEls,
+      layoutRehearsal(
+        stripGroups,
         widths,
+        slotX,
         dragging.fromSlot,
         newSlot,
-        dragging.dx,
       );
-    } else {
-      // Just move the dragged strip; ghosts stay put.
-      dragging.el.style.transform = `translate(${dragging.dx}px, -4px)`;
     }
   };
 
-  const onPointerUp = (e: PointerEvent) => {
+  const onPointerUp = (e: PointerEvent): void => {
     if (!dragging) return;
     const { fromSlot, currentSlot, stripId, el } = dragging;
     try {
       el.releasePointerCapture(e.pointerId);
     } catch {
-      // nothing
+      // ignore
     }
-    const done = dragging;
     dragging = null;
+    setDraggingStyle(el, 0, false);
+
     if (fromSlot === currentSlot) {
-      // No move — relax back.
-      layout(stripEls, widths, null, 0);
+      resetRehearsal(stripGroups);
       return;
     }
-    // Compute new order.
     const newOrder = moveInArray(state.order, fromSlot, currentSlot);
-    // Ensure the moved stripId is consistent (defensive).
     if (newOrder[currentSlot] !== stripId) {
-      // Should not happen, but bail to a safe state.
-      layout(stripEls, widths, null, 0);
+      resetRehearsal(stripGroups);
       return;
     }
-    void done;
     commit(newOrder);
   };
 
-  // Attach to each strip element.
-  for (const stripEl of stripEls) {
-    stripEl.addEventListener('pointerdown', onPointerDown);
+  for (const g of stripGroups) {
+    g.addEventListener('pointerdown', onPointerDown);
   }
-  // Move / up listeners on document so dragging still tracks if the
-  // pointer leaves the track.
   document.addEventListener('pointermove', onPointerMove);
   document.addEventListener('pointerup', onPointerUp);
   document.addEventListener('pointercancel', onPointerUp);
 
   return () => {
-    for (const stripEl of stripEls) {
-      stripEl.removeEventListener('pointerdown', onPointerDown);
+    for (const g of stripGroups) {
+      g.removeEventListener('pointerdown', onPointerDown);
     }
     document.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerup', onPointerUp);
     document.removeEventListener('pointercancel', onPointerUp);
   };
-  void track;
 }
 
 /**
- * During a drag, visualise what the final order would be if dropped
- * now: the dragged strip follows the cursor; every other strip
- * settles into its rehearsal slot (which is its index in the
- * permutation `moveInArray(order, fromSlot, currentSlot)`).
+ * Set / clear the "being dragged" visual: lift the strip up by
+ * DRAG_LIFT_MM and bump the stroke. CSS transform is in SVG user
+ * units because the <g> lives inside the viewBox coordinate system.
  */
-function layoutWithRehearsal(
-  stripEls: HTMLElement[],
+function setDraggingStyle(
+  g: SVGGElement,
+  dxMm: number,
+  active: boolean,
+): void {
+  if (active) {
+    g.style.transition = 'none';
+    g.style.transform = `translate(${dxMm}px, ${-DRAG_LIFT_MM}px)`;
+    g.style.cursor = 'grabbing';
+    g.style.filter = 'drop-shadow(0 2px 3px rgba(0,0,0,0.18))';
+    // Bump the visible polygon's stroke for clearer focus.
+    const rect = g.querySelector('rect[data-species]');
+    if (rect) {
+      rect.setAttribute('stroke', DRAG_STROKE);
+      rect.setAttribute('stroke-width', fmt(DRAG_STROKE_WIDTH_MM));
+    }
+  } else {
+    g.style.transition = `transform ${ANIM_MS}ms ease`;
+    g.style.transform = 'translate(0px, 0px)';
+    g.style.cursor = 'grab';
+    g.style.filter = '';
+    const rect = g.querySelector('rect[data-species]');
+    if (rect) {
+      rect.setAttribute('stroke', STROKE);
+      rect.setAttribute('stroke-width', fmt(STROKE_WIDTH_MM));
+    }
+  }
+}
+
+/**
+ * Reposition non-dragged strips so the composition pretends the
+ * dragged element is at `currentSlot`. Produces the "make room"
+ * effect. Uses CSS transform (in SVG user units) so positions
+ * animate with a transition.
+ */
+function layoutRehearsal(
+  stripGroups: SVGGElement[],
   widths: number[],
+  slotX: number[],
   fromSlot: number,
   currentSlot: number,
-  dragDx: number,
 ): void {
-  // rehearsalOrder[rehearsalSlot] = original slot index
   const rehearsalOrder = moveInArray(
-    Array.from({ length: stripEls.length }, (_, i) => i),
+    Array.from({ length: stripGroups.length }, (_, i) => i),
     fromSlot,
     currentSlot,
   );
-  stripEls.forEach((el, i) => {
-    if (i === fromSlot) {
-      // the dragged element — show at dragged position
-      const origLeft = slotLeft(widths, fromSlot);
-      el.style.left = `${origLeft}px`;
-      el.style.transform = `translate(${dragDx}px, -4px)`;
-      el.style.transition = 'none';
-      el.style.zIndex = '10';
-      el.style.boxShadow = '0 6px 12px rgba(0,0,0,0.22)';
-      el.style.cursor = 'grabbing';
-    } else {
-      // Find this element's rehearsal slot (where it lives when the
-      // dragged element is parked at currentSlot).
-      const rehearsalSlot = rehearsalOrder.indexOf(i);
-      const x = slotLeft(widths, rehearsalSlot);
-      el.style.left = `${x}px`;
-      el.style.transform = 'translate(0px, 0px)';
-      el.style.transition = 'left 140ms ease, transform 140ms ease';
-      el.style.zIndex = '1';
-      el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
-      el.style.cursor = 'grab';
-    }
+  stripGroups.forEach((g, i) => {
+    if (i === fromSlot) return; // dragged element handled elsewhere
+    const rehearsalSlot = rehearsalOrder.indexOf(i);
+    const dxMm = slotX[rehearsalSlot] - slotX[i];
+    g.style.transition = `transform ${ANIM_MS}ms ease`;
+    g.style.transform = `translate(${dxMm}px, 0px)`;
+  });
+}
+
+function resetRehearsal(stripGroups: SVGGElement[]): void {
+  stripGroups.forEach((g) => {
+    g.style.transition = `transform ${ANIM_MS}ms ease`;
+    g.style.transform = 'translate(0px, 0px)';
   });
 }
 
 /**
- * Given the track-relative X coordinate of a cursor, return the slot
- * index whose centre that X falls inside. Slot widths may vary, so we
- * walk them and compare.
+ * Walk slot centres and return the slot whose centre `centre` is
+ * closest to (or past) given the cumulative slot widths.
  */
-function slotAtX(widths: number[], x: number): number {
-  if (x <= 0) return 0;
-  let cumul = 0;
+function slotAtCentreX(
+  widths: number[],
+  slotX: number[],
+  centre: number,
+): number {
+  if (centre <= slotX[0] + widths[0] / 2) return 0;
   for (let i = 0; i < widths.length; i++) {
-    const slotMid = cumul + widths[i] / 2;
-    if (x < slotMid) return i;
-    cumul += widths[i] + STRIP_GAP_PX;
+    const mid = slotX[i] + widths[i] / 2;
+    if (centre < mid) return i;
   }
   return widths.length - 1;
 }
 
-function findStripAncestor(el: HTMLElement): HTMLElement | null {
-  let cur: HTMLElement | null = el;
+function findStripAncestor(el: Element): SVGGElement | null {
+  let cur: Element | null = el;
   while (cur) {
-    if (cur.dataset && cur.dataset.stripId) return cur;
+    if (
+      cur instanceof SVGGElement &&
+      (cur as SVGGElement).dataset &&
+      (cur as SVGGElement).dataset.stripId
+    ) {
+      return cur as SVGGElement;
+    }
     cur = cur.parentElement;
   }
   return null;
@@ -439,5 +435,13 @@ function cloneState(s: ReorderState): ReorderState {
   return {
     inventory: s.inventory.map((x) => ({ ...x })),
     order: [...s.order],
+    stripLength: s.stripLength,
   };
+}
+
+function fmt(n: number): string {
+  if (!Number.isFinite(n)) return '0';
+  const r = Math.round(n * 1000) / 1000;
+  const norm = Object.is(r, -0) ? 0 : r;
+  return String(norm);
 }
