@@ -1,114 +1,161 @@
 # CLAUDE.md
 
-## Core Principles
+This repo is a personal exploration sandbox. Everything in here is experimental — interactive essays, focused harnesses for geometric operations, research spikes, early-stage projects. The artifacts aren't being shipped to consumers; they're being built to learn. Treat every task as exploration.
 
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+## How we work
 
-## Plan Mode Default
+### Exploration is the default
 
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately - don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+Plans here don't come from specs. They come from making something, looking at it, reacting. The productive loop is:
 
-## Subagent Strategy
+1. Build a minimal thing.
+2. Show it (screenshot, render, run).
+3. React.
+4. Commit before the next attempt so the trail is recoverable.
+5. Repeat until the thing is right.
 
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
+This looks like "fast iteration." It's really slow-motion discovery: each cycle teaches something the previous one couldn't articulate.
 
-## Self-Improvement Loop
+### Focused harnesses
 
-- After ANY correction from the user: update tasks/lessons.md with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
+For any non-trivial concept, build a **focused harness**: one constrained page or script with URL-param-driven configuration, renderable in isolation, with every knob the concept supports surfaced as a parameter. Other concepts don't leak in. The constraint is what makes iteration effective — it keeps the working context tight enough to reason about.
 
-## Verification Before Done
+If you find yourself adding features to an existing page to test a new concept, stop. Spin up a separate harness instead.
 
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
+### Snapshot-is-truth
 
-## Demand Elegance (Balanced)
+If one layer produces data and another renders it, the renderer reads from the data. It does **not** re-derive the data from whatever parameters the producer was given. Otherwise the two silently drift and debugging becomes a two-place problem.
 
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes - don't over-engineer
-- Challenge your own work before presenting it
+### Scaffolding is real work
 
-## Autonomous Bug Fixing
+Extracting shared modules, adding URL-param machinery, writing a test sweep, building a harness — these cost lines of code but earn their keep if they make subsequent iteration faster. Count them as progress, not over-engineering.
 
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests - then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
+Test: does this scaffolding enable faster iteration on the artifact? If yes, keep going. If no, it's bike-shedding.
 
-## Source Control Practices
+## When to enter plan mode
 
-### Commit on every change — CRITICAL for exploration
-This repo is an exploration sandbox. We try ideas, reject them, pivot.
-That means every code change must be committed so we can review the
-full exploration trail, diff against earlier states, and revert
-cleanly when an approach doesn't work out.
+Rarely. Exploration mode thrives on the build–look–react loop; a plan injected mid-loop kills the feedback.
 
-**Rules:**
-- **Commit after every change**, even small ones. Never leave
-  uncommitted work across user turns.
-- **Never bundle multiple changes into one commit** — one logical
-  change per commit, always.
-- **Commit before trying an idea that might not work** so the
-  pre-attempt state is recoverable.
-- If the user doesn't explicitly ask for a commit, still commit.
-  The only exception: the user explicitly says "don't commit yet."
+Do enter plan mode when:
+- The user asks for a proposal or design doc.
+- A task requires cross-cutting changes across many files of unfamiliar code.
+- The user has pushed back three times on fundamental framing — that's a signal the problem isn't well-understood and a plan is needed before more code.
+
+Otherwise: just build. If something goes sideways, **STOP and re-plan immediately** — don't keep pushing.
+
+## Context budget
+
+Main context is a finite resource. Protect it:
+
+- **Grep before Read.** Use Glob / Grep with `files_with_matches` for initial survey. Only Read the files actually needed to edit or cite.
+- **Read with offset + limit** when only part of a large file matters.
+- **Subagent dispatch thresholds:**
+  - Grep-then-read across more than ~5 files → subagent.
+  - Reading unfamiliar code in a module you won't modify → subagent.
+  - Researching library options / API alternatives → subagent.
+  - Multi-step verification across many URLs → subagent.
+- **Spawn tasks** (via session spawn tools) for out-of-scope items noticed mid-flight, rather than expanding the current conversation to cover them.
+- **Mark chapters** at natural boundaries (concept → concept, implementation → verification) so the transcript has navigable structure and future compaction has clean break points.
+
+If the user says "context is getting full" — that's a process bug. A subagent should have been dispatched earlier.
+
+## Deferred rough edges
+
+Exploration intentionally leaves rough edges — dead ends we chose not to fix now, known gaps we want to see, intentional debug surfaces. That's fine in principle. But it has a hard rule:
+
+**Every deferred rough edge must (a) become a GitHub issue AND (b) be flagged to the user explicitly at the moment of deferral.**
+
+No silent tech debt. No `// TODO: come back to this` in a code comment with no corresponding issue.
+
+When deferring something:
+1. Say so clearly in the current response, in plain English, not buried in a list.
+2. Offer to file an issue via `gh issue create`. Don't wait for permission — propose the issue body and ask for sign-off.
+3. Once the issue exists, reference its number in any in-code TODO.
+4. Commit the deferral with a message that names the issue.
+
+## Self-improvement loop
+
+When the user corrects a **mental model** — not a typo, not a preference, but a model of how something works — capture the lesson. Goal is to prevent the *class* of mistake, not to log every micro-correction.
+
+Lessons live in two places:
+
+### User-level: `~/.claude/projects/.../memory/`
+Workflow lessons. How the user iterates. What kinds of feedback they tend to give. Conventions that apply across every project in the repo. Anything that transcends a single domain.
+
+Persists across sessions. Not visible to collaborators (it's in the user's home, not the repo).
+
+### Project-level: `<project>/memory/` (committed to the repo)
+Domain lessons specific to one project — its invariants, its physics, its user-facing vocabulary. Things a future collaborator opening the project cold should know.
+
+Visible in git history. Shareable across worktrees.
+
+### Which layer?
+
+Ask: does this lesson apply to **every project** in the repo — or only to this one?
+
+- Applies everywhere → user-level.
+- Applies only to this project's domain → project-level.
+
+If unsure, ask the user. Don't guess.
+
+### Keeping lessons healthy
+
+- Prefer one broad lesson over many narrow ones.
+- If the same class of mistake reappears after a lesson has been filed, the lesson is too weak. Rewrite it.
+- Review relevant lessons at the start of a session on a project.
+
+## Source control
+
+### Commit on every change
+- Every code change, committed. No uncommitted work across user turns.
+- One logical change per commit. No bundling.
+- Commit *before* trying something that might not work, so the pre-attempt state is recoverable.
+- Only exception: the user explicitly says "don't commit yet."
 
 ### Commit message format
-Every commit message must include BOTH:
+Every commit must include:
 
-1. **Comprehensive description of what was done** — technical detail
-   of what changed, why, and any relevant context (file refactors,
-   algorithm changes, config tweaks, etc.).
+1. **Technical description** of what changed and why.
+2. **The prompt that triggered the change**, verbatim (or lightly trimmed) in a `Prompt:` line.
 
-2. **The user's prompt that triggered the change** — verbatim (or
-   very close to it) in a "Prompt:" section. This makes it easy to
-   scan the git log and see the explicit instruction that led to
-   each state.
+Format:
 
-**Format:**
 ```
 <type>: <short imperative subject, under 72 chars>
 
 <technical description of what changed and why>
 
-Prompt: <the user's prompt, verbatim or lightly trimmed>
+Prompt: <user's prompt, verbatim or lightly trimmed>
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
-- Use conventional commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
-- Write subject in imperative mood, lowercase
-- Keep subject line under 72 characters
+Prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`. Lowercase imperative subject. Under 72 chars.
 
 ### Push after every commit
-After every commit, push immediately to the remote. The exploration
-trail needs to be visible in GitHub, not just local. If the branch
-has no upstream yet, set it with `git push -u origin <branch>`.
+The exploration trail needs to be visible on GitHub, not just local. On a branch with no upstream: `git push -u origin <branch>`.
 
 ### Branches
-- Work on feature branches, not directly on master
-- Branch naming: `<type>/<short-description>` (e.g., `feat/portfolio-landing`, `fix/worker-cleanup`)
-- Keep branches short-lived — merge or rebase frequently
+- Feature branches, never master directly.
+- `<type>/<short-description>` (e.g., `feat/portfolio-landing`, `fix/worker-cleanup`).
+- Short-lived — merge or rebase frequently.
 
-### Before Committing
-- Verify the change works (dev server, visual check, etc.)
-- Don't commit generated files (dist/, node_modules/)
-- Don't commit secrets or credentials
-- Review the diff before staging — no accidental debug code
+### Before committing
+- Verify the change works (dev server, screenshot, test pass).
+- Don't commit generated files (`dist/`, `node_modules/`), secrets, or accidental debug code.
 
-### PRs
-- Keep PRs focused on a single concern
-- Include a brief description of what changed and why
-- Small, frequent commits — easier to review and revert
+## Verification before done
+
+- Never call a task complete without demonstrating it works.
+- Run tests. Take the screenshot. Check the console for errors. Diff behaviour against pre-change state when relevant.
+- Ask: "would a staff engineer approve this?" — keeping in mind this is exploration, so the bar is "correct and reproducible," not "production-hardened."
+
+## Demand elegance (balanced)
+
+For non-trivial changes, pause and ask: "is there a more elegant way?" If a fix feels hacky, rewrite it cleanly before committing.
+
+Skip this for obvious one-line fixes — don't over-engineer small stuff.
+
+## Autonomous bug fixing
+
+Given a bug report, just fix it. Point at logs, errors, failing tests — then resolve them. Zero context switching for the user. Fix failing CI without being told how.
