@@ -439,6 +439,13 @@ function setupViewport(
   renderer.toneMappingExposure = 1.15;
   slot.appendChild(renderer.domElement);
 
+  // Home button overlay — sibling of the canvas, absolutely positioned
+  // just below the axis gizmo in the upper-right corner. On click,
+  // snaps the camera back to the initial top-down fit view so the
+  // user can recover orientation after heavy orbiting.
+  const homeButton = buildHomeButton();
+  slot.appendChild(homeButton);
+
   const scene = new Scene();
   scene.background = new Color(0x262422);
 
@@ -543,6 +550,18 @@ function setupViewport(
     userHasInteracted = true;
   });
 
+  // Wire the home button: reset orbit to the initial top-down fit.
+  // Re-runs the fit logic (camera distance, up vector, target) and
+  // clears the interaction flag so future resizes auto-fit again.
+  homeButton.addEventListener('click', () => {
+    camera.up.set(0, 0, -1);
+    const aspect = slot!.clientWidth / slot!.clientHeight || 1;
+    positionCameraAtDistance(computeFitDistance(aspect));
+    controls.target.copy(centre);
+    controls.update();
+    userHasInteracted = false;
+  });
+
   const ro = new ResizeObserver(() => fit());
   ro.observe(slot);
   fit();
@@ -630,12 +649,61 @@ function setupViewport(
       if (renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
+      if (homeButton.parentElement) {
+        homeButton.parentElement.removeChild(homeButton);
+      }
     },
   };
 }
 
 // Mark final viewport explicitly so lint doesn't complain about the unused handle.
 void finalViewport;
+
+/**
+ * Home button — resets the 3D viewport's camera to the initial
+ * top-down fit view. Positioned just below the axis gizmo so the
+ * two orientation aids sit together in the upper-right corner.
+ */
+function buildHomeButton(): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Reset view to top-down');
+  btn.title = 'Reset view to top-down';
+  Object.assign(btn.style, {
+    position: 'absolute',
+    top: '92px', // below 72px gizmo + 10px gizmo margin + 10px gap
+    right: '10px',
+    width: '32px',
+    height: '32px',
+    padding: '0',
+    border: '1px solid rgba(255,255,255,0.25)',
+    borderRadius: '4px',
+    background: 'rgba(255,255,255,0.1)',
+    color: '#f0ece6',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backdropFilter: 'blur(2px)',
+    WebkitBackdropFilter: 'blur(2px)',
+    transition: 'background 120ms ease',
+    zIndex: '2',
+  } as CSSStyleDeclaration);
+  btn.innerHTML =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" ` +
+    `viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
+    `stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+    `<path d="M3 12 L12 3 L21 12"/>` +
+    `<path d="M5 10 V20 H9 V14 H15 V20 H19 V10"/>` +
+    `</svg>`;
+  btn.addEventListener('mouseenter', () => {
+    btn.style.background = 'rgba(255,255,255,0.2)';
+  });
+  btn.addEventListener('mouseleave', () => {
+    btn.style.background = 'rgba(255,255,255,0.1)';
+  });
+  return btn;
+}
 
 /**
  * Build an orientation gizmo — three colour-coded axis lines (red X,
