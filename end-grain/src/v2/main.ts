@@ -40,11 +40,19 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   Box3,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
   Color,
   DirectionalLight,
   Group,
+  LineBasicMaterial,
+  LineSegments,
+  OrthographicCamera,
   PerspectiveCamera,
   Scene,
+  Sprite,
+  SpriteMaterial,
   Vector3,
   WebGLRenderer,
 } from 'three';
@@ -537,11 +545,49 @@ function setupViewport(
     }
   }
 
+  // ---- Axis gizmo overlay (upper-right of viewport) ----
+  //
+  // A secondary scene containing three colour-coded axis lines +
+  // sprite labels (X red, Y green, Z blue). Rendered in its own
+  // small viewport after the main scene so it floats over the
+  // corner, unaffected by the main camera's position. The gizmo
+  // camera shares the main camera's rotation so the axes reflect
+  // the user's current orbit orientation exactly.
+  const gizmoScene = new Scene();
+  gizmoScene.add(buildAxisGizmo());
+  const gizmoCamera = new OrthographicCamera(-1.5, 1.5, 1.5, -1.5, 0.1, 100);
+  const GIZMO_CAMERA_DISTANCE = 3;
+  const GIZMO_PX = 72;
+  const GIZMO_MARGIN = 10;
+
   let alive = true;
   function tick(): void {
     if (!alive) return;
     controls.update();
+    const w = slot!.clientWidth;
+    const h = slot!.clientHeight;
+    renderer.setViewport(0, 0, w, h);
+    renderer.setScissor(0, 0, w, h);
+    renderer.setScissorTest(false);
     renderer.render(scene, camera);
+
+    // Gizmo pass — match the main camera's rotation, then render
+    // in a small corner viewport with depth cleared so it sits on
+    // top regardless of main-scene geometry depth.
+    gizmoCamera.quaternion.copy(camera.quaternion);
+    gizmoCamera.position
+      .set(0, 0, GIZMO_CAMERA_DISTANCE)
+      .applyQuaternion(gizmoCamera.quaternion);
+    gizmoCamera.updateMatrixWorld();
+    const gx = w - GIZMO_PX - GIZMO_MARGIN;
+    const gy = h - GIZMO_PX - GIZMO_MARGIN;
+    renderer.setViewport(gx, gy, GIZMO_PX, GIZMO_PX);
+    renderer.setScissor(gx, gy, GIZMO_PX, GIZMO_PX);
+    renderer.setScissorTest(true);
+    renderer.clearDepth();
+    renderer.render(gizmoScene, gizmoCamera);
+    renderer.setScissorTest(false);
+
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -562,3 +608,80 @@ function setupViewport(
 
 // Mark final viewport explicitly so lint doesn't complain about the unused handle.
 void finalViewport;
+
+/**
+ * Build an orientation gizmo — three colour-coded axis lines (red X,
+ * green Y, blue Z) with sprite labels at each tip. The returned
+ * Group lives in its own scene rendered in the viewport corner; it
+ * shares nothing with the main panel scene.
+ *
+ * Units: the axes are 1 unit long; the gizmo scene's camera viewBox
+ * is ±1.5, leaving margin around the labels.
+ */
+function buildAxisGizmo(): Group {
+  const g = new Group();
+
+  const AXIS_LEN = 1;
+  // Three line segments, all starting at origin.
+  const positions = new Float32Array([
+    0, 0, 0, AXIS_LEN, 0, 0, // +X
+    0, 0, 0, 0, AXIS_LEN, 0, // +Y
+    0, 0, 0, 0, 0, AXIS_LEN, // +Z
+  ]);
+  const colors = new Float32Array([
+    1, 0.25, 0.25,  1, 0.25, 0.25, // red X
+    0.25, 0.8, 0.3,  0.25, 0.8, 0.3, // green Y
+    0.35, 0.55, 1,  0.35, 0.55, 1, // blue Z
+  ]);
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(positions, 3));
+  geo.setAttribute('color', new BufferAttribute(colors, 3));
+  const mat = new LineBasicMaterial({
+    vertexColors: true,
+    linewidth: 2,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const lines = new LineSegments(geo, mat);
+  lines.renderOrder = 999;
+  g.add(lines);
+
+  // Tip labels — sprites so they always face the gizmo camera.
+  const labels: Array<[string, [number, number, number], string]> = [
+    ['X', [AXIS_LEN + 0.22, 0, 0], '#e04040'],
+    ['Y', [0, AXIS_LEN + 0.22, 0], '#3ea84a'],
+    ['Z', [0, 0, AXIS_LEN + 0.22], '#4b7de0'],
+  ];
+  for (const [text, pos, color] of labels) {
+    const sprite = buildLabelSprite(text, color);
+    sprite.position.set(pos[0], pos[1], pos[2]);
+    sprite.renderOrder = 1000;
+    g.add(sprite);
+  }
+
+  return g;
+}
+
+function buildLabelSprite(text: string, colour: string): Sprite {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = colour;
+  ctx.font = 'bold 44px system-ui, -apple-system, Segoe UI, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, size / 2, size / 2);
+  const tex = new CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  const mat = new SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new Sprite(mat);
+  sprite.scale.set(0.45, 0.45, 1);
+  return sprite;
+}
