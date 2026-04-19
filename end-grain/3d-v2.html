@@ -316,6 +316,48 @@
       text-align: center;
       padding: 2rem 1rem;
     }
+    .description {
+      margin: 0.75rem 1.5rem 0;
+      padding: 0.875rem 1rem;
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      border-left: 3px solid #8a6a44;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: #444;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .description h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #222;
+    }
+    .description p {
+      margin: 0 0 0.4rem;
+    }
+    .description p:last-child {
+      margin-bottom: 0;
+    }
+    .description strong {
+      color: #222;
+    }
+    .description code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      background: #f6f5f1;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #222;
+    }
+    .description ul {
+      margin: 0.2rem 0 0.4rem 1.2rem;
+      padding: 0;
+    }
+    .description ul li {
+      margin-bottom: 0.15rem;
+    }
   </style>
 </head>
 <body>
@@ -326,6 +368,25 @@
       <a href="./3d-v2-arrange.html" style="color: #666; text-decoration: none;">Arrange harness →</a>
     </nav>
   </header>
+  <section class="description" aria-label="Operation description">
+    <h2>Testing: Cut — slice a panel along parallel planes</h2>
+    <p>
+      <strong>Cut</strong> takes a composed panel and splits it into N slices along parallel
+      cut planes. Three parameters drive the geometry:
+      <code>rip</code> (plane rotation about Y, in degrees),
+      <code>bevel</code> (plane tilt from vertical, 45–90°), and either
+      <code>pitch</code> (plane spacing in mm) or
+      <code>slices</code> (desired slice count — pitch is then derived from the safe extent).
+      Override any of them via URL:
+      <code>?rip=30&amp;bevel=60&amp;slices=6</code>.
+    </p>
+    <p>Expected in each tile:</p>
+    <ul>
+      <li><strong>Input</strong> — the composed maple + walnut panel (100×50×400 mm by default), rendered top-down.</li>
+      <li><strong>Operation</strong> — two ortho projections. <em>TOP</em>: dashed cut lines at the <code>rip</code> angle, triangular offcut regions dimmed at each end. <em>SIDE</em>: the same cuts viewed from +X as elevation lines, tilted from vertical by <code>(90° − bevel)</code>.</li>
+      <li><strong>Output</strong> — the N surviving slices in 3D, laid out along Z at their original cut angle with a uniform gap so every interior cut face is visible; ghosted offcuts at the ends. Free orbit, home button, and an XYZ axis gizmo sit in the upper-right.</li>
+    </ul>
+  </section>
   <div class="layout">
   <main id="tiles">
     <article class="tile tile--2d" data-stage="compose-0" data-role="input">
