@@ -1073,3 +1073,149 @@ describe('runPipeline — TrimPanel (malformed)', () => {
     expect(r.statusReason).toMatch(/without upstream/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ComposeStrips parameter sweep — locks in the harness's core invariant:
+// the output panel's X extent is the sum of strip widths, for any strip
+// count / species mix / dimensions. If the harness reorders strips, the
+// resulting panel's X extent is unchanged.
+// ---------------------------------------------------------------------------
+
+describe('runPipeline — ComposeStrips parameter sweep', () => {
+  type Case = {
+    label: string;
+    strips: Array<{ species: 'maple' | 'walnut' | 'cherry' | 'padauk' | 'purpleheart'; width: number }>;
+    stripHeight: number;
+    stripLength: number;
+  };
+
+  const cases: Case[] = [
+    {
+      label: '14 strips (7 maple + 7 walnut) — default harness seed',
+      strips: [
+        ...Array(7).fill({ species: 'maple' as const, width: 50 }),
+        ...Array(7).fill({ species: 'walnut' as const, width: 50 }),
+      ],
+      stripHeight: 50,
+      stripLength: 400,
+    },
+    {
+      label: '3 strips (all species)',
+      strips: [
+        { species: 'cherry', width: 30 },
+        { species: 'padauk', width: 40 },
+        { species: 'purpleheart', width: 20 },
+      ],
+      stripHeight: 50,
+      stripLength: 400,
+    },
+    {
+      label: 'single strip (lower bound)',
+      strips: [{ species: 'maple', width: 25 }],
+      stripHeight: 10,
+      stripLength: 100,
+    },
+    {
+      label: '64 strips (upper bound — harness MAX_STRIPS)',
+      strips: Array.from({ length: 64 }, (_, i) => ({
+        species: (i % 2 === 0 ? 'maple' : 'walnut') as 'maple' | 'walnut',
+        width: 10,
+      })),
+      stripHeight: 50,
+      stripLength: 200,
+    },
+    {
+      label: 'mixed widths',
+      strips: [
+        { species: 'maple', width: 80 },
+        { species: 'walnut', width: 15 },
+        { species: 'cherry', width: 60 },
+        { species: 'padauk', width: 25 },
+      ],
+      stripHeight: 40,
+      stripLength: 300,
+    },
+  ];
+
+  describe.each(cases)('$label', (c) => {
+    it('panel width equals sum of strip widths', () => {
+      const counter = createIdCounter();
+      const strips = c.strips.map((s) => ({
+        stripId: allocateId(counter, 'strip'),
+        species: s.species,
+        width: s.width,
+      }));
+      allocateId(counter, 'compose');
+      const compose: ComposeStrips = {
+        kind: 'composeStrips',
+        id: 'compose-0',
+        strips,
+        stripHeight: c.stripHeight,
+        stripLength: c.stripLength,
+        status: 'ok',
+      };
+      const out = runPipeline([compose]);
+      const r = out.results['compose-0'] as ComposeStripsResult;
+      expect(r.status).toBe('ok');
+      const expectedWidth = c.strips.reduce((s, st) => s + st.width, 0);
+      const actualWidth = r.panel.bbox.max[0] - r.panel.bbox.min[0];
+      expect(actualWidth).toBeCloseTo(expectedWidth, 4);
+      expect(r.panel.volumes).toHaveLength(c.strips.length);
+    });
+
+    it('reordering strips preserves panel width', () => {
+      const counter = createIdCounter();
+      const strips = c.strips.map((s) => ({
+        stripId: allocateId(counter, 'strip'),
+        species: s.species,
+        width: s.width,
+      }));
+      allocateId(counter, 'compose');
+      // Reverse — the harness's `order` layer feeds into ComposeStrips
+      // with an already-reordered `strips` array, so we test that the
+      // executor produces the same total X extent regardless of order.
+      const reversed = [...strips].reverse();
+      const compose: ComposeStrips = {
+        kind: 'composeStrips',
+        id: 'compose-0',
+        strips: reversed,
+        stripHeight: c.stripHeight,
+        stripLength: c.stripLength,
+        status: 'ok',
+      };
+      const out = runPipeline([compose]);
+      const r = out.results['compose-0'] as ComposeStripsResult;
+      const expectedWidth = c.strips.reduce((s, st) => s + st.width, 0);
+      const actualWidth = r.panel.bbox.max[0] - r.panel.bbox.min[0];
+      expect(actualWidth).toBeCloseTo(expectedWidth, 4);
+      // And the volumes order reflects the reversed input.
+      expect(r.panel.volumes.map((v) => v.species)).toEqual(
+        reversed.map((s) => s.species),
+      );
+    });
+
+    it('Y extent equals stripHeight, Z extent equals stripLength', () => {
+      const counter = createIdCounter();
+      const strips = c.strips.map((s) => ({
+        stripId: allocateId(counter, 'strip'),
+        species: s.species,
+        width: s.width,
+      }));
+      allocateId(counter, 'compose');
+      const compose: ComposeStrips = {
+        kind: 'composeStrips',
+        id: 'compose-0',
+        strips,
+        stripHeight: c.stripHeight,
+        stripLength: c.stripLength,
+        status: 'ok',
+      };
+      const out = runPipeline([compose]);
+      const r = out.results['compose-0'] as ComposeStripsResult;
+      const y = r.panel.bbox.max[1] - r.panel.bbox.min[1];
+      const z = r.panel.bbox.max[2] - r.panel.bbox.min[2];
+      expect(y).toBeCloseTo(c.stripHeight, 4);
+      expect(z).toBeCloseTo(c.stripLength, 4);
+    });
+  });
+});
