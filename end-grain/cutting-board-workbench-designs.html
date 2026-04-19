@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain — Saved designs</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #fafaf7; color: #222; }
+    body { padding: 2rem 2.5rem; max-width: 920px; margin: 0 auto; }
+    h1 { margin: 0 0 0.25rem; font-size: 1.25rem; font-weight: 600; }
+    .subtitle { margin: 0 0 1.75rem; color: #888; font-size: 0.88rem; }
+
+    nav {
+      font-size: 0.78rem;
+      margin-bottom: 1.5rem;
+    }
+    nav a { color: #666; text-decoration: none; margin-right: 1rem; }
+    nav a:hover { color: #5b4a2e; }
+
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 0 0 1rem;
+    }
+    .actions button,
+    .actions .btn {
+      background: #fff;
+      border: 1px solid #d6d3cd;
+      border-radius: 4px;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      font-family: inherit;
+      color: #333;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .actions button:hover,
+    .actions .btn:hover { background: #fff8ec; border-color: #8a6a44; color: #5b4a2e; }
+    .actions input {
+      padding: 4px 8px;
+      border: 1px solid #d6d3cd;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-family: ui-monospace, monospace;
+      min-width: 240px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+    th, td {
+      padding: 0.55rem 0.8rem;
+      text-align: left;
+      font-size: 0.82rem;
+      border-bottom: 1px solid #f1efe9;
+    }
+    th {
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+      background: #fafaf7;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fff8ec; }
+    td.name {
+      font-family: ui-monospace, monospace;
+      color: #222;
+    }
+    td.meta {
+      color: #666;
+      font-family: ui-monospace, monospace;
+      font-size: 0.76rem;
+    }
+    td.actions-cell {
+      text-align: right;
+      white-space: nowrap;
+    }
+    td.actions-cell button,
+    td.actions-cell a {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      margin-left: 4px;
+      background: #fff;
+      border: 1px solid #d6d3cd;
+      border-radius: 3px;
+      color: #666;
+      cursor: pointer;
+      text-decoration: none;
+      font-family: inherit;
+    }
+    td.actions-cell button:hover,
+    td.actions-cell a:hover {
+      border-color: #8a6a44;
+      color: #5b4a2e;
+    }
+    td.actions-cell .danger:hover {
+      border-color: #c65040;
+      color: #c65040;
+    }
+
+    .empty {
+      padding: 3rem 2rem;
+      text-align: center;
+      color: #888;
+      font-size: 0.85rem;
+    }
+    .empty a { color: #5b4a2e; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="./index.html">← Harnesses</a>
+    <a href="./cutting-board-workbench.html">← Workbench</a>
+  </nav>
+
+  <h1>Saved designs</h1>
+  <p class="subtitle">All workbench designs stored in this browser. No cloud sync.</p>
+
+  <div class="actions">
+    <a class="btn" href="./cutting-board-workbench.html?design=untitled">+ New (untitled)</a>
+    <input type="text" id="new-design" placeholder="new-design-name" spellcheck="false" />
+    <button id="create-btn">Create</button>
+  </div>
+
+  <div id="list-wrap"></div>
+
+  <script type="module">
+    const PREFIX = 'end-grain:workbench:';
+    const root = document.getElementById('list-wrap');
+
+    function sanitize(raw) {
+      return raw
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\-_]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    }
+
+    function loadEntries() {
+      const entries = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith(PREFIX)) continue;
+        const name = key.slice(PREFIX.length);
+        try {
+          const data = JSON.parse(localStorage.getItem(key) ?? '{}');
+          entries.push({ name, savedAt: data.savedAt ?? 0, featureCount: Array.isArray(data.timeline) ? data.timeline.length : 0 });
+        } catch {
+          entries.push({ name, savedAt: 0, featureCount: 0 });
+        }
+      }
+      entries.sort((a, b) => b.savedAt - a.savedAt);
+      return entries;
+    }
+
+    function fmtDate(ms) {
+      if (!ms) return '—';
+      const d = new Date(ms);
+      return d.toLocaleString();
+    }
+
+    function render() {
+      const entries = loadEntries();
+      root.innerHTML = '';
+      if (entries.length === 0) {
+        const e = document.createElement('div');
+        e.className = 'empty';
+        e.innerHTML = 'No designs saved yet. <a href="./cutting-board-workbench.html">Open the workbench</a> to create one.';
+        root.appendChild(e);
+        return;
+      }
+      const table = document.createElement('table');
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Design</th>
+            <th>Features</th>
+            <th>Last saved</th>
+            <th></th>
+          </tr>
+        </thead>
+      `;
+      const tbody = document.createElement('tbody');
+      for (const e of entries) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="name">${e.name}</td>
+          <td class="meta">${e.featureCount}</td>
+          <td class="meta">${fmtDate(e.savedAt)}</td>
+          <td class="actions-cell">
+            <a href="./cutting-board-workbench.html?design=${encodeURIComponent(e.name)}">Open</a>
+            <button data-act="rename" data-name="${e.name}">Rename</button>
+            <button data-act="delete" data-name="${e.name}" class="danger">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      root.appendChild(table);
+    }
+
+    root.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-act]');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const name = btn.dataset.name;
+      if (!name) return;
+      if (act === 'delete') {
+        if (!confirm(`Delete design "${name}"? This can't be undone.`)) return;
+        localStorage.removeItem(PREFIX + name);
+        render();
+        return;
+      }
+      if (act === 'rename') {
+        const nextRaw = prompt(`Rename "${name}" to:`, name);
+        if (nextRaw === null) return;
+        const next = sanitize(nextRaw);
+        if (!next || next === name) return;
+        if (localStorage.getItem(PREFIX + next) !== null) {
+          if (!confirm(`A design named "${next}" already exists. Overwrite it?`)) return;
+        }
+        const raw = localStorage.getItem(PREFIX + name);
+        if (raw === null) return;
+        localStorage.setItem(PREFIX + next, raw);
+        localStorage.removeItem(PREFIX + name);
+        render();
+        return;
+      }
+    });
+
+    document.getElementById('create-btn').addEventListener('click', () => {
+      const input = document.getElementById('new-design');
+      const name = sanitize(input.value);
+      if (!name) return;
+      location.href = `./cutting-board-workbench.html?design=${encodeURIComponent(name)}`;
+    });
+
+    render();
+  </script>
+</body>
+</html>
