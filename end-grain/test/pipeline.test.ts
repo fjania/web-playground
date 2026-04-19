@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import '../setup';
+import './setup';
 
-import { runPipeline } from '../../src/v2/state/pipeline';
-import { defaultTimeline } from '../../src/v2/state/defaultTimeline';
-import { createIdCounter, allocateId } from '../../src/v2/state/ids';
+import { runPipeline } from '../src/state/pipeline';
+import { defaultTimeline } from '../src/state/defaultTimeline';
+import { createIdCounter, allocateId } from '../src/state/ids';
 import type {
   ArrangeResult,
   ComposeStrips,
@@ -13,7 +13,7 @@ import type {
   PresetResult,
   TrimPanel,
   TrimPanelResult,
-} from '../../src/v2/state/types';
+} from '../src/state/types';
 
 // ---------------------------------------------------------------------------
 // Default timeline — the simplest happy path through the pipeline.

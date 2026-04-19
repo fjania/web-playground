@@ -30,7 +30,7 @@
  * derived from the URL / inventory state directly.
  */
 
-import { initManifold } from '../domain/manifold';
+import { initManifold } from './domain/manifold';
 import { createIdCounter, allocateId } from './state/ids';
 import { runPipeline } from './state/pipeline';
 import { buildPanelGroup } from './scene/meshBuilder';

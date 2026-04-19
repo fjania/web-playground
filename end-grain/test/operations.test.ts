@@ -9,16 +9,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import '../setup';
+import './setup';
 
-import { runPipeline } from '../../src/v2/state/pipeline';
-import { defaultTimeline } from '../../src/v2/state/defaultTimeline';
-import { createIdCounter, allocateId } from '../../src/v2/state/ids';
+import { runPipeline } from '../src/state/pipeline';
+import { defaultTimeline } from '../src/state/defaultTimeline';
+import { createIdCounter, allocateId } from '../src/state/ids';
 import {
   renderCutOperation,
   renderArrangeOperation,
   renderTrimOperation,
-} from '../../src/v2/render/operations';
+} from '../src/render/operations';
 import type {
   ArrangeResult,
   CutResult,
@@ -28,7 +28,7 @@ import type {
   SpacerInsert,
   TrimPanel,
   TrimPanelResult,
-} from '../../src/v2/state/types';
+} from '../src/state/types';
 
 // ---------------------------------------------------------------------------
 // renderCutOperation — derived from CutResult (snapshot-as-truth)

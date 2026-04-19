@@ -29,7 +29,7 @@
  */
 
 import { Vector3 } from 'three';
-import { getManifold } from '../../domain/manifold';
+import { getManifold } from '../domain/manifold';
 import { Panel } from '../domain/Panel';
 import { expandPreset } from './presets';
 import type {

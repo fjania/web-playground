@@ -23,7 +23,7 @@ import {
   Shape,
   type Material,
 } from 'three';
-import { SPECIES_DEFS } from '../../scene/materials';
+import { SPECIES_DEFS } from './materials';
 import type { Panel, Segment } from '../domain/Panel';
 import type { PanelSnapshot } from '../state/types';
 

@@ -31,7 +31,7 @@
  *     ?slices=4&flip=1,3&spacer=1&spacerWidth=10
  */
 
-import { initManifold } from '../domain/manifold';
+import { initManifold } from './domain/manifold';
 import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter, allocateId } from './state/ids';
 import { runPipeline } from './state/pipeline';

@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import '../setup';
+import './setup';
 
-import { SPECIES_COLOURS, summarize } from '../../src/v2/render/summary';
-import { runPipeline } from '../../src/v2/state/pipeline';
-import { defaultTimeline } from '../../src/v2/state/defaultTimeline';
-import { createIdCounter, allocateId } from '../../src/v2/state/ids';
+import { SPECIES_COLOURS, summarize } from '../src/render/summary';
+import { runPipeline } from '../src/state/pipeline';
+import { defaultTimeline } from '../src/state/defaultTimeline';
+import { createIdCounter, allocateId } from '../src/state/ids';
 import type {
   ArrangeResult,
   ComposeStrips,
   Feature,
   PanelSnapshot,
-} from '../../src/v2/state/types';
+} from '../src/state/types';
 
 // ---------------------------------------------------------------------------
 // Helpers — build canonical pattern timelines and pull the arrange snapshot.

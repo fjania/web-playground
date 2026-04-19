@@ -4,8 +4,8 @@ import {
   allocateId,
   createIdCounter,
   peekNextId,
-} from '../../src/v2/state/ids';
-import { defaultTimeline } from '../../src/v2/state/defaultTimeline';
+} from '../src/state/ids';
+import { defaultTimeline } from '../src/state/defaultTimeline';
 import type {
   ArrangeResult,
   ComposeStripsResult,
@@ -22,7 +22,7 @@ import type {
   SpacerInsert,
   SpacerInsertResult,
   Status,
-} from '../../src/v2/state/types';
+} from '../src/state/types';
 
 // ---------------------------------------------------------------------------
 // defaultTimeline()

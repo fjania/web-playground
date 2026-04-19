@@ -38,7 +38,7 @@
 
 import { Group } from 'three';
 
-import { initManifold } from '../domain/manifold';
+import { initManifold } from './domain/manifold';
 import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter } from './state/ids';
 import { runPipeline } from './state/pipeline';

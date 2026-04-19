@@ -1,5 +1,5 @@
 import { Box3, Matrix4, Vector3 } from 'three';
-import { getManifold } from '../../domain/manifold';
+import { getManifold } from './manifold';
 import type { PanelSnapshot, Species, StripDef } from '../state/types';
 
 /**

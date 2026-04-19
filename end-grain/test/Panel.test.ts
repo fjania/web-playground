@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import '../setup';
+import './setup';
 
-import { Panel } from '../../src/v2/domain/Panel';
-import type { StripDef } from '../../src/v2/state/types';
+import { Panel } from '../src/domain/Panel';
+import type { StripDef } from '../src/state/types';
 
 const STRIPS: StripDef[] = [
   { stripId: 'strip-0', species: 'maple', width: 50 },
