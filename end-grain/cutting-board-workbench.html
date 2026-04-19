@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain — Cutting-board workbench</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: #fafaf7;
+      color: #222;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ---- Top header ------------------------------------------------- */
+    body > header {
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    body > header h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+    body > header .wb-subtitle {
+      margin: 0;
+      font-size: 0.76rem;
+      color: #888;
+    }
+    .design-name {
+      font-size: 0.85rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 3px 7px;
+      border: 1px solid #e4e4e0;
+      border-radius: 4px;
+      background: #fff;
+      color: #222;
+      min-width: 140px;
+      max-width: 240px;
+    }
+    body > header nav {
+      margin-left: auto;
+      font-size: 0.78rem;
+    }
+    body > header nav a {
+      color: #666;
+      text-decoration: none;
+      margin-left: 1rem;
+    }
+    body > header nav a:hover { color: #5b4a2e; }
+
+    /* ---- Shell: timeline | (hero stacked above pipeline) ----------- */
+    .shell {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+    }
+
+    /* ---- Timeline ribbon ------------------------------------------- */
+    .timeline {
+      flex: 0 0 224px;
+      background: #fff;
+      border-right: 1px solid #e4e4e0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .timeline > header {
+      padding: 0.7rem 1rem 0.5rem;
+      border-bottom: 1px solid #efece3;
+      background: #fafaf7;
+    }
+    .timeline > header h2 {
+      margin: 0;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #888;
+    }
+    .timeline .body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.4rem 0.4rem 0.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .t-item {
+      position: relative;
+      padding: 0.55rem 0.5rem 0.55rem 1.8rem;
+      border-radius: 5px;
+      font-size: 0.82rem;
+      line-height: 1.3;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      user-select: none;
+    }
+    .t-item:hover { background: #f6f5f1; }
+    .t-item.active {
+      background: #fff3dc;
+      box-shadow: inset 2px 0 0 #c89a3c;
+    }
+    .t-item .op { font-weight: 600; color: #1a1a1a; }
+    .t-item .sub {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.66rem;
+      color: #888;
+    }
+    .t-item::before {
+      content: '';
+      position: absolute;
+      left: 11px; top: 0.9rem;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #6a9a6a;
+    }
+    .t-item.warn::before { background: #d89a3c; }
+    .t-item.err::before  { background: #c65040; }
+    .t-item.preset::before {
+      background: transparent;
+      border: 1.5px solid #8a6a44;
+    }
+    .t-item.child {
+      padding-left: 2.4rem;
+      font-size: 0.72rem;
+      color: #888;
+      cursor: default;
+    }
+    .t-item.child::before {
+      left: 19px; top: 0.85rem;
+      width: 5px; height: 5px;
+      background: #c9c6be;
+    }
+    .t-connector {
+      height: 10px;
+      border-left: 1px dashed #c9c6be;
+      margin-left: 14px;
+    }
+
+    /* ---- Main area: hero on top, pipeline below -------------------- */
+    .main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hero {
+      flex: 0 0 42%;
+      min-height: 240px;
+      background: #262422;
+      position: relative;
+      display: flex;
+      overflow: hidden;
+      border-bottom: 1px solid #3a3633;
+    }
+    .hero .hero-label {
+      position: absolute;
+      top: 12px; left: 16px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #e8e4de;
+      z-index: 2;
+    }
+    .hero .hero-sub {
+      position: absolute;
+      top: 32px; left: 16px;
+      font-size: 0.72rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #a8a29e;
+      z-index: 2;
+    }
+    .hero > [data-slot="hero-viewport"] {
+      flex: 1;
+      min-width: 0;
+    }
+    .hero canvas { display: block; width: 100%; height: 100%; }
+
+    /* ---- Pipeline area --------------------------------------------- */
+    .pipeline-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #fafaf7;
+    }
+    .pipeline-head {
+      padding: 0.55rem 1.25rem 0.45rem;
+      border-bottom: 1px solid #eae7df;
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      background: #fff;
+    }
+    .pipeline-head h2 {
+      margin: 0;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #888;
+    }
+    .pipeline-head .hint {
+      font-size: 0.68rem;
+      color: #888;
+      font-family: ui-monospace, monospace;
+    }
+    .pipeline {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.75rem 1.25rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    /* ---- Stage card ------------------------------------------------- */
+    .stage {
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      cursor: pointer;
+    }
+    .stage.focused {
+      border-color: #c89a3c;
+      box-shadow: 0 1px 4px rgba(200, 154, 60, 0.18),
+                  0 0 0 1px #c89a3c inset;
+      cursor: default;
+    }
+    .stage > header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+    .stage > header h3 {
+      margin: 0;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .stage > header .sub {
+      font-size: 0.7rem;
+      font-family: ui-monospace, monospace;
+      color: #888;
+    }
+    .stage > header .warn-inline {
+      color: #a8741e;
+      font-size: 0.68rem;
+      font-family: ui-monospace, monospace;
+    }
+    .stage > header .spacer { flex: 1; }
+    .stage > header .badge {
+      font-size: 0.6rem;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: #fff3dc;
+      color: #8a6a2c;
+      border: 1px solid #eadbad;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stage-body {
+      display: flex;
+      gap: 0.6rem;
+      align-items: stretch;
+      height: 160px;
+    }
+    .stage.focused .stage-body { height: 260px; }
+
+    .panel {
+      border: 1px solid #ecebe6;
+      border-radius: 5px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .panel .p-head {
+      padding: 0.3rem 0.5rem 0.25rem;
+      font-size: 0.62rem;
+      color: #888;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 600;
+      border-bottom: 1px solid #f2f0ea;
+    }
+    .panel .p-body {
+      flex: 1;
+      min-height: 0;
+      background: #f6f5f1;
+      border-radius: 0 0 4px 4px;
+      padding: 0.45rem;
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+      position: relative;
+    }
+    .panel.controls .p-body {
+      background: #fff;
+      padding: 0.5rem 0.6rem;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel.view-3d .p-body { background: #262422; padding: 0; }
+    .panel svg { width: 100%; height: 100%; display: block; }
+    .panel canvas { display: block; width: 100%; height: 100%; }
+
+    .panel.p-ctrl    { flex: 0 0 240px; }
+    .panel.p-preview { flex: 1 1 0; min-width: 220px; }
+    .panel.p-3d      { flex: 0 0 300px; }
+
+    /* Subtle flow arrow between stages */
+    .flow {
+      text-align: center;
+      color: #c8c5be;
+      font-size: 0.85rem;
+      margin: -0.1rem 0 -0.15rem;
+      user-select: none;
+    }
+
+    /* Autosave indicator */
+    .save-status {
+      font-size: 0.68rem;
+      color: #888;
+      font-family: ui-monospace, monospace;
+      margin-left: 0.5rem;
+    }
+    .save-status.saving { color: #c89a3c; }
+    .save-status.saved  { color: #6a9a6a; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>End-grain — Workbench</h1>
+    <input class="design-name" data-slot="design-name" spellcheck="false" placeholder="untitled" />
+    <span class="save-status" data-slot="save-status">—</span>
+    <nav>
+      <a href="./cutting-board-workbench-designs.html">Designs →</a>
+      <a href="./index.html">← Harnesses</a>
+    </nav>
+  </header>
+
+  <div class="shell">
+    <aside class="timeline">
+      <header><h2>Timeline</h2></header>
+      <div class="body" data-slot="timeline-list">
+        <!-- Timeline entries rendered by main-workbench.ts -->
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- HERO: always-on final 3D -->
+      <section class="hero">
+        <span class="hero-label" data-slot="hero-label">Final panel</span>
+        <span class="hero-sub" data-slot="hero-sub"></span>
+        <div data-slot="hero-viewport"></div>
+      </section>
+
+      <!-- PIPELINE: stages scroll below -->
+      <div class="pipeline-wrap">
+        <div class="pipeline-head">
+          <h2>Pipeline</h2>
+          <span class="hint">click a stage to focus · focused stage shows 3D</span>
+        </div>
+        <div class="pipeline" data-slot="pipeline">
+          <!-- Stage cards rendered by main-workbench.ts -->
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./src/main-workbench.ts"></script>
+</body>
+</html>

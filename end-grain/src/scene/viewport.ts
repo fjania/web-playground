@@ -71,8 +71,12 @@ export function setupViewport(
   options: ViewportOptions = {},
 ): ViewportHandle {
   const vertical: 'z' | 'x' = options.vertical ?? 'z';
-  const slot = tileEl.querySelector<HTMLElement>('[data-slot="render"]');
-  if (!slot) throw new Error('tile missing render slot');
+  // Accept either a full tile (with a [data-slot="render"] child) or
+  // a bare container element that itself serves as the slot. The
+  // harnesses pass tiles; the workbench canvas passes bare containers
+  // for the hero + focused-stage 3D panels.
+  const slot: HTMLElement =
+    tileEl.querySelector<HTMLElement>('[data-slot="render"]') ?? tileEl;
   slot.innerHTML = '';
 
   const renderer = new WebGLRenderer({ antialias: true });

@@ -29,6 +29,7 @@ export default defineConfig({
         'end-grain-3d-cut': 'end-grain/3d-cut.html',
         'end-grain-3d-arrange': 'end-grain/3d-arrange.html',
         'end-grain-3d-trim': 'end-grain/3d-trim.html',
+        'end-grain-workbench': 'end-grain/cutting-board-workbench.html',
       }
     }
   }
