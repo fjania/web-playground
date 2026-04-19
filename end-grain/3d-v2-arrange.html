@@ -228,7 +228,11 @@ Per-slice edits
   <code>?flip=1,3</code>   rotate 180° on these slice indices
   <code>?shift=1:25</code> shift slice 1 by 25 mm along X
                  (multiple: <code>?shift=1:25,3:-10</code>)
-  <code>?reorder=0,3,1,2</code>  put slice 0→0, 3→1, 1→2, 2→3
+  <code>?reorder=2:0</code>   move slice at current position 2 to
+                 position 0. Chain with comma; each move is applied
+                 in order so later moves see the already-reordered
+                 sequence (like dragging slices one at a time).
+                 Example: <code>?reorder=2:0,3:1</code>
 
 Spacers (between slices)
   <code>?spacer=1</code>   insert a 5 mm walnut spacer

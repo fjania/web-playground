@@ -116,23 +116,28 @@ if (shiftParam) {
   }
 }
 
-// Reorder — ?reorder=0,3,1,2 says "slice at position i should be
-// source slice order[i]". Emit a reorder edit for each slice whose
-// output position differs from its source index.
+// Reorder — ?reorder=2:0,3:1 "move slice at current position 2 to
+// position 0, then move slice at current position 3 to position 1".
+//
+// Note on semantics: the pipeline's reorderSequence treats
+// `edit.target.sliceIdx` as the CURRENT position in the sliceOrder
+// (not the slice's stable id from the Cut). Edits are applied in
+// order and each one mutates the sequence, so chained reorders need
+// to account for the shifts introduced by earlier reorders — same
+// as dragging slices in the UI one at a time. The single-move
+// syntax makes that explicit.
 const reorderParam = params.get('reorder');
 if (reorderParam) {
-  const order = reorderParam
-    .split(',')
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n));
-  for (let newIdx = 0; newIdx < order.length; newIdx++) {
-    const sliceIdx = Math.floor(order[newIdx]);
-    if (sliceIdx === newIdx) continue;
+  for (const pair of reorderParam.split(',')) {
+    const [fromStr, toStr] = pair.split(':');
+    const fromPos = Number(fromStr);
+    const newIdx = Number(toStr);
+    if (!Number.isFinite(fromPos) || !Number.isFinite(newIdx)) continue;
     const edit: PlaceEdit = {
       kind: 'placeEdit',
       id: allocateId(counter, 'edit'),
-      target: { arrangeId, sliceIdx },
-      op: { kind: 'reorder', newIdx },
+      target: { arrangeId, sliceIdx: Math.floor(fromPos) },
+      op: { kind: 'reorder', newIdx: Math.floor(newIdx) },
       status: 'ok',
     };
     timeline.push(edit);
