@@ -246,7 +246,7 @@ function renderOperationTile(
   }
 
   if (slot) {
-    slot.innerHTML = renderCutOperation(inputResult.panel, cut);
+    slot.innerHTML = renderCutOperation(inputResult.panel, cutResult);
   }
   if (subtitle) {
     subtitle.textContent = `cut-0 · rip ${cut.rip}° · pitch ${cut.pitch} · bevel ${cut.bevel}°`;
@@ -268,9 +268,7 @@ function restoreSummary(stageId: string, tileEl: HTMLElement): void {
   if (stageId === 'compose-0') {
     slot.innerHTML = summarize(composeResult.panel);
   } else if (stageId === 'cut-0') {
-    if (cutFeature) {
-      slot.innerHTML = renderCutOperation(composeResult.panel, cutFeature);
-    }
+    slot.innerHTML = renderCutOperation(composeResult.panel, cutResult);
   } else {
     const result = output.results[stageId];
     if (result && 'panel' in result) {

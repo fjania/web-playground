@@ -193,6 +193,12 @@ describe('JSON round-trip', () => {
             { x: 50, z: 400 },
             { x: 0, z: 400 },
           ],
+          bottomFace: [
+            { x: 0, z: 0 },
+            { x: 50, z: 0 },
+            { x: 50, z: 400 },
+            { x: 0, z: 400 },
+          ],
         },
         {
           species: 'walnut',
@@ -200,6 +206,12 @@ describe('JSON round-trip', () => {
           contributingStripIds: ['strip-1'],
           contributingSliceIds: [],
           topFace: [
+            { x: 50, z: 0 },
+            { x: 100, z: 0 },
+            { x: 100, z: 400 },
+            { x: 50, z: 400 },
+          ],
+          bottomFace: [
             { x: 50, z: 0 },
             { x: 100, z: 0 },
             { x: 100, z: 400 },

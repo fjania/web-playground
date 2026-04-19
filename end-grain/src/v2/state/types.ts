@@ -86,6 +86,16 @@ export interface PanelSnapshot {
      * so the view matches the real geometry.
      */
     topFace: Array<{ x: number; z: number }>;
+    /**
+     * Bottom-face polygon (at y = bbox.min[1]), same shape as topFace.
+     * For a vertical-walled prism (all cuts at bevel=90°) this is an
+     * identical polygon to topFace; for a bevelled cut it is sheared
+     * relative to topFace by the bevel's shift along the cut-normal,
+     * which is how operation-view side projections read the bevel
+     * straight from the geometry instead of recomputing it from the
+     * feature parameters.
+     */
+    bottomFace: Array<{ x: number; z: number }>;
   }>;
 }
 

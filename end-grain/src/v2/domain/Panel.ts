@@ -274,7 +274,8 @@ export class Panel {
         },
         contributingStripIds: [...s.contributingStripIds],
         contributingSliceIds: [...s.contributingSliceIds],
-        topFace: extractTopFacePolygon(s.manifold),
+        topFace: extractYExtremePolygon(s.manifold, 'max'),
+        bottomFace: extractYExtremePolygon(s.manifold, 'min'),
       };
     });
     const panelBox = this.boundingBox();
@@ -294,34 +295,42 @@ export class Panel {
 }
 
 /**
- * Extract the top-face polygon of a manifold in XZ, at y = max Y.
+ * Extract the top or bottom face polygon of a manifold in XZ.
+ *
+ * `side === 'max'` selects y = max Y (the top face — what you see
+ * from above). `side === 'min'` selects y = min Y (the bottom face).
  *
  * Strategy:
  * 1. Read all vertex positions from the mesh.
- * 2. Find max Y across all vertices.
- * 3. Collect vertices whose Y is within epsilon of max Y.
+ * 2. Find max/min Y across all vertices.
+ * 3. Collect vertices whose Y is within epsilon of that extreme.
  * 4. Dedupe (a single logical corner may appear multiple times if
  *    incident triangles each list it).
- * 5. Sort angularly around the centroid — for a convex top face (which
- *    all v2 volumes have: cubes, parallelogram prisms, rotated cubes),
- *    this yields the polygon in a consistent CCW order around the centre.
+ * 5. Sort angularly around the centroid — for a convex face (which
+ *    all v2 volumes have: cubes, parallelogram prisms, rotated cubes,
+ *    bevelled prisms whose top AND bottom are both convex polygons),
+ *    this yields the polygon in a consistent CCW order when viewed
+ *    from +Y. Bottom faces get the same CCW-from-+Y order, which
+ *    flips their "natural" winding but keeps them trivially
+ *    comparable to top faces in XZ-space shared-vertex matching.
  *
  * Why not use `.getMeshGL()` or face-id routing: manifold's face
  * tagging is available but overkill here. We only need the vertex
- * set on the top plane, and all our volumes are convex prisms, so
- * angular sort around the centroid is sufficient and stable.
+ * set on the extreme Y plane, and all our volumes are convex prisms,
+ * so angular sort around the centroid is sufficient and stable.
  */
-function extractTopFacePolygon(
+function extractYExtremePolygon(
   manifoldHandle: any,
+  side: 'max' | 'min',
 ): Array<{ x: number; z: number }> {
   const mesh = manifoldHandle.getMesh();
   const numVerts: number = mesh.numVert;
   const numProp: number = mesh.numProp;
 
-  let maxY = Number.NEGATIVE_INFINITY;
+  let extremeY = side === 'max' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
   for (let i = 0; i < numVerts; i++) {
     const y = mesh.vertProperties[i * numProp + 1];
-    if (y > maxY) maxY = y;
+    if (side === 'max' ? y > extremeY : y < extremeY) extremeY = y;
   }
 
   const eps = 1e-4;
@@ -329,7 +338,7 @@ function extractTopFacePolygon(
   const pts: Array<{ x: number; z: number }> = [];
   for (let i = 0; i < numVerts; i++) {
     const y = mesh.vertProperties[i * numProp + 1];
-    if (Math.abs(y - maxY) > eps) continue;
+    if (Math.abs(y - extremeY) > eps) continue;
     const x = mesh.vertProperties[i * numProp];
     const z = mesh.vertProperties[i * numProp + 2];
     const key = `${x.toFixed(4)},${z.toFixed(4)}`;
