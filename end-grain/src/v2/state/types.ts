@@ -279,13 +279,57 @@ export interface SpacerInsert {
   statusReason?: string;
 }
 
+/**
+ * TrimPanel — crop the upstream panel to a clean axis-aligned rectangle.
+ *
+ * First-class feature (not a view-layer toggle): it changes physical
+ * geometry that downstream features see, and may appear mid-pipeline
+ * (e.g. trim a sub-panel before feeding into another Cut).
+ *
+ * Three modes (see issue #37 for the full spec):
+ *
+ *   'flush'     — trim to the largest axis-aligned rectangle inscribed
+ *                 in the panel's top-face footprint. Default. Shaves
+ *                 overhangs and triangular offcuts from an angled cut
+ *                 glue-up; leaves the top face fully covered.
+ *
+ *   'rectangle' — same largest-inscribed-rectangle computation but
+ *                 against the INTERSECTION of top-face and bottom-face
+ *                 footprints, so the four trim cuts are perpendicular
+ *                 to the panel surface at every y. Matters at bevel
+ *                 != 90° where top and bottom footprints differ;
+ *                 identical to 'flush' otherwise.
+ *
+ *   'bbox'      — crop to user-specified absolute bounds. For producing
+ *                 a finished panel at a specific size. Missing fields
+ *                 default to the panel's current bbox extent (so
+ *                 `bounds: { xMin: -40, xMax: 40 }` trims X only and
+ *                 leaves Z alone).
+ */
+export interface TrimPanel {
+  kind: 'trimPanel';
+  /** 'trim-0', 'trim-1', ... */
+  id: string;
+  mode: 'flush' | 'rectangle' | 'bbox';
+  /** Required when mode === 'bbox'. Missing fields fall back to panel bbox extents. */
+  bounds?: {
+    xMin?: number;
+    xMax?: number;
+    zMin?: number;
+    zMax?: number;
+  };
+  status: Status;
+  statusReason?: string;
+}
+
 export type Feature =
   | ComposeStrips
   | Cut
   | Arrange
   | PlaceEdit
   | Preset
-  | SpacerInsert;
+  | SpacerInsert
+  | TrimPanel;
 
 // ---------------------------------------------------------------------------
 // Feature results (per-kind discriminated union)
@@ -352,10 +396,32 @@ export interface SpacerInsertResult {
   // No geometry of its own — consumed by the matching Arrange.
 }
 
+export interface TrimPanelResult {
+  featureId: string;
+  status: Status;
+  statusReason?: string;
+  /** The trimmed panel — source of truth for downstream features and rendering. */
+  panel: PanelSnapshot;
+  /**
+   * The axis-aligned bounds actually used for the trim — computed for
+   * 'flush'/'rectangle', user-supplied (with panel-bbox fallbacks) for
+   * 'bbox'. Operation-view renderer reads this directly instead of
+   * recomputing from the feature params.
+   */
+  appliedBounds: { xMin: number; xMax: number; zMin: number; zMax: number };
+  /**
+   * mm² (XZ area) of material removed — for a "wasted N mm²" info
+   * line. Computed by subtracting the trimmed XZ footprint from the
+   * upstream panel's XZ footprint.
+   */
+  trimmedArea: number;
+}
+
 export type FeatureResult =
   | ComposeStripsResult
   | CutResult
   | ArrangeResult
   | PresetResult
   | PlaceEditResult
-  | SpacerInsertResult;
+  | SpacerInsertResult
+  | TrimPanelResult;
