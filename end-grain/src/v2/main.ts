@@ -490,6 +490,21 @@ function setupViewport(
   controls.target.copy(centre);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
+  // Let the user orbit all the way around the panel — no polar- or
+  // azimuth-angle fencing. Three.js defaults the polar range to
+  // [0, π] which stops the camera at straight-up / straight-down
+  // and prevents viewing the panel from beneath; widening both
+  // bounds to ±∞ gives a true sphere of viewpoints. Pan and zoom
+  // likewise stay fully unlocked so the user can frame any angle.
+  controls.minPolarAngle = -Infinity;
+  controls.maxPolarAngle = Infinity;
+  controls.minAzimuthAngle = -Infinity;
+  controls.maxAzimuthAngle = Infinity;
+  controls.minDistance = 0;
+  controls.maxDistance = Infinity;
+  controls.enableRotate = true;
+  controls.enableZoom = true;
+  controls.enablePan = true;
   controls.update();
 
   // Once the user orbits / dollies, stop auto-fitting on resize so
