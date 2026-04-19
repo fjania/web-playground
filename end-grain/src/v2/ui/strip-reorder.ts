@@ -3,29 +3,35 @@
  *
  * Visual language matches the Arrange operation tile
  * (`renderArrangeOperation` → `summarize(panel)`): strips are rendered
- * as SVG `<polygon>` fills using `SPECIES_COLOURS`, with the same
- * muted stroke (`#00000022`, 0.5 mm width). The viewBox is in mm — 1
- * unit == 1 mm — so strip widths and lengths display in true relative
- * proportion, exactly like every other IXO tile.
+ * as SVG rectangles using `SPECIES_COLOURS`, with the same muted
+ * stroke (`#00000022`, 0.5 mm width). The viewBox is in mm — 1 unit
+ * == 1 mm.
+ *
+ * **Orientation.** The SVG presents the strip-length axis (world Z)
+ * horizontally and the strip-stacking axis (world X — the direction
+ * strips accumulate as you compose a panel) vertically. So each
+ * strip is a horizontal bar, and the stack grows top-to-bottom. That
+ * orientation is chosen deliberately: it mirrors the way you'd
+ * physically lay strips down at the bench, and it lines up visually
+ * with the Input tile's vertical inventory list.
  *
  * Strips are shown **exploded** with small gaps (GAP_MM) so narrow
  * strips stay grabbable, and so the render reads as "pieces not yet
  * flush" (composition happens downstream in the 3D Output tile).
  *
- * Interaction: pointer-down on a strip polygon captures the pointer,
- * a CSS transform follows the cursor, neighbours animate into their
- * rehearsal positions as the cursor crosses midpoints, and on
- * pointer-up the new order commits via `onChange(newOrder)`.
- *
- * No HTML5 drag-and-drop (clunky). No drop shadows, no rounded
- * background boxes, no in-strip width labels — the visual vocabulary
- * is intentionally the same as every other 2D operation tile.
+ * Interaction: pointer-down on a strip captures the pointer, a CSS
+ * transform follows the cursor along the stack axis (vertical),
+ * neighbours animate into their rehearsal positions as the cursor
+ * crosses midpoints, and on pointer-up the new order commits via
+ * `onChange(newOrder)`. No HTML5 drag-and-drop (clunky). No drop
+ * shadows, no rounded background boxes, no in-strip width labels —
+ * same visual vocabulary as every other 2D operation tile.
  *
  * State:
  *   - inventory: StripDef[] — the full set of available strips.
  *   - order: string[] — ordered strip ids (permutation of inventory).
  *   - stripLength: number — mm, panel Z extent. Drives the SVG
- *     viewBox's Z dimension so the aspect ratio matches the 3D panel.
+ *     horizontal axis (each strip's length).
  *
  * Downstream: the pipeline sees `order.map(id => inventory[id])`.
  */
@@ -57,17 +63,17 @@ const STROKE = '#00000022';
 const STROKE_WIDTH_MM = 0.5;
 const DRAG_STROKE = '#1a1a1a';
 const DRAG_STROKE_WIDTH_MM = 1.2;
-const DRAG_LIFT_MM = 6;
+const DRAG_LIFT_MM = 6; // pushed sideways (along length axis) while dragging
 
 // Animations measured in ms (CSS), hit-padding in mm (SVG user units).
 const ANIM_MS = 140;
 /**
- * Minimum hit width in mm. Narrow strips get a transparent rect
- * behind them extending the grab target. 20 mm is ≈ 3/4" which is
- * roughly the smallest strip a hand-tool maker would realistically
- * want.
+ * Minimum grab thickness (in mm, along the stack axis). Narrow strips
+ * get a transparent rect behind them extending the hit target. 20 mm
+ * is ≈ 3/4" — roughly the smallest strip a hand-tool maker would
+ * realistically want to place.
  */
-const MIN_HIT_WIDTH_MM = 20;
+const MIN_HIT_THICKNESS_MM = 20;
 
 export function mountStripReorder(
   el: HTMLElement,
@@ -85,11 +91,11 @@ export function mountStripReorder(
 
     const strips = resolveStrips(state);
     const widths = strips.map((s) => s.width);
-    const totalWidth =
+    const totalStack =
       widths.reduce((s, w) => s + w, 0) +
       Math.max(0, strips.length - 1) * GAP_MM;
 
-    const Z = Math.max(1, state.stripLength);
+    const L = Math.max(1, state.stripLength);
 
     // Outer centring wrapper — keeps SVG centred in the tile's render
     // slot at any aspect ratio.
@@ -104,9 +110,10 @@ export function mountStripReorder(
 
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('xmlns', SVG_NS);
+    // Horizontal = strip length (Z). Vertical = stack (X).
     svg.setAttribute(
       'viewBox',
-      `${fmt(-GAP_MM)} ${fmt(-GAP_MM)} ${fmt(totalWidth + 2 * GAP_MM)} ${fmt(Z + 2 * GAP_MM)}`,
+      `${fmt(-GAP_MM)} ${fmt(-GAP_MM)} ${fmt(L + 2 * GAP_MM)} ${fmt(totalStack + 2 * GAP_MM)}`,
     );
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.style.width = '100%';
@@ -114,13 +121,13 @@ export function mountStripReorder(
     svg.style.display = 'block';
     svg.style.overflow = 'visible';
 
-    // Compute per-slot X offsets (cumulative with gaps).
-    const slotX: number[] = [];
+    // Compute per-slot Y offsets (cumulative widths with gaps).
+    const slotY: number[] = [];
     {
-      let x = 0;
+      let y = 0;
       for (let i = 0; i < strips.length; i++) {
-        slotX.push(x);
-        x += widths[i] + GAP_MM;
+        slotY.push(y);
+        y += widths[i] + GAP_MM;
       }
     }
 
@@ -132,26 +139,28 @@ export function mountStripReorder(
       g.style.transition = `transform ${ANIM_MS}ms ease`;
       g.style.cursor = 'grab';
 
-      // Generous hit rect — transparent, extends beneath narrow strips
-      // so they remain grabbable. Centred on the visible polygon.
+      // Generous hit rect — transparent, extends beyond narrow strips
+      // along the stack axis so they remain grabbable. Centred on the
+      // visible rect.
       const w = widths[i];
-      const hitW = Math.max(MIN_HIT_WIDTH_MM, w);
-      const hitXOff = (hitW - w) / 2;
+      const hitH = Math.max(MIN_HIT_THICKNESS_MM, w);
+      const hitYOff = (hitH - w) / 2;
       const hit = document.createElementNS(SVG_NS, 'rect');
-      hit.setAttribute('x', fmt(slotX[i] - hitXOff));
-      hit.setAttribute('y', fmt(0));
-      hit.setAttribute('width', fmt(hitW));
-      hit.setAttribute('height', fmt(Z));
+      hit.setAttribute('x', fmt(0));
+      hit.setAttribute('y', fmt(slotY[i] - hitYOff));
+      hit.setAttribute('width', fmt(L));
+      hit.setAttribute('height', fmt(hitH));
       hit.setAttribute('fill', 'transparent');
       hit.setAttribute('pointer-events', 'all');
       g.appendChild(hit);
 
-      // Visible polygon — actual strip width.
+      // Visible rectangle — actual strip thickness along the stack
+      // axis, full length along the horizontal axis.
       const rect = document.createElementNS(SVG_NS, 'rect');
-      rect.setAttribute('x', fmt(slotX[i]));
-      rect.setAttribute('y', fmt(0));
-      rect.setAttribute('width', fmt(w));
-      rect.setAttribute('height', fmt(Z));
+      rect.setAttribute('x', fmt(0));
+      rect.setAttribute('y', fmt(slotY[i]));
+      rect.setAttribute('width', fmt(L));
+      rect.setAttribute('height', fmt(w));
       rect.setAttribute('fill', SPECIES_COLOURS[strip.species]);
       rect.setAttribute('stroke', STROKE);
       rect.setAttribute('stroke-width', fmt(STROKE_WIDTH_MM));
@@ -167,13 +176,13 @@ export function mountStripReorder(
     wrap.appendChild(svg);
     el.appendChild(wrap);
 
-    // Wire drag (needs the SVG + slots + widths in closure).
+    // Wire drag.
     if (strips.length > 1) {
       pointerCleanup = attachDrag(
         svg,
         stripGroups,
         widths,
-        slotX,
+        slotY,
         state,
         (nextOrder) => {
           state = { ...state, order: nextOrder };
@@ -205,7 +214,7 @@ function attachDrag(
   svg: SVGSVGElement,
   stripGroups: SVGGElement[],
   widths: number[],
-  slotX: number[],
+  slotY: number[],
   state: ReorderState,
   commit: (newOrder: string[]) => void,
 ): () => void {
@@ -213,18 +222,17 @@ function attachDrag(
     fromSlot: number;
     currentSlot: number;
     stripId: string;
-    startClientX: number;
+    startClientY: number;
     el: SVGGElement;
-    // Cached mm-per-px at drag start so pointermove converts correctly
-    // even if layout shifts mid-gesture.
-    mmPerPx: number;
+    // mm-per-px along the stack axis (vertical screen / SVG Y).
+    mmPerPxY: number;
   } | null = null;
 
-  function mmPerPx(): number {
+  function mmPerPxY(): number {
     const rect = svg.getBoundingClientRect();
     const vb = svg.viewBox.baseVal;
-    if (rect.width === 0 || !vb || vb.width === 0) return 1;
-    return vb.width / rect.width;
+    if (rect.height === 0 || !vb || vb.height === 0) return 1;
+    return vb.height / rect.height;
   }
 
   const onPointerDown = (e: PointerEvent): void => {
@@ -246,28 +254,28 @@ function attachDrag(
       fromSlot,
       currentSlot: fromSlot,
       stripId,
-      startClientX: e.clientX,
+      startClientY: e.clientY,
       el: g,
-      mmPerPx: mmPerPx(),
+      mmPerPxY: mmPerPxY(),
     };
     setDraggingStyle(g, 0, true);
   };
 
   const onPointerMove = (e: PointerEvent): void => {
     if (!dragging) return;
-    const dxPx = e.clientX - dragging.startClientX;
-    const dxMm = dxPx * dragging.mmPerPx;
-    setDraggingStyle(dragging.el, dxMm, true);
+    const dyPx = e.clientY - dragging.startClientY;
+    const dyMm = dyPx * dragging.mmPerPxY;
+    setDraggingStyle(dragging.el, dyMm, true);
 
-    const origCentre = slotX[dragging.fromSlot] + widths[dragging.fromSlot] / 2;
-    const centre = origCentre + dxMm;
-    const newSlot = slotAtCentreX(widths, slotX, centre);
+    const origCentre = slotY[dragging.fromSlot] + widths[dragging.fromSlot] / 2;
+    const centre = origCentre + dyMm;
+    const newSlot = slotAtCentre(widths, slotY, centre);
     if (newSlot !== dragging.currentSlot) {
       dragging.currentSlot = newSlot;
       layoutRehearsal(
         stripGroups,
         widths,
-        slotX,
+        slotY,
         dragging.fromSlot,
         newSlot,
       );
@@ -315,21 +323,24 @@ function attachDrag(
 }
 
 /**
- * Set / clear the "being dragged" visual: lift the strip up by
- * DRAG_LIFT_MM and bump the stroke. CSS transform is in SVG user
- * units because the <g> lives inside the viewBox coordinate system.
+ * Set / clear the "being dragged" visual: nudge the strip sideways
+ * (along the length axis, +X) and bump the stroke. CSS transform is
+ * in SVG user units because the <g> lives inside the viewBox
+ * coordinate system.
  */
 function setDraggingStyle(
   g: SVGGElement,
-  dxMm: number,
+  dyMm: number,
   active: boolean,
 ): void {
   if (active) {
     g.style.transition = 'none';
-    g.style.transform = `translate(${dxMm}px, ${-DRAG_LIFT_MM}px)`;
+    // Strip moves along its stack axis (Y) with the cursor, and also
+    // nudges forward along its length axis (X) so the drop-shadow
+    // reads cleanly against the neighbouring strips.
+    g.style.transform = `translate(${DRAG_LIFT_MM}px, ${dyMm}px)`;
     g.style.cursor = 'grabbing';
     g.style.filter = 'drop-shadow(0 2px 3px rgba(0,0,0,0.18))';
-    // Bump the visible polygon's stroke for clearer focus.
     const rect = g.querySelector('rect[data-species]');
     if (rect) {
       rect.setAttribute('stroke', DRAG_STROKE);
@@ -357,7 +368,7 @@ function setDraggingStyle(
 function layoutRehearsal(
   stripGroups: SVGGElement[],
   widths: number[],
-  slotX: number[],
+  slotY: number[],
   fromSlot: number,
   currentSlot: number,
 ): void {
@@ -369,9 +380,9 @@ function layoutRehearsal(
   stripGroups.forEach((g, i) => {
     if (i === fromSlot) return; // dragged element handled elsewhere
     const rehearsalSlot = rehearsalOrder.indexOf(i);
-    const dxMm = slotX[rehearsalSlot] - slotX[i];
+    const dyMm = slotY[rehearsalSlot] - slotY[i];
     g.style.transition = `transform ${ANIM_MS}ms ease`;
-    g.style.transform = `translate(${dxMm}px, 0px)`;
+    g.style.transform = `translate(0px, ${dyMm}px)`;
   });
 }
 
@@ -383,17 +394,18 @@ function resetRehearsal(stripGroups: SVGGElement[]): void {
 }
 
 /**
- * Walk slot centres and return the slot whose centre `centre` is
- * closest to (or past) given the cumulative slot widths.
+ * Walk slot centres (along the stack axis) and return the slot whose
+ * centre `centre` is closest to (or past) given the cumulative slot
+ * widths.
  */
-function slotAtCentreX(
+function slotAtCentre(
   widths: number[],
-  slotX: number[],
+  slotY: number[],
   centre: number,
 ): number {
-  if (centre <= slotX[0] + widths[0] / 2) return 0;
+  if (centre <= slotY[0] + widths[0] / 2) return 0;
   for (let i = 0; i < widths.length; i++) {
-    const mid = slotX[i] + widths[i] / 2;
+    const mid = slotY[i] + widths[i] / 2;
     if (centre < mid) return i;
   }
   return widths.length - 1;
