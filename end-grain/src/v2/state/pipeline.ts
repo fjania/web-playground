@@ -563,36 +563,59 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     }
   }
 
-  // ---- 5. Mate faces successively along the cut-normal. ----
+  // ---- 5. Mate faces successively along the panel's +Z axis. ----
   //
-  // Physical analogue: the woodworker holds the first slice still,
-  // then takes each subsequent slice and mates its "low" cut face
-  // against the previous slice's "high" cut face, clamping flush
-  // (with glue in between). Spacers drop into the sequence between
-  // slices the same way.
+  // Physical analogue: the woodworker holds the first slice still
+  // on the bench, positions each subsequent piece against a fence
+  // running along the panel's long axis, and slides it forward
+  // until its cut face mates with the previous piece's cut face.
+  // The slide direction is along the panel's Z axis — the fence
+  // keeps every piece aligned to the same X column, so the
+  // assembly grows in one dimension, not diagonally.
   //
-  // Algorithmically: pick an axis (the Cut's normal), walk each
-  // piece in output order, and translate it along that axis so
-  // its min-along-axis sits exactly at the running cursor (which
-  // tracks the previous piece's max-along-axis). Advance cursor
-  // by the piece's along-axis extent.
+  // Algorithm:
+  // 1. Track a cursor in the ALONG-NORMAL (d) direction — this is
+  //    the "pitch" axis of the cut, along which cut planes live.
+  //    Each piece advances the cursor by its own projectOnto(normal)
+  //    extent (= pitch for a slice, = width for a spacer).
+  // 2. To position a piece so its low cut plane is at the current
+  //    cursor, translate along +Z by (cursor - piece_d_low) / n_z.
+  //    Why divide by n_z: translating along Z by dz shifts any
+  //    plane's d-offset by dz · n_z, so the Z translation needed to
+  //    move a plane by Δd along the normal is Δd / n_z.
   //
-  // We measure extent with `projectOnto` (exact, walks mesh
-  // vertices) rather than `measureAlong` (AABB over-approximation).
-  // This matters at rip != 0 where each slice is a parallelogram
-  // prism: its AABB Z-extent is larger than its true along-normal
-  // pitch, and the old cursor-slide over-advanced, leaving visible
-  // gaps. Along-cut-normal projection recovers the true pitch and
-  // the faces mate flush at any rip or bevel.
+  // Why Z-only instead of along-normal: the normal at non-zero rip
+  // has both X and Z components. Translating along the normal
+  // moves pieces diagonally, accumulating an X drift across many
+  // spacers so the panel grows in both dimensions. Translating
+  // along Z only keeps every piece in the same X column — what a
+  // fence-and-bench glue-up actually does — while still mating cut
+  // planes exactly (cut plane d-offsets still land on their target
+  // values because of the 1/n_z factor).
   //
-  // Identity arrange (no edits, no spacers) also flows through
-  // this code path: the slices are already at their baked cut
-  // positions, so every offset works out to zero and the piece
-  // stays where it was — mathematically equivalent to concatenating
-  // them in place, no special case needed.
+  // At rip=0 n_z=1, so along-Z and along-normal coincide and the
+  // old behaviour falls out unchanged. At rip!=0 the algorithm
+  // produces a panel that grows only in Z, not diagonally.
+  //
+  // projectOnto (exact, walks mesh vertices) not measureAlong (AABB
+  // over-approximation): the exact along-normal extent is what
+  // drives cursor advancement; AABB Z would over-count for
+  // parallelogram slices.
+  //
+  // Identity arrange (no edits, no spacers) flows through this
+  // code path with zero translations: each slice's d_low exactly
+  // equals the running cursor, so Δd=0 → dz=0, piece stays put.
   const normalAxis: [number, number, number] = ctx.lastCut
     ? computeCutNormalForArrange(ctx.lastCut)
     : [0, 0, 1];
+  // z-component of the normal — the conversion factor from
+  // along-normal shifts to along-Z shifts. Guard against near-zero
+  // (normal in XY plane, rip very close to ±90° or extreme bevel)
+  // to avoid division blow-up; in that regime the panel's geometry
+  // degenerates anyway and the user would see the cut go sideways.
+  const nZ = Math.abs(normalAxis[2]);
+  const zFactor = nZ > 1e-6 ? nZ : 1;
+
   const firstSlice = transformedSlices[sliceOrder[0]];
   let cursor = firstSlice.projectOnto(normalAxis).min;
 
@@ -613,14 +636,8 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     const sliceIdx = sliceOrder[outIdx];
     const slice = transformedSlices[sliceIdx];
     const m = slice.projectOnto(normalAxis);
-    const offset = cursor - m.min;
-    placedSlices.push(
-      slice.translate(
-        normalAxis[0] * offset,
-        normalAxis[1] * offset,
-        normalAxis[2] * offset,
-      ),
-    );
+    const dz = (cursor - m.min) / zFactor;
+    placedSlices.push(slice.translate(0, 0, dz));
     cursor += m.extent;
 
     // After placing slice-at-sliceIdx, insert any spacers keyed on
@@ -631,14 +648,8 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     for (const { spacer, source } of here) {
       const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0], normalAxis);
       const sm = spacerPanel.projectOnto(normalAxis);
-      const sOffset = cursor - sm.min;
-      placedSlices.push(
-        spacerPanel.translate(
-          normalAxis[0] * sOffset,
-          normalAxis[1] * sOffset,
-          normalAxis[2] * sOffset,
-        ),
-      );
+      const sdz = (cursor - sm.min) / zFactor;
+      placedSlices.push(spacerPanel.translate(0, 0, sdz));
       spacerPanel.dispose();
       cursor += sm.extent;
       appliedSpacerSources.push(source);
