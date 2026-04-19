@@ -21,6 +21,8 @@ export default defineConfig({
         'end-grain': 'end-grain/index.html',
         'end-grain-3d': 'end-grain/3d.html',
         'end-grain-3d-v2': 'end-grain/3d-v2.html',
+        'end-grain-3d-v2-arrange': 'end-grain/3d-v2-arrange.html',
+        'end-grain-3d-v2-trim': 'end-grain/3d-v2-trim.html',
       }
     }
   }

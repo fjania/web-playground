@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain v2 — TrimPanel harness</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: #fafaf7;
+      color: #222;
+      display: flex;
+      flex-direction: column;
+    }
+    body > header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    body > header h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    body > header .subtitle {
+      margin: 0;
+      font-size: 0.8rem;
+      color: #888;
+    }
+    body > header nav {
+      margin-left: auto;
+      font-size: 0.75rem;
+    }
+    body > header nav a {
+      color: #666;
+      text-decoration: none;
+      margin-left: 1rem;
+    }
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+    }
+    main {
+      flex: 1;
+      min-width: 0;
+      padding: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      overflow: auto;
+    }
+    #inspector {
+      flex: 0 0 320px;
+      border-left: 1px solid #e4e4e0;
+      background: #fff;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    #inspector header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fafaf7;
+      position: sticky;
+      top: 0;
+    }
+    #inspector header h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    #inspector .inspector-body {
+      padding: 0.75rem 1rem 1.5rem;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #333;
+    }
+    #inspector section + section {
+      margin-top: 1rem;
+    }
+    #inspector section h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #888;
+    }
+    #inspector .hint {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.7rem;
+      color: #666;
+      background: #f6f5f1;
+      padding: 0.4rem 0.5rem;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    #inspector .hint code {
+      color: #222;
+      font-weight: 600;
+    }
+    .tile {
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 0.75rem 0.75rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+      min-width: 0;
+    }
+    .tile.tile--2d {
+      flex: 0 0 240px;
+    }
+    .tile.tile--3d {
+      flex: 1 1 0;
+      min-width: 360px;
+    }
+    .tile header {
+      padding: 0;
+      border: none;
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .tile h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .tile .subtitle {
+      margin: 0;
+      font-size: 0.7rem;
+      color: #888;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .tile .render {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f6f5f1;
+      border-radius: 4px;
+      padding: 0.5rem;
+      min-height: 180px;
+      overflow: hidden;
+      position: relative;
+    }
+    .tile--3d .render {
+      padding: 0;
+    }
+    .tile svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+    .tile canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .tile .meta {
+      font-size: 0.7rem;
+      color: #666;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.4;
+    }
+    .placeholder {
+      font-size: 0.75rem;
+      color: #999;
+      text-align: center;
+      padding: 2rem 1rem;
+    }
+    .description {
+      margin: 0.75rem 1.5rem 0;
+      padding: 0.875rem 1rem;
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      border-left: 3px solid #8a6a44;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: #444;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .description h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #222;
+    }
+    .description p {
+      margin: 0 0 0.4rem;
+    }
+    .description p:last-child {
+      margin-bottom: 0;
+    }
+    .description strong {
+      color: #222;
+    }
+    .description code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      background: #f6f5f1;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #222;
+    }
+    .description ul {
+      margin: 0.2rem 0 0.4rem 1.2rem;
+      padding: 0;
+    }
+    .description ul li {
+      margin-bottom: 0.15rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>End-grain v2 — TrimPanel harness</h1>
+    <p class="subtitle">focused I/X/O for TrimPanel · <code>3d-v2-trim.html</code></p>
+    <nav>
+      <a href="./3d-v2.html">← Cut harness</a>
+      <a href="./3d-v2-arrange.html">← Arrange harness</a>
+    </nav>
+  </header>
+  <section class="description" aria-label="Operation description">
+    <h2>Testing: TrimPanel — crop to a clean rectangle</h2>
+    <p>
+      <strong>TrimPanel</strong> crops the upstream panel to an
+      axis-aligned rectangle. It's first-class (appears in the
+      timeline like any other feature, can run mid-pipeline, changes
+      physical geometry that downstream features see). Three modes:
+    </p>
+    <ul>
+      <li><strong><code>flush</code></strong> (default) — largest
+        axis-aligned rectangle inscribed in the panel's top-face
+        outline. Shaves triangular overhangs from a rip-angled
+        glue-up while leaving the top fully covered.</li>
+      <li><strong><code>rectangle</code></strong> — same rectangle
+        but inscribed inside the INTERSECTION of top and bottom
+        faces. At bevel &ne; 90° top and bottom footprints differ;
+        this mode keeps trim cuts perpendicular to the panel
+        surface at every y. Identical to <code>flush</code> at
+        bevel = 90°.</li>
+      <li><strong><code>bbox</code></strong> — user-specified bounds
+        <code>?bounds=xMin,xMax,zMin,zMax</code>. Omitted fields
+        fall back to the panel's current bbox. Requests outside the
+        panel clamp with <code>status=warning</code>.</li>
+    </ul>
+    <p>
+      Upstream: the harness runs a <code>compose → cut → arrange</code>
+      triple with URL-tunable parameters (rip, bevel, slices, preset),
+      then appends the TrimPanel. Example:
+      <code>?rip=30&amp;slices=6&amp;preset=flipAlternate&amp;mode=flush</code>.
+    </p>
+    <p>Expected in each tile:</p>
+    <ul>
+      <li><strong>Input</strong> — the upstream Arrange's reassembled
+        panel, top-down. At rip &gt; 0 this is a parallelogram with
+        triangular overhangs; at bevel &lt; 90° the outline is still
+        a rectangle from above but the top and bottom faces differ.</li>
+      <li><strong>Operation</strong> — the same panel with a dashed
+        rectangle showing the imminent trim bounds and a dimmed
+        overlay on the material about to be discarded (annular fill:
+        panel bbox minus trim rect).</li>
+      <li><strong>Output</strong> — the trimmed panel in 3D. Free
+        orbit, home button, XYZ axis gizmo. The bbox matches
+        <code>appliedBounds</code> exactly.</li>
+    </ul>
+  </section>
+  <div class="layout">
+  <main id="tiles">
+    <article class="tile tile--2d" data-stage="arrange-0" data-role="input">
+      <header>
+        <h2>Input</h2>
+        <p class="subtitle">arrange-0 · panel flowing into trim</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">input pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+    <article class="tile tile--2d" data-stage="trim-0-op" data-role="operation">
+      <header>
+        <h2>Operation: TrimPanel</h2>
+        <p class="subtitle">trim-0 · trim rect + discard overlay</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">operation diagram pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+    <article class="tile tile--3d" data-stage="trim-0" data-role="output">
+      <header>
+        <h2>Output</h2>
+        <p class="subtitle">trimmed panel · 3D viewport</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">3D viewport pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+  </main>
+  <aside id="inspector" aria-label="Harness help">
+    <header>
+      <h2>TrimPanel harness</h2>
+    </header>
+    <div class="inspector-body">
+      <section>
+        <h3>URL parameters</h3>
+        <div class="hint">Trim parameters
+  <code>?mode=flush</code>      (default) largest inscribed rect
+                    in the panel's top-face outline
+  <code>?mode=rectangle</code>  intersect top + bottom footprints
+                    (matters at bevel != 90°)
+  <code>?mode=bbox</code>       user-supplied bounds — omit fields
+                    to inherit the panel's extent on that axis
+  <code>?bounds=-40,40,-150,150</code>
+                    xMin,xMax,zMin,zMax (mm) for bbox mode.
+                    Use <code>_</code> for omitted fields:
+                    <code>?bounds=-40,40,_,_</code> trims X only.
+
+Upstream Cut (same as the Cut harness)
+  <code>?rip=30</code>      rip angle in degrees (default 0)
+  <code>?bevel=60</code>    bevel angle 45..90 (default 90)
+  <code>?slices=6</code>    how many slices to cut (default 6)
+
+Upstream Arrange (same as the Arrange harness)
+  <code>?flip=1,3</code>    rotate 180° on these slice indices
+  <code>?spacer=1,3</code>  insert spacers after these indices
+  <code>?spacerWidth=10</code>   width in mm (default 5)
+  <code>?spacerSpecies=maple</code>  species (default walnut)
+  <code>?preset=flipAlternate</code>
+  <code>?preset=spacerEveryRow:6</code>
+  Multiple presets: <code>?preset=flipAlternate,spacerEveryRow:5</code>
+
+Examples
+  Default flush trim on an angled glue-up:
+    <code>?rip=30&amp;slices=6</code>
+  Trim to a specific size:
+    <code>?mode=bbox&amp;bounds=-40,40,-150,150</code>
+  Bevel + rectangle mode:
+    <code>?bevel=60&amp;slices=6&amp;mode=rectangle</code>
+  Arrange pattern + flush trim:
+    <code>?rip=30&amp;slices=8&amp;preset=flipAlternate,spacerEveryRow:5</code>
+        </div>
+      </section>
+      <section>
+        <h3>Applied bounds</h3>
+        <div data-slot="applied-bounds" class="hint">bounds pending</div>
+      </section>
+      <section>
+        <h3>Pipeline trace</h3>
+        <div data-slot="trace" class="hint">trace pending</div>
+      </section>
+    </div>
+  </aside>
+  </div>
+  <script type="module" src="./src/v2/main-trim.ts"></script>
+</body>
+</html>
