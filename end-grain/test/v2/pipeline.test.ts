@@ -11,6 +11,8 @@ import type {
   CutResult,
   Feature,
   PresetResult,
+  TrimPanel,
+  TrimPanelResult,
 } from '../../src/v2/state/types';
 
 // ---------------------------------------------------------------------------
@@ -839,5 +841,235 @@ describe('runPipeline — malformed timelines', () => {
     const r = out.results['arrange-0'];
     expect(r.status).toBe('error');
     expect(r.statusReason).toMatch(/arrange without upstream/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TrimPanel — flush / rectangle / bbox modes on various upstream panels.
+// ---------------------------------------------------------------------------
+
+/** Append a TrimPanel to the default timeline and return the full pipeline output. */
+function runWithTrim(
+  timelineMods: (t: Feature[], counter: ReturnType<typeof createIdCounter>) => void,
+  trimMods: Partial<TrimPanel> & { mode: TrimPanel['mode'] },
+) {
+  const counter = createIdCounter();
+  const timeline = defaultTimeline(counter);
+  timelineMods(timeline, counter);
+  const trim: TrimPanel = {
+    kind: 'trimPanel',
+    id: allocateId(counter, 'trim'),
+    mode: trimMods.mode,
+    bounds: trimMods.bounds,
+    status: 'ok',
+  };
+  timeline.push(trim);
+  const out = runPipeline(timeline);
+  return { out, trim, timeline };
+}
+
+describe('runPipeline — TrimPanel (identity)', () => {
+  it('flush on a rip=0 panel is a no-op (output bbox == input bbox)', () => {
+    const { out, trim } = runWithTrim(() => {}, { mode: 'flush' });
+    const arrange = out.results['arrange-0'] as ArrangeResult;
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('ok');
+    // Compose + cut + arrange on defaults → 100 × 50 × 400 panel.
+    // Flush trim should find the same bbox.
+    for (const axis of [0, 2]) {
+      expect(trimResult.panel.bbox.min[axis]).toBeCloseTo(arrange.panel.bbox.min[axis], 3);
+      expect(trimResult.panel.bbox.max[axis]).toBeCloseTo(arrange.panel.bbox.max[axis], 3);
+    }
+    expect(trimResult.trimmedArea).toBeCloseTo(0, 3);
+  });
+});
+
+describe('runPipeline — TrimPanel (flush at rip > 0)', () => {
+  it('flush shrinks the Z bbox to sit inside the parallelogram outline', () => {
+    const { out, trim } = runWithTrim(
+      (t) => {
+        const cut = t[1];
+        if (cut.kind !== 'cut') throw new Error('bad timeline');
+        cut.rip = 30;
+        cut.spacingMode = 'slices';
+        cut.slices = 4;
+      },
+      { mode: 'flush' },
+    );
+    const arrange = out.results['arrange-0'] as ArrangeResult;
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('ok');
+
+    // At rip=30 the arrange output is a parallelogram spanning the
+    // full 100mm X (slices still span the panel's X extent) but with
+    // triangular overhangs at zMin / zMax. Flush trim removes those
+    // triangles — the inscribed Z extent < arrange AABB Z extent.
+    const arrangeZExtent = arrange.panel.bbox.max[2] - arrange.panel.bbox.min[2];
+    const trimZExtent = trimResult.panel.bbox.max[2] - trimResult.panel.bbox.min[2];
+    expect(trimZExtent).toBeLessThan(arrangeZExtent);
+    expect(trimResult.trimmedArea).toBeGreaterThan(0);
+
+    // X stays at panel width — the parallelogram's left + right edges
+    // are both at x=+/-50 (just at different z).
+    const arrangeXExtent = arrange.panel.bbox.max[0] - arrange.panel.bbox.min[0];
+    const trimXExtent = trimResult.panel.bbox.max[0] - trimResult.panel.bbox.min[0];
+    expect(trimXExtent).toBeCloseTo(arrangeXExtent, 3);
+
+    // Applied bounds are within the upstream bbox.
+    expect(trimResult.appliedBounds.zMin).toBeGreaterThanOrEqual(arrange.panel.bbox.min[2] - 1e-3);
+    expect(trimResult.appliedBounds.zMax).toBeLessThanOrEqual(arrange.panel.bbox.max[2] + 1e-3);
+  });
+});
+
+describe('runPipeline — TrimPanel (bbox mode)', () => {
+  it('bbox clips panel to exact user-supplied bounds', () => {
+    const { out, trim } = runWithTrim(() => {}, {
+      mode: 'bbox',
+      bounds: { xMin: -40, xMax: 40, zMin: -150, zMax: 150 },
+    });
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('ok');
+    expect(trimResult.appliedBounds).toEqual({ xMin: -40, xMax: 40, zMin: -150, zMax: 150 });
+    expect(trimResult.panel.bbox.min[0]).toBeCloseTo(-40, 3);
+    expect(trimResult.panel.bbox.max[0]).toBeCloseTo(40, 3);
+    expect(trimResult.panel.bbox.min[2]).toBeCloseTo(-150, 3);
+    expect(trimResult.panel.bbox.max[2]).toBeCloseTo(150, 3);
+  });
+
+  it('bbox with missing fields falls back to panel bbox on that axis', () => {
+    const { out, trim } = runWithTrim(() => {}, {
+      mode: 'bbox',
+      bounds: { xMin: -40, xMax: 40 },
+    });
+    const arrange = out.results['arrange-0'] as ArrangeResult;
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('ok');
+    // X trimmed to [-40, 40]; Z untouched.
+    expect(trimResult.appliedBounds.xMin).toBeCloseTo(-40, 3);
+    expect(trimResult.appliedBounds.xMax).toBeCloseTo(40, 3);
+    expect(trimResult.appliedBounds.zMin).toBeCloseTo(arrange.panel.bbox.min[2], 3);
+    expect(trimResult.appliedBounds.zMax).toBeCloseTo(arrange.panel.bbox.max[2], 3);
+  });
+
+  it('bbox outside panel bbox clamps to panel + sets status=warning', () => {
+    // Panel is 100×50×400 centred on origin; xMax=50, request xMax=200.
+    const { out, trim } = runWithTrim(() => {}, {
+      mode: 'bbox',
+      bounds: { xMin: -50, xMax: 200, zMin: -200, zMax: 200 },
+    });
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('warning');
+    expect(trimResult.statusReason).toMatch(/clamped/);
+    // xMax should clamp to 50 (panel's xMax), zMax to 200 (== panel's zMax).
+    expect(trimResult.appliedBounds.xMax).toBeCloseTo(50, 3);
+    expect(trimResult.appliedBounds.zMax).toBeCloseTo(200, 3);
+  });
+});
+
+describe('runPipeline — TrimPanel (rectangle mode at bevel != 90)', () => {
+  it('rectangle mode at bevel=60 produces a non-empty trimmed panel', () => {
+    // Bevel=60 makes top and bottom footprints differ; rectangle mode
+    // must produce bounds inside both so trim cuts are square at every y.
+    const { out, trim } = runWithTrim(
+      (t) => {
+        const cut = t[1];
+        if (cut.kind !== 'cut') throw new Error('bad timeline');
+        cut.bevel = 60;
+        cut.spacingMode = 'slices';
+        cut.slices = 4;
+      },
+      { mode: 'rectangle' },
+    );
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('ok');
+    expect(trimResult.panel.volumes.length).toBeGreaterThan(0);
+    // Applied bounds should produce a non-degenerate rectangle.
+    expect(trimResult.appliedBounds.xMax).toBeGreaterThan(trimResult.appliedBounds.xMin);
+    expect(trimResult.appliedBounds.zMax).toBeGreaterThan(trimResult.appliedBounds.zMin);
+  });
+});
+
+describe('runPipeline — TrimPanel feeds downstream features', () => {
+  it('Cut after Trim sees the trimmed panel (not the pre-trim one)', () => {
+    // Timeline: compose + cut + arrange + trim(bbox to 80×300) + cut again.
+    // The second Cut's safe extent should be derived from the trimmed panel.
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    timeline.push({
+      kind: 'trimPanel',
+      id: allocateId(counter, 'trim'),
+      mode: 'bbox',
+      bounds: { xMin: -40, xMax: 40, zMin: -150, zMax: 150 },
+      status: 'ok',
+    });
+    // Add a second cut after the trim. Pitch-driven so slice count
+    // derives from the trimmed panel's Z extent (300 mm / 50 mm = 6).
+    timeline.push({
+      kind: 'cut',
+      id: allocateId(counter, 'cut'),
+      rip: 0,
+      bevel: 90,
+      spacingMode: 'pitch',
+      pitch: 50,
+      slices: 6,
+      showOffcuts: false,
+      status: 'ok',
+    });
+    const out = runPipeline(timeline);
+    const trimResult = out.results['trim-0'] as TrimPanelResult;
+    const secondCut = out.results['cut-1'] as CutResult;
+    expect(trimResult.status).toBe('ok');
+    expect(secondCut.status).toBe('ok');
+    // trimmed Z extent = 300, pitch = 50 → 6 slices.
+    expect(secondCut.slices).toHaveLength(6);
+    // Each slice's X extent should match trimmed panel (80 mm).
+    for (const s of secondCut.slices) {
+      const xExtent = s.bbox.max[0] - s.bbox.min[0];
+      expect(xExtent).toBeCloseTo(80, 2);
+    }
+  });
+});
+
+describe('runPipeline — TrimPanel (multi-trim)', () => {
+  it('two trims in sequence produce the second trim\'s bounds', () => {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    timeline.push({
+      kind: 'trimPanel',
+      id: allocateId(counter, 'trim'),
+      mode: 'bbox',
+      bounds: { xMin: -50, xMax: 50, zMin: -200, zMax: 200 },
+      status: 'ok',
+    });
+    timeline.push({
+      kind: 'trimPanel',
+      id: allocateId(counter, 'trim'),
+      mode: 'bbox',
+      bounds: { xMin: -30, xMax: 30, zMin: -100, zMax: 100 },
+      status: 'ok',
+    });
+    const out = runPipeline(timeline);
+    const second = out.results['trim-1'] as TrimPanelResult;
+    expect(second.status).toBe('ok');
+    expect(second.appliedBounds).toEqual({ xMin: -30, xMax: 30, zMin: -100, zMax: 100 });
+    expect(second.panel.bbox.min[0]).toBeCloseTo(-30, 3);
+    expect(second.panel.bbox.max[0]).toBeCloseTo(30, 3);
+  });
+});
+
+describe('runPipeline — TrimPanel (malformed)', () => {
+  it('trimPanel without upstream panel produces status=error', () => {
+    const timeline: Feature[] = [
+      {
+        kind: 'trimPanel',
+        id: 'trim-0',
+        mode: 'flush',
+        status: 'ok',
+      },
+    ];
+    const out = runPipeline(timeline);
+    const r = out.results['trim-0'];
+    expect(r.status).toBe('error');
+    expect(r.statusReason).toMatch(/without upstream/);
   });
 });

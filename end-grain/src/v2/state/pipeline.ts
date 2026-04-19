@@ -907,50 +907,92 @@ function collectFaceVertices(
 
 /**
  * Largest axis-aligned rectangle inscribed in a convex polygon, via
- * the #37 spec's half-plane vertex heuristic:
+ * the #37 spec's half-plane vertex heuristic applied to the convex
+ * hull of the input vertex set:
  *
- *   xMin = max({x : vertex lies on the left half of the bbox})
- *   xMax = min({x : vertex lies on the right half of the bbox})
- *   zMin = max({z : vertex lies on the bottom half})
- *   zMax = min({z : vertex lies on the top half})
+ *   1. Compute convex hull of all input vertices (discards interior
+ *      points — shared-edge vertices between adjacent volumes, strip
+ *      boundaries etc. — which would spuriously constrain the rect).
+ *   2. xMin = max({x : hull vertex on the STRICT left of centroid})
+ *      xMax = min({x : hull vertex on the STRICT right of centroid})
+ *      zMin = max({z : hull vertex on the STRICT bottom of centroid})
+ *      zMax = min({z : hull vertex on the STRICT top of centroid})
  *
  * For a parallelogram (rip-angled arrange output with no spacers),
- * each "left vertex" is one of the two leftmost corners whose x
- * differs because of the shear, and the max of those two xs is
- * exactly the inscribed rectangle's left edge — which is the correct
- * answer. For trapezoids and other convex outlines, the heuristic
- * also gives the inscribed rectangle.
+ * the hull has 4 vertices; each side of the centroid has two hull
+ * vertices at differing x or z, and the max/min of those gives the
+ * inscribed rectangle's edge — which is correct. For trapezoids and
+ * other convex outlines, the heuristic still gives the inscribed
+ * rectangle.
  *
- * For non-convex outlines, the result is still inside the bbox but
- * may be sub-optimal; the spec accepts that with an optional
- * status='warning' (not surfaced here — the executor decides).
+ * Non-convex outlines (would only arise post-spacer at odd rip/
+ * shift combinations we don't currently produce) degrade to the
+ * hull's inscribed rect, which is a conservative but still
+ * material-preserving trim.
  */
 function computeInscribedRect(
   vertices: Array<{ x: number; z: number }>,
   bbox: { xMin: number; xMax: number; zMin: number; zMax: number },
 ): { xMin: number; xMax: number; zMin: number; zMax: number } {
+  const hull = convexHull(vertices);
   const midX = (bbox.xMin + bbox.xMax) / 2;
   const midZ = (bbox.zMin + bbox.zMax) / 2;
-  const EPS = 1e-6;
 
   let xMin = bbox.xMin;
   let xMax = bbox.xMax;
   let zMin = bbox.zMin;
   let zMax = bbox.zMax;
 
-  // Take max of x for vertices that are "left of centre" (and
-  // likewise mirror). Each vertex on the boundary constrains the
-  // inscribed rectangle from its side; a vertex sitting exactly at
-  // mid is a neutral case — include it in both sides so we don't
-  // miss a constraint.
-  for (const v of vertices) {
-    if (v.x <= midX + EPS && v.x > xMin) xMin = v.x;
-    if (v.x >= midX - EPS && v.x < xMax) xMax = v.x;
-    if (v.z <= midZ + EPS && v.z > zMin) zMin = v.z;
-    if (v.z >= midZ - EPS && v.z < zMax) zMax = v.z;
+  // Strict left/right/bottom/top classification. A hull vertex sitting
+  // exactly at the centroid would be a degenerate symmetric case — we
+  // ignore it in that case (neither constrains) rather than letting it
+  // clamp the rect to a point.
+  for (const v of hull) {
+    if (v.x < midX && v.x > xMin) xMin = v.x;
+    if (v.x > midX && v.x < xMax) xMax = v.x;
+    if (v.z < midZ && v.z > zMin) zMin = v.z;
+    if (v.z > midZ && v.z < zMax) zMax = v.z;
   }
 
   return { xMin, xMax, zMin, zMax };
+}
+
+/**
+ * Convex hull of a 2D point set (XZ plane), via monotone chain.
+ * Returns the hull vertices in CCW order (Andrew's algorithm). Used
+ * by computeInscribedRect to discard interior / shared-edge vertices
+ * that would spuriously constrain the half-plane heuristic.
+ */
+function convexHull(
+  points: Array<{ x: number; z: number }>,
+): Array<{ x: number; z: number }> {
+  if (points.length < 3) return [...points];
+  const pts = points.slice().sort((a, b) => (a.x !== b.x ? a.x - b.x : a.z - b.z));
+
+  const cross = (
+    o: { x: number; z: number },
+    a: { x: number; z: number },
+    b: { x: number; z: number },
+  ): number => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+
+  const lower: Array<{ x: number; z: number }> = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+  const upper: Array<{ x: number; z: number }> = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return [...lower, ...upper];
 }
 
 /** Create an empty Panel (zero segments). Used when a trim degenerates. */
