@@ -17,6 +17,7 @@ import { createIdCounter, allocateId } from '../../src/v2/state/ids';
 import {
   renderCutOperation,
   renderArrangeOperation,
+  renderTrimOperation,
 } from '../../src/v2/render/operations';
 import type {
   ArrangeResult,
@@ -25,6 +26,8 @@ import type {
   PlaceEdit,
   Preset,
   SpacerInsert,
+  TrimPanel,
+  TrimPanelResult,
 } from '../../src/v2/state/types';
 
 // ---------------------------------------------------------------------------
@@ -221,5 +224,101 @@ describe('renderArrangeOperation', () => {
     // flipAlternate on 4 slices → 2 flipped (indices 1, 3).
     const flipCount = (svg.match(/↻/g) ?? []).length;
     expect(flipCount).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderTrimOperation — derived from TrimPanelResult (snapshot-as-truth)
+// ---------------------------------------------------------------------------
+
+describe('renderTrimOperation', () => {
+  function runWithTrim(trim: Partial<TrimPanel> & { mode: TrimPanel['mode'] }) {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    const cut = timeline[1];
+    if (cut.kind !== 'cut') throw new Error('bad timeline');
+    cut.rip = 30;
+    cut.spacingMode = 'slices';
+    cut.slices = 4;
+    const trimFeature: TrimPanel = {
+      kind: 'trimPanel',
+      id: allocateId(counter, 'trim'),
+      mode: trim.mode,
+      bounds: trim.bounds,
+      status: 'ok',
+    };
+    timeline.push(trimFeature);
+    const out = runPipeline(timeline);
+    const arrangeResult = out.results['arrange-0'] as ArrangeResult;
+    const trimResult = out.results[trimFeature.id] as TrimPanelResult;
+    return { arrangeResult, trimResult };
+  }
+
+  it('emits an SVG with a dashed trim rect + a dimmed discard overlay', () => {
+    const { arrangeResult, trimResult } = runWithTrim({ mode: 'flush' });
+    const svg = renderTrimOperation(arrangeResult.panel, trimResult);
+    expect(svg).toMatch(/<svg/);
+    expect(svg).toMatch(/<\/svg>/);
+    // Dashed stroke on the trim rect (matches the shared DASHED_STROKE pattern).
+    expect(svg).toMatch(/stroke-dasharray="8 5"/);
+    // Dimmed discard overlay via evenodd path.
+    expect(svg).toMatch(/fill-rule="evenodd"/);
+    expect(svg).toMatch(/#0000000d/);
+  });
+
+  it('trim rect width/height match the computed appliedBounds', () => {
+    const { arrangeResult, trimResult } = runWithTrim({
+      mode: 'bbox',
+      bounds: { xMin: -40, xMax: 40, zMin: -150, zMax: 150 },
+    });
+    const svg = renderTrimOperation(arrangeResult.panel, trimResult);
+    // appliedBounds = (-40,-150) to (40,150) → width 80, height 300.
+    expect(svg).toMatch(/<rect x="-40" y="-150" width="80" height="300"/);
+  });
+
+  it('snapshot-is-truth: the rect is driven by appliedBounds, not input params', () => {
+    // Render once with an explicit bbox request, once with a larger
+    // request that will clamp. The rendered rect must match the
+    // post-clamp appliedBounds in both cases (the renderer reads the
+    // result, not the feature).
+    const { arrangeResult: ar1, trimResult: tr1 } = runWithTrim({
+      mode: 'bbox',
+      bounds: { xMin: -40, xMax: 40 },
+    });
+    const { arrangeResult: ar2, trimResult: tr2 } = runWithTrim({
+      mode: 'bbox',
+      bounds: { xMin: -40, xMax: 40, zMin: -9999, zMax: 9999 },
+    });
+    const svg1 = renderTrimOperation(ar1.panel, tr1);
+    const svg2 = renderTrimOperation(ar2.panel, tr2);
+    // After clamping, tr2.appliedBounds.zMin/zMax match the arrange
+    // panel's Z extent exactly — same as tr1 (which has no Z bounds
+    // request, so also falls back to panel Z). So both SVGs should
+    // emit identical trim-rect widths/heights.
+    const rectMatch1 = svg1.match(/<rect[^/]*width="([\d.-]+)" height="([\d.-]+)"/);
+    const rectMatch2 = svg2.match(/<rect[^/]*width="([\d.-]+)" height="([\d.-]+)"/);
+    expect(rectMatch1).not.toBeNull();
+    expect(rectMatch2).not.toBeNull();
+    expect(rectMatch1?.[1]).toBe(rectMatch2?.[1]);
+    expect(rectMatch1?.[2]).toBe(rectMatch2?.[2]);
+  });
+
+  it('identity trim (rip=0) produces a rect matching the panel bbox', () => {
+    const counter = createIdCounter();
+    const timeline = defaultTimeline(counter);
+    // Leave rip at 0 (default). Add a flush trim — should be identity.
+    const trim: TrimPanel = {
+      kind: 'trimPanel',
+      id: allocateId(counter, 'trim'),
+      mode: 'flush',
+      status: 'ok',
+    };
+    timeline.push(trim);
+    const out = runPipeline(timeline);
+    const arrangeResult = out.results['arrange-0'] as ArrangeResult;
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    const svg = renderTrimOperation(arrangeResult.panel, trimResult);
+    // Panel is 100 × 400 (X × Z). Trim rect should match.
+    expect(svg).toMatch(/<rect x="-50" y="-200" width="100" height="400"/);
   });
 });

@@ -44,6 +44,7 @@ import type {
   PanelSnapshot,
   PlaceEdit,
   SpacerInsert,
+  TrimPanelResult,
 } from '../state/types';
 
 type HtmlString = string;
@@ -490,6 +491,77 @@ function renderBadge(x: number, z: number, label: string): string {
     `paint-order="stroke" ` +
     `style="--foo:0" pointer-events="none">${label}</text>`
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* TrimPanel operation view                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Render a TrimPanel operation — the upstream panel's top-down
+ * outline with a dashed rectangle showing the imminent trim and a
+ * dimmed overlay on the material about to be discarded.
+ *
+ * Snapshot-is-truth: the trim rectangle is read from
+ * `trimResult.appliedBounds` (the pipeline's computed / user-supplied
+ * bounds) — never recomputed from the feature's `mode` or `bounds`
+ * params. The discarded-material polygons come from the upstream
+ * panel's topFace polygons clipped to the OUTSIDE of appliedBounds.
+ *
+ * Visual vocabulary (shared across operations):
+ * - Solid species-coloured polygons: the upstream panel (existing
+ *   material).
+ * - Dashed stroke rectangle at appliedBounds: imminent trim operation.
+ * - Dimmed (≈5% opacity) overlay on the discarded offcuts: material
+ *   that will be removed.
+ *
+ * The dimmed overlay is achieved with an SVG path that covers the
+ * upstream panel's bbox and has the trim rectangle subtracted via
+ * fill-rule="evenodd" — one path traces the outer bbox, a second
+ * inner path traces the trim rect in the opposite winding. The net
+ * filled region is everything outside the trim rect, which is
+ * exactly the material the pipeline clips away.
+ */
+export function renderTrimOperation(
+  inputPanel: PanelSnapshot,
+  trimResult: TrimPanelResult,
+): SvgString {
+  const base = summarize(inputPanel);
+  const b = trimResult.appliedBounds;
+
+  // Dimmed overlay: outer bbox of input panel minus the trim rect,
+  // via evenodd fill-rule. Clamp the bbox to the upstream panel's
+  // extents so the overlay doesn't leak past the summarize viewBox.
+  const pxMin = inputPanel.bbox.min[0];
+  const pxMax = inputPanel.bbox.max[0];
+  const pzMin = inputPanel.bbox.min[2];
+  const pzMax = inputPanel.bbox.max[2];
+
+  // Outer ring (CW): start at bbox top-left, go clockwise.
+  // Inner ring (CCW): start at trim top-left, go counter-clockwise.
+  // Opposite windings with evenodd produce the "annular" fill.
+  const outerRing =
+    `M ${fmt(pxMin)} ${fmt(pzMin)} ` +
+    `L ${fmt(pxMax)} ${fmt(pzMin)} ` +
+    `L ${fmt(pxMax)} ${fmt(pzMax)} ` +
+    `L ${fmt(pxMin)} ${fmt(pzMax)} Z`;
+  const innerRing =
+    `M ${fmt(b.xMin)} ${fmt(b.zMin)} ` +
+    `L ${fmt(b.xMin)} ${fmt(b.zMax)} ` +
+    `L ${fmt(b.xMax)} ${fmt(b.zMax)} ` +
+    `L ${fmt(b.xMax)} ${fmt(b.zMin)} Z`;
+  const discardOverlay =
+    `<path d="${outerRing} ${innerRing}" ` +
+    `fill="#0000000d" fill-rule="evenodd" ` +
+    `stroke="none" pointer-events="none"/>`;
+
+  // Dashed trim rectangle — the imminent operation.
+  const trimRect =
+    `<rect x="${fmt(b.xMin)}" y="${fmt(b.zMin)}" ` +
+    `width="${fmt(b.xMax - b.xMin)}" height="${fmt(b.zMax - b.zMin)}" ` +
+    `fill="none" ${DASHED_STROKE}/>`;
+
+  return base.replace('</svg>', `${discardOverlay}${trimRect}</svg>`);
 }
 
 function computeSliceCentroids(panel: PanelSnapshot): Map<number, Point2D> {
