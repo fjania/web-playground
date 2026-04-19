@@ -161,12 +161,21 @@ function renderSideView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStr
 
   const pieces = piecesInCutOrder(cutResult);
 
+  // Horizontal-axis convention: we are looking at the panel from
+  // +X toward −X (third-angle right elevation, placed to the right
+  // of TOP). The Y axis of the panel therefore runs RIGHT-TO-LEFT
+  // across our view — world Y_max is on the left edge of the SVG,
+  // world Y_min is on the right edge. This mapping makes a bevel
+  // that leans +Z at the top of the panel also lean toward +Z (down
+  // on screen) on the LEFT side of the view, matching how a
+  // woodworker looking at the side of the board would expect the
+  // cut geometry to read.
+  const sxFromY = (y: number): number => yMax - y; // y_max → 0 (left), y_min → Ly (right)
+
   // Cut-plane lines: the shared face between adjacent pieces is a 3D
-  // plane. Its intersection with x = 0 is a line in (y, z); the line
-  // runs from (y_max, z_top) to (y_min, z_bot) where z_top is the
-  // shared topFace cut edge interpolated at x = 0 and z_bot is the
-  // same for bottomFace. The snapshot is the source of truth for
-  // both — the renderer doesn't compute bevel from feature params.
+  // plane. Its intersection with x = 0 is a line in (y, z); the
+  // endpoints come from the shared topFace edge (at y_max) and
+  // shared bottomFace edge (at y_min), interpolated at x = 0.
   const lines: string[] = [];
   for (let i = 0; i < pieces.length - 1; i++) {
     const topSeg = findSharedCutSegment(pieces[i].snap, pieces[i + 1].snap, 'topFace');
@@ -176,17 +185,13 @@ function renderSideView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStr
     const zBot = interpolateZAtX(botSeg, 0);
     if (zTop === null || zBot === null) continue;
     lines.push(
-      `<line x1="${fmt(yMax)}" y1="${fmt(zTop)}" ` +
-        `x2="${fmt(yMin)}" y2="${fmt(zBot)}" ` +
+      `<line x1="${fmt(sxFromY(yMax))}" y1="${fmt(zTop)}" ` +
+        `x2="${fmt(sxFromY(yMin))}" y2="${fmt(zBot)}" ` +
         `${DASHED_STROKE}/>`,
     );
   }
 
-  // Offcut shading: each offcut's cross-section at x = 0. For the
-  // top face and bottom face separately, intersect the (union of
-  // per-volume) polygon with the line x = 0 and read the z range.
-  // The resulting shape in (y, z) is a quadrilateral that faithfully
-  // represents what you'd see looking sideways through the panel.
+  // Offcut shading: each offcut's cross-section at x = 0.
   const shades: string[] = [];
   for (const p of pieces) {
     if (p.kind !== 'offcut') continue;
@@ -194,23 +199,23 @@ function renderSideView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStr
     const botRange = pieceXZeroZRange(p.snap, 'bottomFace');
     if (!topRange || !botRange) continue;
     const pts = [
-      [yMax, topRange.min],
-      [yMax, topRange.max],
-      [yMin, botRange.max],
-      [yMin, botRange.min],
+      [sxFromY(yMax), topRange.min],
+      [sxFromY(yMax), topRange.max],
+      [sxFromY(yMin), botRange.max],
+      [sxFromY(yMin), botRange.min],
     ]
-      .map(([y, z]) => `${fmt(y)},${fmt(z)}`)
+      .map(([x, z]) => `${fmt(x)},${fmt(z)}`)
       .join(' ');
     shades.push(`<polygon points="${pts}" ${OFFCUT_FILL}/>`);
   }
 
   const panelRect =
-    `<rect x="${fmt(yMin)}" y="${fmt(zMin)}" ` +
+    `<rect x="0" y="${fmt(zMin)}" ` +
     `width="${fmt(Ly)}" height="${fmt(Lz)}" ${PANEL_OUTLINE}/>`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
-    `viewBox="${fmt(yMin)} ${fmt(zMin)} ${fmt(Ly)} ${fmt(Lz)}" ` +
+    `viewBox="0 ${fmt(zMin)} ${fmt(Ly)} ${fmt(Lz)}" ` +
     `preserveAspectRatio="xMidYMid meet">` +
     `${panelRect}${shades.join('')}${lines.join('')}` +
     `</svg>`
