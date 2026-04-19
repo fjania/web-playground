@@ -226,7 +226,27 @@ const inputTile = requireTile('cut-0');
 const inputSlot = inputTile.querySelector<HTMLElement>('[data-slot="render"]');
 if (inputSlot) {
   if (cutResult.slices.length > 0) {
-    inputSlot.innerHTML = summarizeSlices(cutResult.slices, { gap: 15 });
+    const SLICE_GAP = 15;
+    const base = summarizeSlices(cutResult.slices, { gap: SLICE_GAP });
+    // Inject slice-index labels at each slice's centre. The user
+    // refers to slices by index in ?flip=/?shift=/?spacer= params,
+    // so making the indices visible is essential for composing
+    // URLs.
+    const labels: string[] = [];
+    cutResult.slices.forEach((slice, i) => {
+      if (slice.volumes.length === 0) return;
+      const dz = i * SLICE_GAP;
+      const cx = (slice.bbox.min[0] + slice.bbox.max[0]) / 2;
+      const cz = (slice.bbox.min[2] + slice.bbox.max[2]) / 2 + dz;
+      labels.push(
+        `<text x="${cx.toFixed(2)}" y="${cz.toFixed(2)}" ` +
+          `font-family="system-ui, sans-serif" font-size="22" font-weight="700" ` +
+          `text-anchor="middle" dominant-baseline="middle" ` +
+          `fill="#1a1a1a" stroke="#fafaf7" stroke-width="4" paint-order="stroke" ` +
+          `pointer-events="none">${i}</text>`,
+      );
+    });
+    inputSlot.innerHTML = base.replace('</svg>', `${labels.join('')}</svg>`);
   } else {
     inputSlot.innerHTML = '<div class="placeholder">no slices from upstream cut</div>';
   }
