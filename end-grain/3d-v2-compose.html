@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain v2 — ComposeStrips harness</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: #fafaf7;
+      color: #222;
+      display: flex;
+      flex-direction: column;
+    }
+    body > header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    body > header h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    body > header .subtitle {
+      margin: 0;
+      font-size: 0.8rem;
+      color: #888;
+    }
+    body > header nav {
+      margin-left: auto;
+      font-size: 0.75rem;
+    }
+    body > header nav a {
+      color: #666;
+      text-decoration: none;
+      margin-left: 1rem;
+    }
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+    }
+    main {
+      flex: 1;
+      min-width: 0;
+      padding: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      overflow: auto;
+    }
+    #inspector {
+      flex: 0 0 320px;
+      border-left: 1px solid #e4e4e0;
+      background: #fff;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    #inspector header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #e4e4e0;
+      background: #fafaf7;
+      position: sticky;
+      top: 0;
+    }
+    #inspector header h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    #inspector .inspector-body {
+      padding: 0.75rem 1rem 1.5rem;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #333;
+    }
+    #inspector section + section {
+      margin-top: 1rem;
+    }
+    #inspector section h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #888;
+    }
+    #inspector .hint {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.7rem;
+      color: #666;
+      background: #f6f5f1;
+      padding: 0.4rem 0.5rem;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    #inspector .hint code {
+      color: #222;
+      font-weight: 600;
+    }
+    .tile {
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 0.75rem 0.75rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+      min-width: 0;
+    }
+    .tile.tile--interactive {
+      flex: 0 0 320px;
+    }
+    .tile.tile--operation {
+      flex: 1 1 0;
+      min-width: 320px;
+    }
+    .tile.tile--3d {
+      flex: 1 1 0;
+      min-width: 360px;
+    }
+    .tile header {
+      padding: 0;
+      border: none;
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .tile h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .tile .subtitle {
+      margin: 0;
+      font-size: 0.7rem;
+      color: #888;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .tile .render {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      background: #f6f5f1;
+      border-radius: 4px;
+      padding: 0.5rem;
+      min-height: 180px;
+      overflow: hidden;
+      position: relative;
+    }
+    .tile--3d .render {
+      padding: 0;
+    }
+    .tile--interactive .render,
+    .tile--operation .render {
+      background: #fff;
+      padding: 0.5rem;
+      align-items: stretch;
+      justify-content: flex-start;
+    }
+    .tile svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+    .tile canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .tile .meta {
+      font-size: 0.7rem;
+      color: #666;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.4;
+    }
+    .placeholder {
+      font-size: 0.75rem;
+      color: #999;
+      text-align: center;
+      padding: 2rem 1rem;
+    }
+    .description {
+      margin: 0.75rem 1.5rem 0;
+      padding: 0.875rem 1rem;
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      border-left: 3px solid #8a6a44;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: #444;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .description h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #222;
+    }
+    .description p {
+      margin: 0 0 0.4rem;
+    }
+    .description p:last-child {
+      margin-bottom: 0;
+    }
+    .description strong {
+      color: #222;
+    }
+    .description code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      background: #f6f5f1;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #222;
+    }
+    .description ul {
+      margin: 0.2rem 0 0.4rem 1.2rem;
+      padding: 0;
+    }
+    .description ul li {
+      margin-bottom: 0.15rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>End-grain v2 — ComposeStrips harness</h1>
+    <p class="subtitle">focused I/X/O for ComposeStrips · <code>3d-v2-compose.html</code></p>
+    <nav>
+      <a href="./3d-v2.html">← Cut harness</a>
+      <a href="./3d-v2-arrange.html">← Arrange harness</a>
+      <a href="./3d-v2-trim.html">← Trim harness</a>
+    </nav>
+  </header>
+  <section class="description" aria-label="Operation description">
+    <h2>Testing: ComposeStrips — assemble strips into a flush panel</h2>
+    <p>
+      <strong>ComposeStrips</strong> is the starting operation of every
+      design: it takes an ordered list of <code>StripDef</code>
+      (species + width) plus a global thickness and length, and builds
+      a flush panel by placing each strip against the next along +X.
+      This harness is the first to expose <strong>interactive</strong>
+      Input and Operation tiles — the other harnesses (Cut, Arrange,
+      Trim) are URL-only.
+    </p>
+    <p>Expected in each tile:</p>
+    <ul>
+      <li><strong>Input</strong> (interactive) — the raw inventory of
+        strips. Add / remove, change species + width, set global
+        thickness and length. Order here is only insertion order, not
+        the arrangement order downstream; that lives in the Operation
+        tile.</li>
+      <li><strong>Operation</strong> (interactive) — drag strips to
+        reorder them. Shown <em>exploded</em> with gaps so narrow
+        strips are easier to grab; widths are true (1mm ≈ 1px, with a
+        28px minimum hit area) so the pattern you see is the pattern
+        you'll get. Flush assembly happens downstream.</li>
+      <li><strong>Output</strong> — the composed panel in 3D. Free
+        orbit, home button, XYZ axis gizmo in the upper-right.</li>
+    </ul>
+    <p>
+      <strong>URL params seed the initial state only.</strong> Edits
+      in the Input and Operation tiles do NOT write back to the URL.
+      Refresh = return to URL state. See the sidebar for the param
+      reference.
+    </p>
+  </section>
+  <div class="layout">
+  <main id="tiles">
+    <article class="tile tile--interactive" data-stage="compose-0-input" data-role="input">
+      <header>
+        <h2>Input</h2>
+        <p class="subtitle">strip inventory · add · remove · edit</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">inventory pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+    <article class="tile tile--operation" data-stage="compose-0-op" data-role="operation">
+      <header>
+        <h2>Operation: ComposeStrips</h2>
+        <p class="subtitle">drag to reorder · exploded</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">reorder UI pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+    <article class="tile tile--3d" data-stage="compose-0" data-role="output">
+      <header>
+        <h2>Output</h2>
+        <p class="subtitle">composed panel · 3D viewport</p>
+      </header>
+      <div class="render" data-slot="render">
+        <div class="placeholder">3D viewport pending</div>
+      </div>
+      <div class="meta" data-slot="meta"></div>
+    </article>
+  </main>
+  <aside id="inspector" aria-label="Harness help">
+    <header>
+      <h2>ComposeStrips harness</h2>
+    </header>
+    <div class="inspector-body">
+      <section>
+        <h3>URL parameters (seed only)</h3>
+        <div class="hint">Edits in tiles do NOT sync to the URL.
+Refresh to return to the seed state.
+
+<code>?strips=maple:50,walnut:50,maple:50,...</code>
+  Comma-separated <code>species:width(mm)</code> pairs.
+  Defines the inventory. Species must be one of
+  <code>maple</code>, <code>walnut</code>, <code>cherry</code>,
+  <code>padauk</code>, <code>purpleheart</code>.
+
+<code>?order=3,1,0,2,...</code>
+  Indices into the inventory — defines the
+  arrangement. Optional; defaults to <code>[0,1,2,...]</code>.
+
+<code>?stripHeight=50</code>
+  Global thickness in mm (default 50).
+
+<code>?stripLength=400</code>
+  Global length in mm (default 400).
+
+Default seed (no params)
+  14 strips: 7 maple + 7 walnut, 50 mm wide.
+  Thickness 50 mm, length 400 mm.
+
+Examples
+  3-strip preview:
+    <code>?strips=cherry:30,padauk:40,purpleheart:20</code>
+  Reversed arrangement:
+    <code>?order=13,12,11,10,9,8,7,6,5,4,3,2,1,0</code>
+  Thin panel for end-grain preview:
+    <code>?stripHeight=20&amp;stripLength=300</code>
+        </div>
+      </section>
+      <section>
+        <h3>Current state</h3>
+        <div data-slot="state-summary" class="hint">summary pending</div>
+      </section>
+      <section>
+        <h3>Pipeline trace</h3>
+        <div data-slot="trace" class="hint">trace pending</div>
+      </section>
+    </div>
+  </aside>
+  </div>
+  <script type="module" src="./src/v2/main-compose.ts"></script>
+</body>
+</html>
