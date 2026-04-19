@@ -18,6 +18,7 @@ When an operation's math, rendering, and authoring UI are locked in, the work fo
 |---|---|---|---|
 | `3d-v2.html` | Cut | [#24](https://github.com/fjania/web-playground/issues/24) | `src/v2/main.ts` |
 | `3d-v2-arrange.html` | Arrange | — (spans #27–#30, #35–#36) | `src/v2/main-arrange.ts` |
+| `3d-v2-trim.html` | TrimPanel | [#37](https://github.com/fjania/web-playground/issues/37) | `src/v2/main-trim.ts` |
 
 More to come — ComposeStrips ([#23](https://github.com/fjania/web-playground/issues/23)), PlaceEdit ([#27](https://github.com/fjania/web-playground/issues/27)/[#28](https://github.com/fjania/web-playground/issues/28)/[#29](https://github.com/fjania/web-playground/issues/29)/[#35](https://github.com/fjania/web-playground/issues/35)), SpacerInsert ([#36](https://github.com/fjania/web-playground/issues/36)). Each of these will land its own `3d-v2-<op>.html` + `main-<op>.ts` pair as the issue comes up.
 
