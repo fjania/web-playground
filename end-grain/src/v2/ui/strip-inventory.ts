@@ -45,6 +45,15 @@ export const MAX_STRIPS = 64;
 
 export interface InventoryState {
   inventory: StripDef[];
+  /**
+   * Ordered stripIds — the arrangement sequence. Rows render in this
+   * order, not in the order they appear in the `inventory` array.
+   * That keeps the Input list visually in lockstep with the Operation
+   * tile's drag-to-reorder and the 3D Output. Add/remove operations
+   * splice both arrays in parallel to preserve the invariant that
+   * `order` is a permutation of `inventory.map(s => s.stripId)`.
+   */
+  order: string[];
   stripHeight: number;
   stripLength: number;
 }
@@ -137,7 +146,13 @@ export function mountStripInventory(
     list.style.overflowY = 'auto';
     list.style.paddingRight = '4px';
 
-    state.inventory.forEach((strip, idx) => {
+    // Render rows in arrangement order (state.order), not inventory
+    // insertion order. Keeps the list visually synced with the
+    // Operation tile and the 3D Output.
+    const byId = new Map(state.inventory.map((s) => [s.stripId, s]));
+    state.order.forEach((stripId, idx) => {
+      const strip = byId.get(stripId);
+      if (!strip) return; // defensive — should never happen if order is a permutation
       list.appendChild(buildRow(strip, idx));
     });
     wrap.appendChild(list);
@@ -156,13 +171,20 @@ export function mountStripInventory(
     addBtn.disabled = state.inventory.length >= MAX_STRIPS;
     addBtn.addEventListener('click', () => {
       if (state.inventory.length >= MAX_STRIPS) return;
-      const last = state.inventory[state.inventory.length - 1];
+      // "Last" = last in the current arrangement (state.order), so a
+      // newly added strip inherits the species/width of the strip
+      // currently at the bottom of the displayed list.
+      const lastId = state.order[state.order.length - 1];
+      const last = lastId
+        ? state.inventory.find((s) => s.stripId === lastId)
+        : state.inventory[state.inventory.length - 1];
       const next: StripDef = {
         stripId: options.allocateStripId(),
         species: last?.species ?? 'maple',
         width: last?.width ?? 50,
       };
       state.inventory = [...state.inventory, next];
+      state.order = [...state.order, next.stripId];
       emit();
       render();
     });
@@ -255,6 +277,7 @@ export function mountStripInventory(
       state.inventory = state.inventory.filter(
         (s) => s.stripId !== strip.stripId,
       );
+      state.order = state.order.filter((id) => id !== strip.stripId);
       emit();
       render();
     });
@@ -285,6 +308,7 @@ export function mountStripInventory(
 function cloneState(s: InventoryState): InventoryState {
   return {
     inventory: s.inventory.map((x) => ({ ...x })),
+    order: [...s.order],
     stripHeight: s.stripHeight,
     stripLength: s.stripLength,
   };

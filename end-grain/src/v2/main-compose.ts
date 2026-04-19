@@ -181,22 +181,13 @@ const inventoryHandle: InventoryHandle = mountStripInventory(
   {
     allocateStripId: () => allocateId(counter, 'strip'),
     onChange: (next) => {
-      // Reconcile: any new stripIds in inventory get appended to
-      // order; any removed stripIds get filtered out. This keeps
-      // `order` a permutation of `inventory`.
-      const prevIds = new Set(state.inventory.map((s) => s.stripId));
-      const nextIds = new Set(next.inventory.map((s) => s.stripId));
-
-      const added: string[] = [];
-      for (const s of next.inventory) {
-        if (!prevIds.has(s.stripId)) added.push(s.stripId);
-      }
-      let order = state.order.filter((id) => nextIds.has(id));
-      order = [...order, ...added];
-
+      // Inventory now owns `order` too — it splices add/remove into
+      // both arrays in lockstep, so the parent just adopts the new
+      // state wholesale. Invariant: `order` is always a permutation
+      // of `inventory.map(s => s.stripId)`.
       state = {
         inventory: next.inventory,
-        order,
+        order: next.order,
         stripHeight: next.stripHeight,
         stripLength: next.stripLength,
       };
@@ -273,6 +264,10 @@ function rerunPipeline(): void {
     order: state.order,
     stripLength: state.stripLength,
   });
+  // Keep the Input list in lockstep — when the Operation tile's drag
+  // commits a new order, the inventory rows should re-render in that
+  // new sequence. A cheap full re-render is fine; this tile is small.
+  inventoryHandle.update(toInventoryState(state));
   setSubtitle(opTile, `compose-0 · ${state.order.length} strips arranged`);
   setMeta(
     opTile,
@@ -361,6 +356,7 @@ function setSubtitle(tile: HTMLElement, text: string): void {
 function toInventoryState(s: HarnessState): InventoryState {
   return {
     inventory: s.inventory.map((x) => ({ ...x })),
+    order: [...s.order],
     stripHeight: s.stripHeight,
     stripLength: s.stripLength,
   };
