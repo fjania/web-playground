@@ -21,9 +21,14 @@ import { defaultTimeline } from './state/defaultTimeline';
 import { createIdCounter, allocateId } from './state/ids';
 import { runPipeline } from './state/pipeline';
 import { buildPanelGroup } from './scene/meshBuilder';
-import { setupViewport } from './scene/viewport';
+import { setupViewport, type ViewportHandle } from './scene/viewport';
 import { summarize } from './render/summary';
 import { renderTrimOperation } from './render/operations';
+import {
+  mountTrimControls,
+  type TrimControlsHandle,
+  type TrimControlsState,
+} from './ui/trim-controls';
 import type {
   ArrangeResult,
   ComposeStripsResult,
@@ -181,96 +186,149 @@ const trim: TrimPanel = {
 };
 timeline.push(trim);
 
-// ---- Run pipeline ----
-
-const output = runPipeline(timeline, { preserveLive: true });
-const livePanels = output.livePanels ?? {};
-const composeResult = output.results['compose-0'] as ComposeStripsResult;
-const cutResult = output.results['cut-0'] as CutResult;
-const arrangeResult = output.results[arrangeId] as ArrangeResult;
-const trimResult = output.results[trimId] as TrimPanelResult;
-const livePanel = livePanels[trimId];
-if (!livePanel) throw new Error('trim did not preserve live panel');
-void composeResult;
-void cutResult;
-
-// ---- Input tile: the upstream Arrange's reassembled panel ----
-
-const inputTile = requireTile('arrange-0');
-const inputSlot = inputTile.querySelector<HTMLElement>('[data-slot="render"]');
-if (inputSlot) {
-  inputSlot.innerHTML = summarize(arrangeResult.panel);
-}
-setSubtitle(
-  inputTile,
-  `${arrangeId} · ${arrangeResult.panel.volumes.length} vols · ${cut ? `rip ${cut.rip}° · bevel ${cut.bevel}°` : ''}`,
-);
-const ab = arrangeResult.panel.bbox;
-const ax = (ab.max[0] - ab.min[0]).toFixed(0);
-const ay = (ab.max[1] - ab.min[1]).toFixed(0);
-const az = (ab.max[2] - ab.min[2]).toFixed(0);
-setMeta(inputTile, `upstream panel ${ax}×${ay}×${az} mm`);
-
-// ---- Operation tile: TrimPanel operation view ----
+// ---- Operation tile: mount TrimControls above the 2D preview ----
 
 const opTile = requireTile('trim-0-op');
-const opSlot = opTile.querySelector<HTMLElement>('[data-slot="render"]');
-if (opSlot) {
-  opSlot.innerHTML = renderTrimOperation(arrangeResult.panel, trimResult);
-}
-setSubtitle(opTile, `${trimId} · mode=${mode}${trimResult.status !== 'ok' ? ' · ' + trimResult.status : ''}`);
-const areaPercent =
-  arrangeResult.panel.volumes.length > 0
-    ? (
-        (trimResult.trimmedArea /
-          ((ab.max[0] - ab.min[0]) * (ab.max[2] - ab.min[2]))) *
-        100
-      ).toFixed(1)
-    : '0';
-setMeta(
-  opTile,
-  trimResult.trimmedArea > 0
-    ? `trimmed ${trimResult.trimmedArea.toFixed(0)} mm² (${areaPercent}% of footprint)`
-    : 'identity trim — no material removed',
+const opRenderSlot = opTile.querySelector<HTMLElement>('[data-slot="render"]');
+if (!opRenderSlot) throw new Error('trim-0-op tile missing render slot');
+
+opRenderSlot.innerHTML = '';
+opRenderSlot.style.display = 'flex';
+opRenderSlot.style.flexDirection = 'column';
+opRenderSlot.style.gap = '0.4rem';
+opRenderSlot.style.padding = '0.5rem';
+
+const opControlsSlot = document.createElement('div');
+opControlsSlot.style.background = '#fff';
+opControlsSlot.style.border = '1px solid #e4e4e0';
+opControlsSlot.style.borderRadius = '4px';
+opControlsSlot.style.padding = '0.45rem 0.55rem';
+opControlsSlot.style.flex = '0 0 auto';
+opRenderSlot.appendChild(opControlsSlot);
+
+const opPreviewSlot = document.createElement('div');
+opPreviewSlot.style.flex = '1 1 0';
+opPreviewSlot.style.minHeight = '0';
+opPreviewSlot.style.display = 'flex';
+opPreviewSlot.style.alignItems = 'stretch';
+opPreviewSlot.style.justifyContent = 'stretch';
+opRenderSlot.appendChild(opPreviewSlot);
+
+const trimControls: TrimControlsHandle = mountTrimControls(
+  opControlsSlot,
+  trimToControlsState(trim),
+  {
+    onChange(next) {
+      applyControlsState(trim, next);
+      rerun();
+    },
+  },
 );
+void trimControls;
 
-// ---- Output tile: 3D viewport of the trimmed panel ----
+// ---- Pipeline + render state ----
 
-const outputTile = requireTile('trim-0');
-const panelGroup = buildPanelGroup(livePanel);
-setupViewport(outputTile, panelGroup);
-const tb = trimResult.panel.bbox;
-const tx = (tb.max[0] - tb.min[0]).toFixed(0);
-const ty = (tb.max[1] - tb.min[1]).toFixed(0);
-const tz = (tb.max[2] - tb.min[2]).toFixed(0);
-setMeta(outputTile, `trimmed panel ${tx}×${ty}×${tz} mm · ${trimResult.panel.volumes.length} segments`);
+let viewportHandle: ViewportHandle | null = null;
 
-// ---- Sidebar ----
+rerun();
 
-const boundsSlot = document.querySelector<HTMLElement>('[data-slot="applied-bounds"]');
-if (boundsSlot) {
-  const b = trimResult.appliedBounds;
-  boundsSlot.textContent =
-    `mode       ${mode}\n` +
-    `xMin       ${b.xMin.toFixed(2)}\n` +
-    `xMax       ${b.xMax.toFixed(2)}\n` +
-    `zMin       ${b.zMin.toFixed(2)}\n` +
-    `zMax       ${b.zMax.toFixed(2)}\n` +
-    `width      ${(b.xMax - b.xMin).toFixed(2)} mm\n` +
-    `length     ${(b.zMax - b.zMin).toFixed(2)} mm\n` +
-    `trimmed    ${trimResult.trimmedArea.toFixed(2)} mm²` +
-    (trimResult.statusReason ? `\n\n${trimResult.status}: ${trimResult.statusReason}` : '');
+function rerun(): void {
+  viewportHandle?.dispose();
+  viewportHandle = null;
+
+  const output = runPipeline(timeline, { preserveLive: true });
+  const livePanels = output.livePanels ?? {};
+  const composeResult = output.results['compose-0'] as ComposeStripsResult;
+  const cutResult = output.results['cut-0'] as CutResult;
+  const arrangeResult = output.results[arrangeId] as ArrangeResult;
+  const trimResult = output.results[trimId] as TrimPanelResult;
+  const livePanel = livePanels[trimId];
+  if (!livePanel) throw new Error('trim did not preserve live panel');
+  void composeResult;
+  void cutResult;
+
+  // ---- Input tile: the upstream Arrange's reassembled panel ----
+  const inputTile = requireTile(arrangeId);
+  const inputSlot = inputTile.querySelector<HTMLElement>('[data-slot="render"]');
+  if (inputSlot) inputSlot.innerHTML = summarize(arrangeResult.panel);
+  setSubtitle(
+    inputTile,
+    `${arrangeId} · ${arrangeResult.panel.volumes.length} vols · ${cut ? `rip ${cut.rip}° · bevel ${cut.bevel}°` : ''}`,
+  );
+  const ab = arrangeResult.panel.bbox;
+  const ax = (ab.max[0] - ab.min[0]).toFixed(0);
+  const ay = (ab.max[1] - ab.min[1]).toFixed(0);
+  const az = (ab.max[2] - ab.min[2]).toFixed(0);
+  setMeta(inputTile, `upstream panel ${ax}×${ay}×${az} mm`);
+
+  // ---- Operation preview ----
+  opPreviewSlot.innerHTML = renderTrimOperation(arrangeResult.panel, trimResult);
+  setSubtitle(
+    opTile,
+    `${trimId} · mode=${trim.mode}${trimResult.status !== 'ok' ? ' · ' + trimResult.status : ''}`,
+  );
+  const areaPercent =
+    arrangeResult.panel.volumes.length > 0
+      ? ((trimResult.trimmedArea / ((ab.max[0] - ab.min[0]) * (ab.max[2] - ab.min[2]))) * 100).toFixed(1)
+      : '0';
+  setMeta(
+    opTile,
+    trimResult.trimmedArea > 0
+      ? `trimmed ${trimResult.trimmedArea.toFixed(0)} mm² (${areaPercent}% of footprint)`
+      : 'identity trim — no material removed',
+  );
+
+  // ---- Output tile: 3D ----
+  const outputTile = requireTile(trimId);
+  const panelGroup = buildPanelGroup(livePanel);
+  viewportHandle = setupViewport(outputTile, panelGroup);
+  const tb = trimResult.panel.bbox;
+  const tx = (tb.max[0] - tb.min[0]).toFixed(0);
+  const ty = (tb.max[1] - tb.min[1]).toFixed(0);
+  const tz = (tb.max[2] - tb.min[2]).toFixed(0);
+  setMeta(outputTile, `trimmed panel ${tx}×${ty}×${tz} mm · ${trimResult.panel.volumes.length} segments`);
+
+  // ---- Sidebar ----
+  const boundsSlot = document.querySelector<HTMLElement>('[data-slot="applied-bounds"]');
+  if (boundsSlot) {
+    const b = trimResult.appliedBounds;
+    boundsSlot.textContent =
+      `mode       ${trim.mode}\n` +
+      `xMin       ${b.xMin.toFixed(2)}\n` +
+      `xMax       ${b.xMax.toFixed(2)}\n` +
+      `zMin       ${b.zMin.toFixed(2)}\n` +
+      `zMax       ${b.zMax.toFixed(2)}\n` +
+      `width      ${(b.xMax - b.xMin).toFixed(2)} mm\n` +
+      `length     ${(b.zMax - b.zMin).toFixed(2)} mm\n` +
+      `trimmed    ${trimResult.trimmedArea.toFixed(2)} mm²` +
+      (trimResult.statusReason ? `\n\n${trimResult.status}: ${trimResult.statusReason}` : '');
+  }
+  const traceSlot = document.querySelector<HTMLElement>('[data-slot="trace"]');
+  if (traceSlot) {
+    const lines = output.trace.map((id) => {
+      const r = output.results[id];
+      const status = r?.status ?? '?';
+      const extras = briefResult(r);
+      return `${id} · ${status}${extras ? ' · ' + extras : ''}`;
+    });
+    traceSlot.textContent = lines.join('\n');
+  }
 }
 
-const traceSlot = document.querySelector<HTMLElement>('[data-slot="trace"]');
-if (traceSlot) {
-  const lines = output.trace.map((id) => {
-    const r = output.results[id];
-    const status = r?.status ?? '?';
-    const extras = briefResult(r);
-    return `${id} · ${status}${extras ? ' · ' + extras : ''}`;
-  });
-  traceSlot.textContent = lines.join('\n');
+function trimToControlsState(t: TrimPanel): TrimControlsState {
+  return {
+    mode: t.mode,
+    bounds: t.bounds ? { ...t.bounds } : undefined,
+  };
+}
+
+function applyControlsState(t: TrimPanel, next: TrimControlsState): void {
+  t.mode = next.mode;
+  if (next.bounds === undefined) {
+    delete t.bounds;
+  } else {
+    t.bounds = { ...next.bounds };
+  }
 }
 
 // ---- helpers ----
