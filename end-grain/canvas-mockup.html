@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>End-grain — Canvas mockup</title>
+  <title>End-grain — Canvas mockup v2</title>
   <style>
     :root {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -57,16 +57,16 @@
       margin-left: 1rem;
     }
 
-    /* ---- Layout ------------------------------------------------------- */
-    .canvas-layout {
+    /* ---- Overall shell: timeline | main (hero + pipeline stacked) ---- */
+    .shell {
       flex: 1;
       min-height: 0;
       display: flex;
     }
 
-    /* ---- Timeline ribbon (left) -------------------------------------- */
+    /* ---- Timeline ribbon (left, unchanged from v1) ------------------- */
     .timeline {
-      flex: 0 0 244px;
+      flex: 0 0 224px;
       background: #fff;
       border-right: 1px solid #e4e4e0;
       display: flex;
@@ -103,7 +103,7 @@
       position: relative;
       padding: 0.55rem 0.5rem 0.55rem 1.8rem;
       border-radius: 5px;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       line-height: 1.3;
       cursor: default;
       display: flex;
@@ -111,49 +111,36 @@
       gap: 2px;
     }
     .t-item:hover { background: #f6f5f1; }
-    .t-item .op {
-      font-weight: 600;
-      color: #1a1a1a;
-    }
+    .t-item.active { background: #fff3dc; box-shadow: inset 2px 0 0 #c89a3c; }
+    .t-item .op { font-weight: 600; color: #1a1a1a; }
     .t-item .sub {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.68rem;
+      font-size: 0.66rem;
       color: #888;
     }
     .t-item::before {
       content: '';
       position: absolute;
-      left: 11px;
-      top: 0.9rem;
-      width: 7px;
-      height: 7px;
+      left: 11px; top: 0.9rem;
+      width: 7px; height: 7px;
       border-radius: 50%;
-      background: #6a9a6a;   /* ok dot */
+      background: #6a9a6a;
     }
     .t-item.warn::before { background: #d89a3c; }
     .t-item.err::before  { background: #c65040; }
-    .t-item.preset {
-      padding-left: 1.8rem;
-    }
-    .t-item.preset .op {
-      font-weight: 500;
-      color: #5b4a2e;
-    }
     .t-item.preset::before {
       background: transparent;
       border: 1.5px solid #8a6a44;
     }
     .t-item.child {
       padding-left: 2.4rem;
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       color: #888;
     }
     .t-item.child::before {
-      left: 19px;
-      width: 5px;
-      height: 5px;
+      left: 19px; top: 0.85rem;
+      width: 5px; height: 5px;
       background: #c9c6be;
-      top: 0.85rem;
     }
     .t-add {
       margin: 0.35rem 0.4rem 0.75rem;
@@ -167,53 +154,337 @@
       font-family: inherit;
       text-align: left;
     }
-    .t-add:hover {
-      border-color: #8a6a44;
+    .t-add:hover { border-color: #8a6a44; color: #5b4a2e; }
+
+    /* ---- Main area: hero on top, pipeline below ---------------------- */
+    .main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .hero {
+      flex: 0 0 42%;          /* ~ top 42% of the available height */
+      min-height: 240px;
+      background: #262422;
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+      overflow: hidden;
+      border-bottom: 1px solid #3a3633;
+    }
+    .hero .hero-label {
+      position: absolute;
+      top: 12px; left: 16px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #e8e4de;
+      z-index: 2;
+    }
+    .hero .hero-sub {
+      position: absolute;
+      top: 32px; left: 16px;
+      font-size: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #a8a29e;
+      z-index: 2;
+    }
+    .hero .home-btn {
+      position: absolute;
+      top: 12px; right: 12px;
+      width: 24px; height: 24px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.25);
+      display: flex; align-items: center; justify-content: center;
+      color: #f0ece6; font-size: 0.8rem;
+      z-index: 2;
+    }
+    .hero .gizmo {
+      position: absolute;
+      top: 48px; right: 20px;
+      width: 56px; height: 56px;
+      font-size: 0.55rem;
+      font-family: ui-monospace, monospace;
+      color: #d8d4ce; opacity: 0.8;
+      z-index: 2;
+    }
+    .hero svg { width: 100%; height: 100%; display: block; }
+
+    /* ---- Pipeline (bottom area: stages + header) --------------------- */
+    .pipeline-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #fafaf7;
+    }
+    .pipeline-head {
+      padding: 0.55rem 1.25rem 0.45rem;
+      border-bottom: 1px solid #eae7df;
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      background: #fff;
+    }
+    .pipeline-head h2 {
+      margin: 0;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #888;
+    }
+    .pipeline-head .ph-hint {
+      font-size: 0.7rem;
+      color: #888;
+      font-family: ui-monospace, monospace;
+    }
+    .pipeline {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.75rem 1.25rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    /* ---- Stage card ------------------------------------------------- */
+    .stage {
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem 0.55rem 0.9rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .stage.focused {
+      border-color: #c89a3c;
+      box-shadow: 0 1px 4px rgba(200, 154, 60, 0.18), 0 0 0 1px #c89a3c inset;
+    }
+    .stage header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
+    }
+    .stage header h3 {
+      margin: 0;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .stage header .sh-sub {
+      font-size: 0.7rem;
+      font-family: ui-monospace, monospace;
+      color: #888;
+    }
+    .stage header .sh-spacer { flex: 1; }
+    .stage header .sh-badge {
+      font-size: 0.6rem;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: #fff3dc;
+      color: #8a6a2c;
+      border: 1px solid #eadbad;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stage header .sh-menu {
+      color: #c0bcb4; font-size: 1rem; cursor: default;
+    }
+    .stage header .sh-menu:hover { color: #888; }
+
+    /* Stage body: side-by-side panels. When focused, 3D pops up.
+       Fixed height so tall-aspect previews (stacked slices) letterbox
+       inside their container instead of ballooning the whole stage. */
+    .stage-body {
+      display: flex;
+      gap: 0.6rem;
+      align-items: stretch;
+      height: 160px;
+    }
+    .stage.focused .stage-body {
+      height: 220px;
+    }
+    .panel {
+      border: 1px solid #ecebe6;
+      border-radius: 5px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .panel .p-head {
+      padding: 0.3rem 0.5rem 0.25rem;
+      font-size: 0.62rem;
+      color: #888;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 600;
+      border-bottom: 1px solid #f2f0ea;
+    }
+    .panel .p-body {
+      flex: 1;
+      min-height: 0;
+      background: #f6f5f1;
+      border-radius: 0 0 4px 4px;
+      padding: 0.45rem;
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+      position: relative;
+    }
+    .panel.controls .p-body {
+      background: #fff;
+      padding: 0.5rem 0.6rem;
+    }
+    .panel.p3d .p-body {
+      background: #262422;
+      padding: 0;
+    }
+    .panel svg { width: 100%; height: 100%; display: block; }
+
+    .panel.p-ctrl    { flex: 0 0 220px; }
+    .panel.p-preview { flex: 1 1 0; min-width: 240px; }
+    .panel.p-3d      { flex: 0 0 280px; }
+
+    /* Inline 3D viewport styling (inside stage) */
+    .mini3d {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 40% 35%, #3a362f 0%, #1c1a17 70%);
+      border-radius: 0 0 4px 4px;
+      overflow: hidden;
+    }
+    .mini3d .mini-btn {
+      position: absolute;
+      top: 6px; right: 6px;
+      width: 18px; height: 18px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.2);
+      display: flex; align-items: center; justify-content: center;
+      color: #f0ece6; font-size: 0.6rem;
+    }
+    .mini3d svg { position: absolute; inset: 0; }
+
+    /* ---- Inventory row styling (Compose controls) -------------------- */
+    .inv-list {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.18rem;
+      font-size: 0.68rem;
+    }
+    .inv-top {
+      display: flex;
+      align-items: baseline;
+      gap: 0.45rem;
+      font-size: 0.66rem;
+      color: #666;
+      margin-bottom: 0.25rem;
+    }
+    .inv-top .kv { color: #222; font-weight: 600; }
+    .inv-row {
+      display: grid;
+      grid-template-columns: 12px 1fr 38px 18px 18px;
+      gap: 0.25rem;
+      align-items: center;
+    }
+    .inv-sw {
+      width: 9px; height: 13px;
+      border-radius: 1px;
+      border: 1px solid #00000033;
+    }
+    .inv-sel, .inv-num {
+      border: 1px solid #d6d3cd;
+      border-radius: 2px;
+      padding: 1px 3px;
+      background: #fff;
+      font-size: 0.66rem;
+      font-family: ui-monospace, monospace;
+      min-width: 0;
+    }
+    .inv-btn {
+      border: 1px solid #d6d3cd;
+      border-radius: 2px;
+      background: #fff;
+      font-size: 0.66rem;
+      line-height: 1;
+      padding: 1px 0;
+      color: #666;
+      text-align: center;
+    }
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.7rem;
+      padding: 2px 0;
+    }
+    .ctrl-row label {
+      flex: 0 0 70px;
+      color: #666;
+      font-family: ui-monospace, monospace;
+      font-size: 0.66rem;
+    }
+    .ctrl-row input[type="range"] {
+      flex: 1;
+      height: 16px;
+    }
+    .ctrl-row .num {
+      flex: 0 0 42px;
+      padding: 1px 4px;
+      border: 1px solid #d6d3cd;
+      border-radius: 2px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.66rem;
+      text-align: right;
+    }
+    .seg {
+      display: inline-flex;
+      border: 1px solid #d6d3cd;
+      border-radius: 3px;
+      overflow: hidden;
+      font-size: 0.66rem;
+    }
+    .seg button {
+      border: none;
+      background: #fff;
+      color: #666;
+      padding: 2px 8px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .seg button.on {
+      background: #fff3dc;
       color: #5b4a2e;
     }
 
-    /* ---- Pipeline scroll (right) ------------------------------------- */
-    .pipeline {
-      flex: 1;
-      min-width: 0;
-      overflow-y: auto;
-      padding: 1.25rem 1.5rem 3rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
+    /* Species fills */
+    .sp-maple       { fill: #f5deb3; background: #f5deb3; }
+    .sp-walnut      { fill: #5d4037; background: #5d4037; }
+    .sp-cherry      { fill: #a0522d; background: #a0522d; }
+    .sp-padauk      { fill: #b1381a; background: #b1381a; }
+    .sp-purpleheart { fill: #6a4c8c; background: #6a4c8c; }
+
+    /* Flow arrow between stages */
+    .flow {
+      text-align: center;
+      color: #c8c5be;
+      font-size: 0.85rem;
+      margin: -0.1rem 0 -0.15rem;
+      user-select: none;
     }
 
-    .row {
-      background: transparent;
-    }
-
-    .row-header {
-      display: flex;
-      align-items: baseline;
-      gap: 0.6rem;
-      padding: 0.1rem 0.1rem 0.45rem;
-    }
-    .row-header h3 {
-      margin: 0;
-      font-size: 0.9rem;
-      font-weight: 600;
-    }
-    .row-header .rh-sub {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.72rem;
-      color: #888;
-    }
-    .row-header .rh-menu {
-      margin-left: auto;
-      color: #c0bcb4;
-      cursor: default;
-      font-size: 1.05rem;
-    }
-    .row-header .rh-menu:hover { color: #888; }
-
-    /* Between-row insert affordance (the "+ add feature here") */
+    /* Insert affordance */
     .insert {
-      height: 14px;
+      height: 16px;
       position: relative;
       display: flex;
       align-items: center;
@@ -235,701 +506,475 @@
       color: #888;
       border-radius: 11px;
       padding: 1px 9px;
-      font-size: 0.68rem;
+      font-size: 0.66rem;
       cursor: pointer;
       font-family: inherit;
     }
 
-    /* Tile row inside each feature */
-    .tile-row {
-      display: flex;
-      gap: 0.75rem;
-      min-height: 220px;
-    }
-    .tile {
-      background: #fff;
-      border: 1px solid #e4e4e0;
-      border-radius: 8px;
-      padding: 0.65rem 0.75rem 0.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-      min-width: 0;
-    }
-    .tile.t-narrow { flex: 0 0 260px; }
-    .tile.t-grow   { flex: 1 1 0; min-width: 260px; }
-    .tile.t-3d     { flex: 1 1 0; min-width: 320px; }
-
-    .tile > header {
-      padding: 0;
-      border: none;
-      background: transparent;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .tile h4 {
-      margin: 0;
-      font-size: 0.78rem;
-      font-weight: 600;
-    }
-    .tile .t-sub {
-      margin: 0;
+    /* Warning inline */
+    .warn-inline {
+      color: #a8741e;
       font-size: 0.68rem;
-      color: #888;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
-    .render {
-      flex: 1;
-      background: #f6f5f1;
-      border-radius: 4px;
-      padding: 0.5rem;
-      overflow: hidden;
-      position: relative;
-      display: flex;
-      align-items: stretch;
-      justify-content: stretch;
-    }
-    .render.dark {
-      background: #262422;
-      padding: 0;
-    }
-    .meta {
-      font-size: 0.65rem;
-      color: #666;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      line-height: 1.4;
-    }
-
-    /* ---- Inline UI snippets for the Compose Input tile ---------------- */
-    .inv-list {
-      width: 100%;
-      padding: 0.35rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
-      background: #fff;
-      border-radius: 3px;
-      font-size: 0.7rem;
-    }
-    .inv-row {
-      display: grid;
-      grid-template-columns: 14px 1fr 44px 20px 20px;
-      gap: 0.3rem;
-      align-items: center;
-    }
-    .inv-sw {
-      width: 10px;
-      height: 15px;
-      border-radius: 1px;
-      border: 1px solid #00000033;
-    }
-    .inv-sel, .inv-num {
-      border: 1px solid #d6d3cd;
-      border-radius: 2px;
-      padding: 1px 3px;
-      background: #fff;
-      font-size: 0.7rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      min-width: 0;
-    }
-    .inv-btn {
-      border: 1px solid #d6d3cd;
-      border-radius: 2px;
-      background: #fff;
-      font-size: 0.72rem;
-      line-height: 1;
-      padding: 1px 0;
-      color: #666;
-      text-align: center;
-    }
-    .inv-top {
-      display: flex;
-      align-items: baseline;
-      gap: 0.5rem;
-      font-size: 0.68rem;
-      color: #666;
-      padding: 0.3rem 0.1rem 0.35rem;
-    }
-    .inv-top .kv { color: #222; font-weight: 600; }
-
-    /* ---- Species fills (mirrors real SPECIES_COLOURS) ---------------- */
-    .sp-maple       { fill: #f5deb3; background: #f5deb3; }
-    .sp-walnut      { fill: #5d4037; background: #5d4037; }
-    .sp-cherry      { fill: #a0522d; background: #a0522d; }
-    .sp-padauk      { fill: #b1381a; background: #b1381a; }
-    .sp-purpleheart { fill: #6a4c8c; background: #6a4c8c; }
-
-    svg.fit {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    /* ---- Render helper — 3D-ish gradient placeholder ----------------- */
-    .viewport3d {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      background: radial-gradient(circle at 40% 35%, #3a362f 0%, #1c1a17 70%);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-    .viewport3d svg { position: absolute; inset: 0; }
-    .viewport3d .home-btn {
-      position: absolute;
-      top: 8px; right: 8px;
-      width: 22px; height: 22px;
-      border-radius: 3px;
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #e8e4de;
-      font-size: 0.7rem;
-    }
-    .viewport3d .gizmo {
-      position: absolute;
-      top: 36px; right: 12px;
-      font-size: 0.55rem;
       font-family: ui-monospace, monospace;
-      color: #d8d4ce;
-      width: 48px; height: 48px;
-      opacity: 0.75;
     }
-
-    /* ---- Hero (Trim row's output gets taller) ------------------------ */
-    .row.hero .tile-row {
-      min-height: 360px;
-    }
-
-    /* Mock callouts / sticky notes for the first-time viewer */
-    .callout {
-      background: #fff8ec;
-      border: 1px solid #e6d6a4;
-      border-radius: 6px;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.7rem;
-      line-height: 1.4;
-      color: #7a5a1e;
-      margin-bottom: 0.5rem;
-    }
-    .callout strong { color: #5a4210; }
-
-    /* Utility */
-    .mb-0 { margin-bottom: 0; }
   </style>
 </head>
 <body>
 
 <div class="banner">
-  <strong>MOCKUP ONLY</strong> — nothing here is wired up. Purpose: show the proposed
-  scroll-through-stack canvas layout so you can react.
+  <strong>MOCKUP v2</strong> — revised layout. Still not wired. Top = always-on final
+  3D. Below = pipeline stages (one tile per stage; focused stage expands to show its own 3D).
+  Max 2 WebGL contexts live at once (hero + focused stage).
 </div>
 
 <header>
-  <h1>End-grain — Canvas (proposed v1)</h1>
-  <p class="subtitle">integrated pipeline · <code style="font-size:0.72rem;color:#666;">canvas-mockup.html</code></p>
+  <h1>End-grain — Canvas (proposed v2)</h1>
+  <p class="subtitle">hero 3D on top · pipeline stages below · <code style="font-size:0.72rem;color:#666;">canvas-mockup.html</code></p>
   <nav>
     <a href="./index.html">← Harnesses</a>
   </nav>
 </header>
 
-<div class="canvas-layout">
+<div class="shell">
 
-  <!-- ============================================================ -->
-  <!-- TIMELINE RIBBON                                                -->
-  <!-- ============================================================ -->
+  <!-- ============== TIMELINE ============== -->
   <aside class="timeline">
     <header><h2>Timeline</h2></header>
     <div class="body">
-
       <div class="t-item">
         <span class="op">Compose</span>
-        <span class="sub">14 strips · 50 × 400 mm</span>
+        <span class="sub">14 strips · 50 × 400</span>
       </div>
       <div class="connector"></div>
 
       <div class="t-item">
         <span class="op">Cut</span>
-        <span class="sub">rip 0° · bevel 90° · 8 slices</span>
+        <span class="sub">rip 0° · 8 slices</span>
       </div>
       <div class="connector"></div>
 
       <div class="t-item preset">
         <span class="op">Preset: flipAlternate</span>
-        <span class="sub">expands to 4 PlaceEdits</span>
+        <span class="sub">→ 4 PlaceEdits</span>
       </div>
-      <div class="t-item child">
-        <span>↻ 180° on slice 1</span>
-      </div>
-      <div class="t-item child">
-        <span>↻ 180° on slice 3</span>
-      </div>
-      <div class="t-item child">
-        <span>↻ 180° on slice 5</span>
-      </div>
-      <div class="t-item child">
-        <span>↻ 180° on slice 7</span>
-      </div>
+      <div class="t-item child"><span>↻ 180° · slice 1</span></div>
+      <div class="t-item child"><span>↻ 180° · slice 3</span></div>
+      <div class="t-item child"><span>↻ 180° · slice 5</span></div>
+      <div class="t-item child"><span>↻ 180° · slice 7</span></div>
       <div class="connector"></div>
 
-      <div class="t-item">
+      <div class="t-item active">
         <span class="op">Arrange</span>
-        <span class="sub">cursor-slide · 4 edits · 0 spacers</span>
+        <span class="sub">4 edits · 0 spacers</span>
       </div>
       <div class="connector"></div>
 
       <div class="t-item warn">
         <span class="op">Trim</span>
-        <span class="sub">flush · 688 × 400 mm</span>
+        <span class="sub">flush · 688 × 400</span>
       </div>
 
       <button class="t-add">+ Add feature</button>
     </div>
   </aside>
 
-  <!-- ============================================================ -->
-  <!-- PIPELINE STACK                                                 -->
-  <!-- ============================================================ -->
-  <main class="pipeline">
+  <!-- ============== MAIN: HERO (top) + PIPELINE (bottom) ============== -->
+  <main class="main">
 
-    <!-- ============== COMPOSE ROW ============== -->
-    <article class="row">
-      <div class="row-header">
-        <h3>Compose</h3>
-        <span class="rh-sub">14 strips · thickness 50 · length 400</span>
-        <span class="rh-menu">⋮</span>
+    <!-- ============ HERO: always-on final 3D ============ -->
+    <section class="hero">
+      <span class="hero-label">Final panel</span>
+      <span class="hero-sub">688 × 50 × 400 mm · orbit to inspect</span>
+      <div class="home-btn">⌂</div>
+      <svg viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet">
+        <!-- Pseudo-iso 3D panel rendering — suggestive, not real -->
+        <g transform="translate(120,90)">
+          <!-- Top face: gradient of species stripes -->
+          <g stroke="#00000066">
+            <polygon points="0,0 540,-48 580,-30 40,20"  fill="#f5deb3"/>
+            <polygon points="40,20 580,-30 600,-16 60,40" fill="#e8d2a1"/>
+            <polygon points="60,40 600,-16 615,0 75,60"   fill="#c9a878"/>
+            <polygon points="75,60 615,0 625,14 85,80"    fill="#a88a5c"/>
+            <polygon points="85,80 625,14 635,28 95,100"  fill="#855f3d"/>
+            <polygon points="95,100 635,28 640,42 100,120" fill="#5d4037"/>
+          </g>
+          <!-- Front side face (thickness) -->
+          <g stroke="#00000055">
+            <polygon points="100,120 640,42 640,72 100,150" fill="#4a3627"/>
+            <polygon points="100,150 640,72 640,78 100,156" fill="#3a2b1f"/>
+          </g>
+          <!-- Right side face -->
+          <g stroke="#00000055">
+            <polygon points="640,42 652,46 652,78 640,72" fill="#2a1e14"/>
+          </g>
+          <!-- Shadow -->
+          <ellipse cx="340" cy="240" rx="330" ry="20" fill="#000" opacity="0.22"/>
+        </g>
+      </svg>
+      <div class="gizmo" aria-hidden="true">
+        <svg viewBox="0 0 56 56">
+          <line x1="28" y1="28" x2="50" y2="28" stroke="#e05a5a" stroke-width="2"/>
+          <text x="52" y="31" fill="#e05a5a" font-size="10" font-family="ui-monospace,monospace">X</text>
+          <line x1="28" y1="28" x2="28" y2="6" stroke="#68c46a" stroke-width="2"/>
+          <text x="31" y="8" fill="#68c46a" font-size="10" font-family="ui-monospace,monospace">Y</text>
+          <line x1="28" y1="28" x2="12" y2="44" stroke="#6d8aff" stroke-width="2"/>
+          <text x="2" y="52" fill="#6d8aff" font-size="10" font-family="ui-monospace,monospace">Z</text>
+        </svg>
       </div>
-      <div class="tile-row">
+    </section>
 
-        <!-- Input: inventory editor -->
-        <article class="tile t-narrow">
-          <header>
-            <h4>Input</h4>
-            <p class="t-sub">strip inventory · add / edit</p>
-          </header>
-          <div class="render" style="background:#fff; padding:0; flex-direction:column; align-items:stretch;">
-            <div class="inv-top">
-              <span>Thickness <span class="kv">50</span></span>
-              <span>Length <span class="kv">400</span></span>
-            </div>
-            <div style="padding: 0 0.4rem 0.25rem;">
-              <button class="inv-btn" style="width: 80px;">+ Add strip</button>
-              <span style="font-size:0.65rem; color:#888; margin-left:0.4rem;">14 / 64</span>
-            </div>
-            <div class="inv-list" style="flex:1; overflow-y:auto;">
-              <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-              <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut ▾</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
-            </div>
-          </div>
-          <p class="meta">inventory: 7 maple · 7 walnut</p>
-        </article>
-
-        <!-- Operation: drag-to-reorder (horizontal bars stacked) -->
-        <article class="tile t-grow">
-          <header>
-            <h4>Operation: ComposeStrips</h4>
-            <p class="t-sub">drag to reorder · exploded</p>
-          </header>
-          <div class="render">
-            <svg class="fit" viewBox="-5 -5 410 710" preserveAspectRatio="xMidYMid meet">
-              <g>
-                <rect x="0" y="0"   width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="55"  width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="110" width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="165" width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="220" width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="275" width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="330" width="400" height="50" class="sp-maple"  stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="385" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="440" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="495" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="550" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="605" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="660" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-                <rect x="0" y="715" width="400" height="50" class="sp-walnut" stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-              </g>
-            </svg>
-          </div>
-          <p class="meta">arrangement: maple · maple · maple · … · walnut · walnut</p>
-        </article>
-
-        <!-- Output: 3D panel -->
-        <article class="tile t-3d">
-          <header>
-            <h4>Output</h4>
-            <p class="t-sub">composed panel · 700 × 50 × 400 mm</p>
-          </header>
-          <div class="render dark">
-            <div class="viewport3d">
-              <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet">
-                <g transform="translate(90,70)">
-                  <!-- Iso-ish stripes stacked; fake 3D slab -->
-                  <g>
-                    <polygon points="0,0 220,-20 260,20 40,40" fill="#f5deb3" stroke="#00000044"/>
-                    <polygon points="40,40 260,20 300,60 80,80" fill="#e8d2a1" stroke="#00000044"/>
-                    <polygon points="80,80 300,60 340,100 120,120" fill="#d9c38f" stroke="#00000044"/>
-                    <polygon points="120,120 340,100 260,100 260,100" opacity="0"/>
-                    <polygon points="120,120 340,100 300,140 90,160" fill="#c7b07a" stroke="#00000044"/>
-                    <polygon points="90,160 300,140 260,180 55,205" fill="#7c5a3c" stroke="#00000044"/>
-                    <polygon points="55,205 260,180 220,220 15,245" fill="#5d4037" stroke="#00000044"/>
-                  </g>
-                </g>
-              </svg>
-              <div class="home-btn">⌂</div>
-              <div class="gizmo">X · Y · Z</div>
-            </div>
-          </div>
-          <p class="meta">14 volumes · 700 × 50 × 400 mm</p>
-        </article>
-
+    <!-- ============ PIPELINE STAGES ============ -->
+    <div class="pipeline-wrap">
+      <div class="pipeline-head">
+        <h2>Pipeline</h2>
+        <span class="ph-hint">click a stage to focus · focused stage shows 3D</span>
       </div>
-    </article>
 
-    <div class="insert"><button>+ insert feature here</button></div>
+      <div class="pipeline">
 
-    <!-- ============== CUT ROW ============== -->
-    <article class="row">
-      <div class="row-header">
-        <h3>Cut</h3>
-        <span class="rh-sub">rip 0° · bevel 90° · 8 slices</span>
-        <span class="rh-menu">⋮</span>
-      </div>
-      <div class="tile-row">
-
-        <!-- Input: panel from Compose -->
-        <article class="tile t-narrow">
+        <!-- ============ STAGE: COMPOSE ============ -->
+        <article class="stage">
           <header>
-            <h4>Input</h4>
-            <p class="t-sub">panel from Compose</p>
+            <h3>Compose</h3>
+            <span class="sh-sub">14 strips · thickness 50 · length 400</span>
+            <span class="sh-spacer"></span>
+            <span class="sh-menu">⋮</span>
           </header>
-          <div class="render">
-            <svg class="fit" viewBox="0 0 700 400" preserveAspectRatio="xMidYMid meet">
-              <!-- 14 stripes along X, 400 tall -->
-              <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
-                <rect x="0"   y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="50"  y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="100" y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="150" y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="200" y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="250" y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="300" y="0" width="50" height="400" class="sp-maple"/>
-                <rect x="350" y="0" width="50" height="400" class="sp-walnut"/>
-                <rect x="400" y="0" width="50" height="400" class="sp-walnut"/>
-                <rect x="450" y="0" width="50" height="400" class="sp-walnut"/>
-                <rect x="500" y="0" width="50" height="400" class="sp-walnut"/>
-                <rect x="550" y="0" width="50" height="400" class="sp-walnut"/>
-                <rect x="600" y="0" width="50" height="400" class="sp-walnut"/>
-                <rect x="650" y="0" width="50" height="400" class="sp-walnut"/>
-              </g>
-            </svg>
-          </div>
-          <p class="meta">700 × 50 × 400 mm</p>
-        </article>
-
-        <!-- Operation: top view with cut lines -->
-        <article class="tile t-grow">
-          <header>
-            <h4>Operation: Cut</h4>
-            <p class="t-sub">8 parallel cut planes · top + side</p>
-          </header>
-          <div class="render">
-            <!-- Two-pane: TOP + SIDE (mirror real renderer) -->
-            <div style="flex:1; display:flex; gap:0.4rem;">
-              <div style="flex:4; display:flex; flex-direction:column; gap:0.25rem;">
-                <div style="font-size:0.6rem; color:#888; letter-spacing:0.08em;">TOP</div>
-                <svg class="fit" viewBox="0 0 700 400" preserveAspectRatio="xMidYMid meet" style="background:#fafaf7; border-radius:3px;">
-                  <rect x="0" y="0" width="700" height="400" fill="#fafaf7" stroke="#00000033" stroke-width="0.5"/>
-                  <!-- 7 cut lines (8 slices along Z) -->
-                  <g stroke="#1a1a1a" stroke-width="1" stroke-dasharray="8 5" vector-effect="non-scaling-stroke" fill="none">
-                    <line x1="0" y1="50"  x2="700" y2="50"/>
-                    <line x1="0" y1="100" x2="700" y2="100"/>
-                    <line x1="0" y1="150" x2="700" y2="150"/>
-                    <line x1="0" y1="200" x2="700" y2="200"/>
-                    <line x1="0" y1="250" x2="700" y2="250"/>
-                    <line x1="0" y1="300" x2="700" y2="300"/>
-                    <line x1="0" y1="350" x2="700" y2="350"/>
+          <div class="stage-body">
+            <!-- Controls: inventory editor compact -->
+            <section class="panel controls p-ctrl">
+              <div class="p-head">Controls</div>
+              <div class="p-body" style="flex-direction:column; background:#fff;">
+                <div class="inv-top">
+                  <span>thk <span class="kv">50</span></span>
+                  <span>len <span class="kv">400</span></span>
+                  <span style="margin-left:auto; color:#888;">14/64</span>
+                </div>
+                <div class="inv-list" style="flex:1; overflow-y:auto; max-height:110px;">
+                  <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
+                  <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
+                  <div class="inv-row"><span class="inv-sw sp-maple"></span><span class="inv-sel">maple</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
+                  <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
+                  <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
+                  <div class="inv-row"><span class="inv-sw sp-walnut"></span><span class="inv-sel">walnut</span><span class="inv-num">50</span><span class="inv-btn">+</span><span class="inv-btn">×</span></div>
+                </div>
+                <div style="margin-top: 0.35rem;">
+                  <button class="inv-btn" style="width:80px; padding: 2px 4px;">+ Add strip</button>
+                </div>
+              </div>
+            </section>
+            <!-- Preview: 2D composed panel -->
+            <section class="panel p-preview">
+              <div class="p-head">Preview · post-Compose</div>
+              <div class="p-body">
+                <svg viewBox="0 0 700 50" preserveAspectRatio="xMidYMid meet">
+                  <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
+                    <rect x="0"   y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="50"  y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="100" y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="150" y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="200" y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="250" y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="300" y="0" width="50" height="50" class="sp-maple"/>
+                    <rect x="350" y="0" width="50" height="50" class="sp-walnut"/>
+                    <rect x="400" y="0" width="50" height="50" class="sp-walnut"/>
+                    <rect x="450" y="0" width="50" height="50" class="sp-walnut"/>
+                    <rect x="500" y="0" width="50" height="50" class="sp-walnut"/>
+                    <rect x="550" y="0" width="50" height="50" class="sp-walnut"/>
+                    <rect x="600" y="0" width="50" height="50" class="sp-walnut"/>
+                    <rect x="650" y="0" width="50" height="50" class="sp-walnut"/>
                   </g>
                 </svg>
               </div>
-              <div style="flex:1; display:flex; flex-direction:column; gap:0.25rem;">
-                <div style="font-size:0.6rem; color:#888; letter-spacing:0.08em;">SIDE</div>
-                <svg class="fit" viewBox="0 0 60 400" preserveAspectRatio="xMidYMid meet" style="background:#fafaf7; border-radius:3px;">
-                  <rect x="0" y="0" width="50" height="400" fill="#fafaf7" stroke="#00000033" stroke-width="0.5"/>
-                  <g stroke="#1a1a1a" stroke-width="1" stroke-dasharray="8 5" vector-effect="non-scaling-stroke" fill="none">
-                    <line x1="0" y1="50"  x2="50" y2="50"/>
-                    <line x1="0" y1="100" x2="50" y2="100"/>
-                    <line x1="0" y1="150" x2="50" y2="150"/>
-                    <line x1="0" y1="200" x2="50" y2="200"/>
-                    <line x1="0" y1="250" x2="50" y2="250"/>
-                    <line x1="0" y1="300" x2="50" y2="300"/>
-                    <line x1="0" y1="350" x2="50" y2="350"/>
+            </section>
+          </div>
+        </article>
+
+        <div class="flow">↓</div>
+
+        <!-- ============ STAGE: CUT ============ -->
+        <article class="stage">
+          <header>
+            <h3>Cut</h3>
+            <span class="sh-sub">rip 0° · bevel 90° · 8 slices</span>
+            <span class="sh-spacer"></span>
+            <span class="sh-menu">⋮</span>
+          </header>
+          <div class="stage-body">
+            <!-- Controls: rip / bevel / slices -->
+            <section class="panel controls p-ctrl">
+              <div class="p-head">Controls</div>
+              <div class="p-body" style="flex-direction:column; background:#fff; gap:0.25rem;">
+                <div class="ctrl-row">
+                  <label>rip</label>
+                  <input type="range" min="-90" max="90" value="0"/>
+                  <span class="num">0°</span>
+                </div>
+                <div class="ctrl-row">
+                  <label>bevel</label>
+                  <input type="range" min="45" max="90" value="90"/>
+                  <span class="num">90°</span>
+                </div>
+                <div class="ctrl-row" style="padding-top:0.3rem;">
+                  <label>mode</label>
+                  <div class="seg">
+                    <button class="on">slices</button>
+                    <button>pitch</button>
+                  </div>
+                </div>
+                <div class="ctrl-row">
+                  <label>slices</label>
+                  <input type="range" min="2" max="16" value="8"/>
+                  <span class="num">8</span>
+                </div>
+                <label style="font-size:0.66rem; color:#888; display:flex; gap:4px; align-items:center;">
+                  <input type="checkbox"/> show offcuts
+                </label>
+              </div>
+            </section>
+            <!-- Preview: pre-cut panel with cut lines -->
+            <section class="panel p-preview">
+              <div class="p-head">Preview · cut lines on pre-cut panel</div>
+              <div class="p-body">
+                <svg viewBox="0 0 700 100" preserveAspectRatio="xMidYMid meet">
+                  <!-- Flush panel underneath -->
+                  <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
+                    <rect x="0"   y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="50"  y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="100" y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="150" y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="200" y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="250" y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="300" y="0" width="50" height="100" class="sp-maple"/>
+                    <rect x="350" y="0" width="50" height="100" class="sp-walnut"/>
+                    <rect x="400" y="0" width="50" height="100" class="sp-walnut"/>
+                    <rect x="450" y="0" width="50" height="100" class="sp-walnut"/>
+                    <rect x="500" y="0" width="50" height="100" class="sp-walnut"/>
+                    <rect x="550" y="0" width="50" height="100" class="sp-walnut"/>
+                    <rect x="600" y="0" width="50" height="100" class="sp-walnut"/>
+                    <rect x="650" y="0" width="50" height="100" class="sp-walnut"/>
+                  </g>
+                  <!-- Dashed cut lines (8 slices along X means 7 lines) -->
+                  <g stroke="#1a1a1a" stroke-width="1.1" stroke-dasharray="8 5" vector-effect="non-scaling-stroke" fill="none">
+                    <line x1="87.5"  y1="0" x2="87.5"  y2="100"/>
+                    <line x1="175"   y1="0" x2="175"   y2="100"/>
+                    <line x1="262.5" y1="0" x2="262.5" y2="100"/>
+                    <line x1="350"   y1="0" x2="350"   y2="100"/>
+                    <line x1="437.5" y1="0" x2="437.5" y2="100"/>
+                    <line x1="525"   y1="0" x2="525"   y2="100"/>
+                    <line x1="612.5" y1="0" x2="612.5" y2="100"/>
                   </g>
                 </svg>
               </div>
-            </div>
+            </section>
           </div>
-          <p class="meta">pitch = 50 mm · 8 slices · 0 offcuts</p>
         </article>
 
-        <!-- Output: exploded slices in 3D -->
-        <article class="tile t-3d">
+        <div class="flow">↓</div>
+
+        <!-- ============ STAGE: PRESET (read-only) ============ -->
+        <article class="stage">
           <header>
-            <h4>Output</h4>
-            <p class="t-sub">8 slices · exploded along Z</p>
+            <h3>Preset: flipAlternate</h3>
+            <span class="sh-sub">non-editable · expands to 4 edits</span>
+            <span class="sh-spacer"></span>
+            <span class="sh-badge">read-only</span>
+            <span class="sh-menu">⋮</span>
           </header>
-          <div class="render dark">
-            <div class="viewport3d">
-              <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet">
-                <g transform="translate(60,60)">
-                  <!-- Eight stacked 3d slices with z-gaps -->
-                  <g>
-                    <polygon points="0,0 220,-5 260,5 40,12" fill="#e8d2a1" stroke="#00000044"/>
-                    <polygon points="40,12 260,5 220,22 0,30" fill="#c7b07a" stroke="#00000044"/>
+          <div class="stage-body">
+            <section class="panel controls p-ctrl">
+              <div class="p-head">Info</div>
+              <div class="p-body" style="flex-direction:column; background:#fff; font-size:0.72rem; line-height:1.4; color:#555;">
+                <p style="margin:0 0 0.3rem;"><strong>flipAlternate</strong></p>
+                <p style="margin:0 0 0.3rem;">Rotates every other slice 180° to produce a checker pattern.</p>
+                <p style="margin:0 0 0.3rem; color:#888; font-size:0.66rem;">expands at pipeline time — edit in the Arrange stage.</p>
+                <div style="margin-top:auto;">
+                  <button class="inv-btn" style="padding:2px 8px;">⌄ eject to edits</button>
+                </div>
+              </div>
+            </section>
+            <section class="panel p-preview">
+              <div class="p-head">Preview · expansion (read-only)</div>
+              <div class="p-body">
+                <svg viewBox="0 0 100 400" preserveAspectRatio="xMidYMid meet">
+                  <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke" opacity="0.7">
+                    <rect x="0" y="0"   width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="50"  width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="100" width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="150" width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="200" width="100" height="50" class="sp-walnut"/>
+                    <rect x="0" y="250" width="100" height="50" class="sp-walnut"/>
+                    <rect x="0" y="300" width="100" height="50" class="sp-walnut"/>
+                    <rect x="0" y="350" width="100" height="50" class="sp-walnut"/>
                   </g>
-                  <g transform="translate(0,32)">
-                    <polygon points="0,0 220,-5 260,5 40,12" fill="#e8d2a1" stroke="#00000044"/>
-                    <polygon points="40,12 260,5 220,22 0,30" fill="#c7b07a" stroke="#00000044"/>
+                  <g font-family="system-ui" font-size="16" font-weight="700" text-anchor="middle"
+                     fill="#666" stroke="#fafaf7" stroke-width="3.5" paint-order="stroke">
+                    <text x="50" y="82">↻</text>
+                    <text x="50" y="182">↻</text>
+                    <text x="50" y="282">↻</text>
+                    <text x="50" y="382">↻</text>
                   </g>
-                  <g transform="translate(0,64)">
-                    <polygon points="0,0 220,-5 260,5 40,12" fill="#d2b98a" stroke="#00000044"/>
-                    <polygon points="40,12 260,5 220,22 0,30" fill="#b19968" stroke="#00000044"/>
-                  </g>
-                  <g transform="translate(0,96)">
-                    <polygon points="0,0 220,-5 260,5 40,12" fill="#bfa880" stroke="#00000044"/>
-                    <polygon points="40,12 260,5 220,22 0,30" fill="#9a815c" stroke="#00000044"/>
-                  </g>
-                  <g transform="translate(0,128)">
-                    <polygon points="0,0 220,-5 260,5 40,12" fill="#8a6a42" stroke="#00000044"/>
-                    <polygon points="40,12 260,5 220,22 0,30" fill="#704f2e" stroke="#00000044"/>
-                  </g>
-                  <g transform="translate(0,160)">
-                    <polygon points="0,0 220,-5 260,5 40,12" fill="#6d4e36" stroke="#00000044"/>
-                    <polygon points="40,12 260,5 220,22 0,30" fill="#5d4037" stroke="#00000044"/>
-                  </g>
-                </g>
-              </svg>
-              <div class="home-btn">⌂</div>
-              <div class="gizmo">X · Y · Z</div>
-            </div>
+                </svg>
+              </div>
+            </section>
           </div>
-          <p class="meta">8 slices · 100 mm pitch</p>
+        </article>
+
+        <div class="flow">↓</div>
+
+        <!-- ============ STAGE: ARRANGE (FOCUSED) ============ -->
+        <article class="stage focused">
+          <header>
+            <h3>Arrange</h3>
+            <span class="sh-sub">flipAlternate · ↻ 180° on 1 / 3 / 5 / 7 · 0 spacers</span>
+            <span class="sh-spacer"></span>
+            <span class="sh-badge">focused</span>
+            <span class="sh-menu">⋮</span>
+          </header>
+          <div class="stage-body">
+            <!-- Controls: direct-manipulation primer / edit list -->
+            <section class="panel controls p-ctrl">
+              <div class="p-head">Edits</div>
+              <div class="p-body" style="flex-direction:column; background:#fff; font-size:0.7rem; gap:0.2rem;">
+                <div style="color:#888; font-size:0.65rem; margin-bottom:0.2rem;">from preset · click slice to add edit</div>
+                <div style="padding:2px 0; display:flex; align-items:center; gap:6px;">
+                  <span style="font-weight:600;">↻</span> slice 1 · 180°
+                  <span style="margin-left:auto; color:#888; font-size:0.62rem;">preset</span>
+                </div>
+                <div style="padding:2px 0; display:flex; align-items:center; gap:6px;">
+                  <span style="font-weight:600;">↻</span> slice 3 · 180°
+                  <span style="margin-left:auto; color:#888; font-size:0.62rem;">preset</span>
+                </div>
+                <div style="padding:2px 0; display:flex; align-items:center; gap:6px;">
+                  <span style="font-weight:600;">↻</span> slice 5 · 180°
+                  <span style="margin-left:auto; color:#888; font-size:0.62rem;">preset</span>
+                </div>
+                <div style="padding:2px 0; display:flex; align-items:center; gap:6px;">
+                  <span style="font-weight:600;">↻</span> slice 7 · 180°
+                  <span style="margin-left:auto; color:#888; font-size:0.62rem;">preset</span>
+                </div>
+                <div style="margin-top:0.35rem; display:flex; gap:4px; flex-wrap:wrap;">
+                  <button class="inv-btn" style="padding:2px 6px;">+ flip</button>
+                  <button class="inv-btn" style="padding:2px 6px;">+ shift</button>
+                  <button class="inv-btn" style="padding:2px 6px;">+ spacer</button>
+                </div>
+              </div>
+            </section>
+            <!-- Preview: assembled panel with flip glyphs -->
+            <section class="panel p-preview">
+              <div class="p-head">Preview · assembled panel with edits</div>
+              <div class="p-body">
+                <svg viewBox="0 0 100 400" preserveAspectRatio="xMidYMid meet">
+                  <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
+                    <rect x="0" y="0"   width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="50"  width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="100" width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="150" width="100" height="50" class="sp-maple"/>
+                    <rect x="0" y="200" width="100" height="50" class="sp-walnut"/>
+                    <rect x="0" y="250" width="100" height="50" class="sp-walnut"/>
+                    <rect x="0" y="300" width="100" height="50" class="sp-walnut"/>
+                    <rect x="0" y="350" width="100" height="50" class="sp-walnut"/>
+                  </g>
+                  <g font-family="system-ui" font-size="18" font-weight="700" text-anchor="middle"
+                     fill="#1a1a1a" stroke="#fafaf7" stroke-width="4" paint-order="stroke">
+                    <text x="50" y="82">↻</text>
+                    <text x="50" y="182">↻</text>
+                    <text x="50" y="282">↻</text>
+                    <text x="50" y="382">↻</text>
+                  </g>
+                </svg>
+              </div>
+            </section>
+            <!-- 3D viewport — only present because this stage is focused -->
+            <section class="panel p-3d">
+              <div class="p-head">3D · post-Arrange</div>
+              <div class="p-body">
+                <div class="mini3d">
+                  <svg viewBox="0 0 280 180" preserveAspectRatio="xMidYMid meet">
+                    <g transform="translate(40,40)">
+                      <!-- Stripes top face alternating flipped/non-flipped -->
+                      <polygon points="0,0 180,-14 210,-4 30,10" fill="#e8d2a1" stroke="#00000055"/>
+                      <polygon points="30,10 210,-4 180,18 0,32" fill="#c7b07a" stroke="#00000055"/>
+                      <g transform="translate(0,36)">
+                        <polygon points="0,0 180,-14 210,-4 30,10" fill="#a08050" stroke="#00000055"/>
+                        <polygon points="30,10 210,-4 180,18 0,32" fill="#6e4c34" stroke="#00000055"/>
+                      </g>
+                      <g transform="translate(0,72)">
+                        <polygon points="0,0 180,-14 210,-4 30,10" fill="#e8d2a1" stroke="#00000055"/>
+                        <polygon points="30,10 210,-4 180,18 0,32" fill="#c7b07a" stroke="#00000055"/>
+                      </g>
+                      <g transform="translate(0,108)">
+                        <polygon points="0,0 180,-14 210,-4 30,10" fill="#6e4c34" stroke="#00000055"/>
+                        <polygon points="30,10 210,-4 180,18 0,32" fill="#5d4037" stroke="#00000055"/>
+                      </g>
+                    </g>
+                  </svg>
+                  <div class="mini-btn">⌂</div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <div class="flow">↓</div>
+
+        <!-- ============ STAGE: TRIM ============ -->
+        <article class="stage">
+          <header>
+            <h3>Trim</h3>
+            <span class="sh-sub">flush · 688 × 400 mm</span>
+            <span class="warn-inline">· warning: non-convex upstream hull</span>
+            <span class="sh-spacer"></span>
+            <span class="sh-menu">⋮</span>
+          </header>
+          <div class="stage-body">
+            <section class="panel controls p-ctrl">
+              <div class="p-head">Controls</div>
+              <div class="p-body" style="flex-direction:column; background:#fff; gap:0.3rem;">
+                <div class="ctrl-row">
+                  <label>mode</label>
+                  <div class="seg">
+                    <button class="on">flush</button>
+                    <button>rectangle</button>
+                    <button>bbox</button>
+                  </div>
+                </div>
+                <div style="font-size:0.66rem; color:#888; padding-top:0.2rem; line-height:1.4;">
+                  applied bounds: x ∈ [6, 694], z ∈ [0, 400]
+                  <br/>trimmed area: 4800 mm²
+                </div>
+              </div>
+            </section>
+            <section class="panel p-preview">
+              <div class="p-head">Preview · trim rect on pre-trim panel</div>
+              <div class="p-body">
+                <svg viewBox="0 0 700 100" preserveAspectRatio="xMidYMid meet">
+                  <!-- Pre-trim panel -->
+                  <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
+                    <rect x="0"   y="0" width="100" height="100" class="sp-maple"/>
+                    <rect x="100" y="0" width="100" height="100" class="sp-walnut"/>
+                    <rect x="200" y="0" width="100" height="100" class="sp-maple"/>
+                    <rect x="300" y="0" width="100" height="100" class="sp-walnut"/>
+                    <rect x="400" y="0" width="100" height="100" class="sp-maple"/>
+                    <rect x="500" y="0" width="100" height="100" class="sp-walnut"/>
+                    <rect x="600" y="0" width="100" height="100" class="sp-maple"/>
+                  </g>
+                  <!-- Dimmed discard overlay (evenodd) -->
+                  <path d="M 0 0 L 700 0 L 700 100 L 0 100 Z M 6 0 L 6 100 L 694 100 L 694 0 Z"
+                        fill="#0000000d" fill-rule="evenodd"/>
+                  <!-- Dashed trim rect -->
+                  <rect x="6" y="0" width="688" height="100" fill="none" stroke="#1a1a1a"
+                        stroke-width="1.1" stroke-dasharray="8 5" vector-effect="non-scaling-stroke"/>
+                </svg>
+              </div>
+            </section>
+          </div>
         </article>
 
       </div>
-    </article>
-
-    <div class="insert"><button>+ insert feature here</button></div>
-
-    <!-- ============== ARRANGE ROW (with preset-driven edits) ============== -->
-    <article class="row">
-      <div class="row-header">
-        <h3>Arrange</h3>
-        <span class="rh-sub">cursor-slide · flipAlternate preset → 4 edits</span>
-        <span class="rh-menu">⋮</span>
-      </div>
-      <div class="tile-row">
-
-        <!-- Input: 8 slices labelled -->
-        <article class="tile t-narrow">
-          <header>
-            <h4>Input</h4>
-            <p class="t-sub">8 slices from Cut</p>
-          </header>
-          <div class="render">
-            <svg class="fit" viewBox="0 0 100 430" preserveAspectRatio="xMidYMid meet">
-              <!-- 8 slice rectangles top-to-bottom with slight gaps + labels -->
-              <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
-                <g transform="translate(5,0)">
-                  <rect x="0" y="0"   width="90" height="45" class="sp-maple"/>
-                  <rect x="0" y="50"  width="90" height="45" class="sp-maple"/>
-                  <rect x="0" y="100" width="90" height="45" class="sp-maple"/>
-                  <rect x="0" y="150" width="90" height="45" class="sp-maple"/>
-                  <rect x="0" y="200" width="90" height="45" class="sp-walnut"/>
-                  <rect x="0" y="250" width="90" height="45" class="sp-walnut"/>
-                  <rect x="0" y="300" width="90" height="45" class="sp-walnut"/>
-                  <rect x="0" y="350" width="90" height="45" class="sp-walnut"/>
-                </g>
-                <g font-family="ui-monospace, monospace" font-size="12" fill="#1a1a1a" stroke="none" text-anchor="middle">
-                  <text x="50" y="29">0</text>
-                  <text x="50" y="79" fill="#f8f2e0">1</text>
-                  <text x="50" y="129">2</text>
-                  <text x="50" y="179" fill="#f8f2e0">3</text>
-                  <text x="50" y="229" fill="#f2efe8">4</text>
-                  <text x="50" y="279" fill="#f2efe8">5</text>
-                  <text x="50" y="329" fill="#f2efe8">6</text>
-                  <text x="50" y="379" fill="#f2efe8">7</text>
-                </g>
-              </g>
-            </svg>
-          </div>
-          <p class="meta">indices 0 … 7</p>
-        </article>
-
-        <!-- Operation: flip glyphs on alternate slices -->
-        <article class="tile t-grow">
-          <header>
-            <h4>Operation: Arrange</h4>
-            <p class="t-sub">flipAlternate · ↻ 180° on 1 / 3 / 5 / 7</p>
-          </header>
-          <div class="render">
-            <svg class="fit" viewBox="0 0 100 400" preserveAspectRatio="xMidYMid meet">
-              <g stroke="#00000022" stroke-width="0.5" vector-effect="non-scaling-stroke">
-                <rect x="0" y="0"   width="100" height="50" class="sp-maple"/>
-                <rect x="0" y="50"  width="100" height="50" class="sp-maple"/>
-                <rect x="0" y="100" width="100" height="50" class="sp-maple"/>
-                <rect x="0" y="150" width="100" height="50" class="sp-maple"/>
-                <rect x="0" y="200" width="100" height="50" class="sp-walnut"/>
-                <rect x="0" y="250" width="100" height="50" class="sp-walnut"/>
-                <rect x="0" y="300" width="100" height="50" class="sp-walnut"/>
-                <rect x="0" y="350" width="100" height="50" class="sp-walnut"/>
-              </g>
-              <g font-family="system-ui" font-size="18" font-weight="700" text-anchor="middle"
-                 fill="#1a1a1a" stroke="#fafaf7" stroke-width="4" paint-order="stroke">
-                <text x="50" y="82">↻</text>
-                <text x="50" y="182">↻</text>
-                <text x="50" y="282">↻</text>
-                <text x="50" y="382">↻</text>
-              </g>
-            </svg>
-          </div>
-          <p class="meta">applied: 4 flips · 0 spacers</p>
-        </article>
-
-        <!-- Output: assembled panel in 3D -->
-        <article class="tile t-3d">
-          <header>
-            <h4>Output</h4>
-            <p class="t-sub">assembled · 700 × 50 × 400 mm</p>
-          </header>
-          <div class="render dark">
-            <div class="viewport3d">
-              <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet">
-                <g transform="translate(60,60)">
-                  <!-- Stripes alternating orientation -->
-                  <polygon points="0,0 220,-10 260,10 40,20" fill="#e8d2a1" stroke="#00000044"/>
-                  <polygon points="40,20 260,10 220,34 0,48" fill="#c7b07a" stroke="#00000044"/>
-
-                  <g transform="translate(0,50)">
-                    <polygon points="0,0 220,-10 260,10 40,20" fill="#bfa074" stroke="#00000044"/>
-                    <polygon points="40,20 260,10 220,34 0,48" fill="#8a6b44" stroke="#00000044"/>
-                  </g>
-                  <g transform="translate(0,100)">
-                    <polygon points="0,0 220,-10 260,10 40,20" fill="#e8d2a1" stroke="#00000044"/>
-                    <polygon points="40,20 260,10 220,34 0,48" fill="#c7b07a" stroke="#00000044"/>
-                  </g>
-                  <g transform="translate(0,150)">
-                    <polygon points="0,0 220,-10 260,10 40,20" fill="#8a6b44" stroke="#00000044"/>
-                    <polygon points="40,20 260,10 220,34 0,48" fill="#5d4037" stroke="#00000044"/>
-                  </g>
-                </g>
-              </svg>
-              <div class="home-btn">⌂</div>
-              <div class="gizmo">X · Y · Z</div>
-            </div>
-          </div>
-          <p class="meta">32 volumes · flipAlternate checker</p>
-        </article>
-
-      </div>
-    </article>
-
-    <div class="insert"><button>+ insert feature here</button></div>
-
-    <!-- ============== TRIM ROW (hero) ============== -->
-    <article class="row hero">
-      <div class="row-header">
-        <h3>Trim</h3>
-        <span class="rh-sub">flush · 688 × 400 mm · <span style="color:#d89a3c;">warning: non-convex upstream hull</span></span>
-        <span class="rh-menu">⋮</span>
-      </div>
-      <div class="tile-row">
-
-        <!-- Input: assembled panel outline -->
-        <article class="tile t-narrow">
-          <header>
-            <h4>Input</h4>
-            <p class="t-sub">panel from Arrange</p>
-          </header>
-          <div class="render">
-            <svg class="fit" viewBox="0 0 700 400" preserveAspectRatio="xMidYMid meet">
-              <rect x="0" y="0" width="700" height="400" fill="#fafaf7" stroke="#00000033" stroke-width="0.5"/>
-              <!-- suggest interior species variation -->
-              <rect x="0"   y="0" width="100" height="400" class="sp-maple"/>
-              <rect x="100" y="0" width="100" height="400" class="sp-walnut"/>
-              <rect x="200" y="0" width="100" height="400" class="sp-maple"/>
-              <rect x="300" y="0" width="100" height="400" class="sp-walnut"/>
-              <rect x="400" y="0" width="100" height="400" class="sp-maple"/>
-              <rect x="500" y="0" width="100" height="400" class="sp-walnut"/>
-              <rect x="600" y="0" width="100" height="400" class="sp-maple"/>
-            </svg>
-          </div>
-          <p class="meta">700 × 50 × 400 mm</p>
-        </article>
-
-        <!-- Operation: dashed trim box -->
-        <article class="tile t-grow">
-          <header>
-            <h4>Operation: Trim</h4>
-            <p class="t-sub">flush · inscribed rectangle</p>
-          </header>
-          <div class="render">
-            <svg class="fit" viewBox="0 0 700 400" preserveAspectRatio="xMidYMid meet">
-              <rect x="0" y="0" width="700" height="400" fill="#fafaf7" stroke="#00000033" stroke-width="0.5"/>
-              <!-- Dimmed overlay path: outer bbox - inner trim rect (evenodd) -->
-              <path d="M 0 0 L 700 0 L 700 400 L 0 400 Z M 6 0 L 6 400 L 694 400 L 694 0 Z" fill="#0000000d" fill-rule="evenodd"/>
-              <rect x="6" y="0" width="688" height="400" fill="none" stroke="#1a1a1a" stroke-width="1.2" stroke-dasharray="8 5" vector-effect="non-scaling-stroke"/>
-            </svg>
-          </div>
-          <p class="meta">trimming 4800 mm² from non-flush edges</p>
-        </article>
-
-        <!-- Output: the HERO view — the final panel -->
-        <article class="tile t-3d">
-          <header>
-            <h4>Output · Final</h4>
-            <p class="t-sub">688 × 50 × 400 mm</p>
-          </header>
-          <div class="render dark">
-            <div class="viewport3d">
-              <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet">
-                <g transform="translate(30,50)">
-                  <!-- Wider, more detailed 3D representation -->
-                  <g>
-                    <polygon points="0,0 330,-30 340,-20 10,10" fill="#e8d2a1" stroke="#00000055"/>
-                    <polygon points="10,10 340,-20 340,-10 20,20" fill="#c7b07a" stroke="#00000055"/>
-                    <polygon points="20,20 340,-10 340,5 30,35" fill="#a08652" stroke="#00000055"/>
-                    <polygon points="30,35 340,5 340,20 40,50" fill="#8a6b44" stroke="#00000055"/>
-                    <polygon points="40,50 340,20 340,35 50,65" fill="#5d4037" stroke="#00000055"/>
-                  </g>
-                  <!-- Side face suggestion -->
-                  <g>
-                    <polygon points="340,-20 360,-15 360,40 340,35" fill="#3a3026" stroke="#00000055"/>
-                    <polygon points="50,65 360,40 360,55 50,85" fill="#4a3a2a" stroke="#00000055"/>
-                  </g>
-                </g>
-              </svg>
-              <div class="home-btn">⌂</div>
-              <div class="gizmo">X · Y · Z</div>
-            </div>
-          </div>
-          <p class="meta">final panel · orbit to inspect end-grain pattern</p>
-        </article>
-
-      </div>
-    </article>
+    </div>
 
   </main>
-
 </div>
 
 </body>
