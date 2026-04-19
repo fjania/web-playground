@@ -600,7 +600,9 @@ function setupViewport(
   const gizmoCamera = new OrthographicCamera(-1.5, 1.5, 1.5, -1.5, 0.1, 100);
   const GIZMO_CAMERA_DISTANCE = 3;
   const GIZMO_PX = 72;
-  const GIZMO_MARGIN = 10;
+  const GIZMO_MARGIN_RIGHT = 8;
+  // Leave room above for the home button (22px button + 8 top + 8 gap).
+  const GIZMO_MARGIN_TOP = 38;
 
   let alive = true;
   function tick(): void {
@@ -623,8 +625,8 @@ function setupViewport(
       .set(0, 0, GIZMO_CAMERA_DISTANCE)
       .applyQuaternion(gizmoCamera.quaternion);
     gizmoCamera.updateMatrixWorld();
-    const gx = w - GIZMO_PX - GIZMO_MARGIN;
-    const gy = h - GIZMO_PX - GIZMO_MARGIN;
+    const gx = w - GIZMO_PX - GIZMO_MARGIN_RIGHT;
+    const gy = h - GIZMO_PX - GIZMO_MARGIN_TOP;
     renderer.setViewport(gx, gy, GIZMO_PX, GIZMO_PX);
     renderer.setScissor(gx, gy, GIZMO_PX, GIZMO_PX);
     renderer.setScissorTest(true);
@@ -671,13 +673,13 @@ function buildHomeButton(): HTMLButtonElement {
   btn.title = 'Reset view to top-down';
   Object.assign(btn.style, {
     position: 'absolute',
-    top: '92px', // below 72px gizmo + 10px gizmo margin + 10px gap
-    right: '10px',
-    width: '32px',
-    height: '32px',
+    top: '8px',
+    right: '8px',
+    width: '22px',
+    height: '22px',
     padding: '0',
     border: '1px solid rgba(255,255,255,0.25)',
-    borderRadius: '4px',
+    borderRadius: '3px',
     background: 'rgba(255,255,255,0.1)',
     color: '#f0ece6',
     cursor: 'pointer',
@@ -690,7 +692,7 @@ function buildHomeButton(): HTMLButtonElement {
     zIndex: '2',
   } as CSSStyleDeclaration);
   btn.innerHTML =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" ` +
     `viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
     `stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
     `<path d="M3 12 L12 3 L21 12"/>` +
