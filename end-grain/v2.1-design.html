@@ -857,7 +857,7 @@
 <pre><code>end-grain/
   3d-experiment.html       # original; untouched
   3d.html                  # current Svelte app; untouched during build
-  3d-v2.html               # new entry; grows through the sequence
+  3d-cut.html               # new entry; grows through the sequence
   v2-design.html           # original design doc
   v2.1-design.html         # this document (revision)
   src/
@@ -1118,7 +1118,7 @@ interface PipelineStep {
 <div class="workflow">
   <h4>9.1 — Build a starting panel</h4>
   <ol>
-    <li>Open <code>/end-grain/3d-v2.html</code>. The default timeline contains <code>ComposeStrips</code> + <code>Cut</code> + <code>Arrange</code>.</li>
+    <li>Open <code>/end-grain/3d-cut.html</code>. The default timeline contains <code>ComposeStrips</code> + <code>Cut</code> + <code>Arrange</code>.</li>
     <li>Set per-species widths in the catalog. Click <code>+</code> next to any species to append a strip. Panel widens.</li>
     <li>Drag strips along X in the panel tile to reorder. Release commits.</li>
     <li>Right-click a strip to remove it.</li>
@@ -1260,7 +1260,7 @@ interface PipelineStep {
     <tr><td>v2.1</td><td>Feature types (full set: ComposeStrips, Cut, Arrange, PlaceEdit, Preset, SpacerInsert) + <code>defaultTimeline()</code> + unit tests. Status on every feature. PlaceEdit op union with <code>rotate(90|180|270)</code>. <code>contributingStripIds</code> on target from day one. <span class="changed-tag">updated</span></td><td><a href="https://github.com/fjania/web-playground/issues/19" class="issue">#19</a></td></tr>
     <tr><td>v2.2</td><td>Pipeline.run() with cursor-slide algorithm. Fixes miter bug at algorithm level. Tests assert flush reassembly. Runs headless in Node.</td><td><a href="https://github.com/fjania/web-playground/issues/20" class="issue">#20</a></td></tr>
     <tr><td>v2.3a</td><td>2D top-down summary renderer. Pure function <code>summarize(panel, edits?, spacers?) → SVG</code>. No Three.js. Snapshot-tested. <span class="new-tag">new</span></td><td><span class="issue">#NEW</span></td></tr>
-    <tr><td>v2.3b</td><td>Bootstrap <code>3d-v2.html</code>. Final-output tile as 3D viewport; other stages as 2D summaries. Miter-fix visible on screen.</td><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">#21</a></td></tr>
+    <tr><td>v2.3b</td><td>Bootstrap <code>3d-cut.html</code>. Final-output tile as 3D viewport; other stages as 2D summaries. Miter-fix visible on screen.</td><td><a href="https://github.com/fjania/web-playground/issues/21" class="issue">#21</a></td></tr>
     <tr><td>v2.4</td><td>Debug inspector panel — live timeline + pipeline trace.</td><td><a href="https://github.com/fjania/web-playground/issues/22" class="issue">#22</a></td></tr>
     <tr><td>v2.5</td><td>Species catalog + strip drag-reorder + right-click remove.</td><td><a href="https://github.com/fjania/web-playground/issues/23" class="issue">#23</a></td></tr>
     <tr><td>v2.6</td><td>Cut controls + quick-view camera buttons.</td><td><a href="https://github.com/fjania/web-playground/issues/24" class="issue">#24</a></td></tr>

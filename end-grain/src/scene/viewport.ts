@@ -10,7 +10,7 @@
  * a `dispose()` that tears everything down.
  *
  * Keeping this module free of feature-specific logic means each
- * focused harness (3d-v2.html for Cut, 3d-v2-arrange.html for
+ * focused harness (3d-cut.html for Cut, 3d-arrange.html for
  * Arrange, …) can reuse the whole 3D stack — and the main canvas
  * inherits every interaction improvement whenever #31's
  * selection-driven rebinding lands.

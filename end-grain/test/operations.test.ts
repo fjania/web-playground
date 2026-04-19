@@ -1,5 +1,5 @@
 /**
- * Tests for the operation-view renderers in src/v2/render/operations.ts.
+ * Tests for the operation-view renderers in src/render/operations.ts.
  *
  * These are snapshot-as-truth renderers — they read ArrangeResult /
  * CutResult / PanelSnapshot outputs and emit SVG overlays. The tests

@@ -3,7 +3,7 @@
  *
  * Pure read-only view over the current Feature timeline and the
  * most recent PipelineOutput. Mounted into the right-side
- * `<aside id="inspector">` of 3d-v2.html.
+ * `<aside id="inspector">` of 3d-cut.html.
  *
  * Scope (issue #22):
  *   - Timeline section: one row per Feature (kind, id, params, status).

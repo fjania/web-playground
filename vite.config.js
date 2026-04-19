@@ -19,11 +19,10 @@ export default defineConfig({
         'viewmaster-large': 'viewmaster/large.html',
         'cubewise': 'cubewise/index.html',
         'end-grain': 'end-grain/index.html',
-        'end-grain-3d': 'end-grain/3d.html',
-        'end-grain-3d-v2': 'end-grain/3d-v2.html',
-        'end-grain-3d-v2-arrange': 'end-grain/3d-v2-arrange.html',
-        'end-grain-3d-v2-trim': 'end-grain/3d-v2-trim.html',
-        'end-grain-3d-v2-compose': 'end-grain/3d-v2-compose.html',
+        'end-grain-3d-compose': 'end-grain/3d-compose.html',
+        'end-grain-3d-cut': 'end-grain/3d-cut.html',
+        'end-grain-3d-arrange': 'end-grain/3d-arrange.html',
+        'end-grain-3d-trim': 'end-grain/3d-trim.html',
       }
     }
   }

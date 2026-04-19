@@ -1,16 +1,114 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>End Grain / Cutting Board Designer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>End-grain — focused harnesses</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #fafaf7; color: #222; }
+    body { padding: 2rem 2.5rem; max-width: 900px; margin: 0 auto; }
+    h1 { margin: 0 0 0.25rem; font-size: 1.3rem; font-weight: 600; }
+    .subtitle { margin: 0 0 1.75rem; color: #888; font-size: 0.9rem; }
+    .pipeline {
+      display: flex;
+      gap: 0.75rem;
+      margin: 0 0 2rem;
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+    .harness {
+      flex: 1 1 180px;
+      background: #fff;
+      border: 1px solid #e4e4e0;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      text-decoration: none;
+      color: #222;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      transition: background 140ms ease, box-shadow 140ms ease;
+    }
+    .harness:hover {
+      background: #fff8ec;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .harness h2 { margin: 0; font-size: 0.95rem; font-weight: 600; }
+    .harness p { margin: 0; font-size: 0.78rem; color: #666; line-height: 1.4; }
+    .arrow {
+      align-self: center;
+      color: #c8c5be;
+      font-size: 1.1rem;
+      user-select: none;
+    }
+    section { margin: 2.25rem 0; }
+    section h2 {
+      margin: 0 0 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+    }
+    ul { margin: 0; padding: 0 0 0 1.1rem; font-size: 0.85rem; line-height: 1.6; }
+    ul a { color: #5b4a2e; text-decoration: none; }
+    ul a:hover { text-decoration: underline; }
+    .intro { font-size: 0.85rem; line-height: 1.55; color: #444; margin: 0 0 1.5rem; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      background: #f6f5f1;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+  </style>
 </head>
 <body>
-<div id="app"></div>
-<script type="module" src="main.jsx"></script>
+  <h1>End-grain</h1>
+  <p class="subtitle">Interactive exploration of cutting-board design operations.</p>
+  <p class="intro">
+    Each operation has a <strong>focused harness</strong> — a constrained page that isolates one
+    step of the pipeline so we can iterate on its math, rendering, and UI in
+    isolation. The four harnesses below cover the full panel-producing
+    pipeline. Read them in pipeline order.
+  </p>
+
+  <div class="pipeline" aria-label="Pipeline harness list">
+    <a class="harness" href="./3d-compose.html">
+      <h2>Compose</h2>
+      <p>Strips → panel. Interactive inventory + drag-to-reorder.</p>
+    </a>
+    <span class="arrow" aria-hidden="true">→</span>
+    <a class="harness" href="./3d-cut.html">
+      <h2>Cut</h2>
+      <p>Panel → slices. Rip + bevel + pitch / slice-count.</p>
+    </a>
+    <span class="arrow" aria-hidden="true">→</span>
+    <a class="harness" href="./3d-arrange.html">
+      <h2>Arrange</h2>
+      <p>Slices → panel. PlaceEdits, presets, spacers.</p>
+    </a>
+    <span class="arrow" aria-hidden="true">→</span>
+    <a class="harness" href="./3d-trim.html">
+      <h2>Trim</h2>
+      <p>Panel → panel. Flush / rectangle / bbox modes.</p>
+    </a>
+  </div>
+
+  <section>
+    <h2>Design &amp; reference</h2>
+    <ul>
+      <li><a href="./v2.1-design.html">v2.1 design reference</a> — canonical feature-timeline + snapshot-is-truth writeup.</li>
+      <li><a href="./v2.1-checkerboard.html">Checkerboard walk-through</a> — worked example through Compose → Cut → Arrange.</li>
+      <li><a href="./v2.1-brick.html">Brick walk-through</a> — worked example with offset layout.</li>
+      <li><a href="./OPERATION_HARNESS.md">OPERATION_HARNESS.md</a> — why focused harnesses exist + recipe for adding one.</li>
+    </ul>
+  </section>
 </body>
 </html>

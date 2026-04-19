@@ -22,7 +22,7 @@
  * work lives in the harness + UI modules.
  *
  * URL params are SEED ONLY. Edits in the tiles do not write back to
- * the URL. See 3d-v2-compose.html's sidebar for the param reference.
+ * the URL. See 3d-compose.html's sidebar for the param reference.
  *
  * Snapshot-is-truth invariant: the Output tile builds its 3D mesh
  * from the `livePanels[compose-0]` Panel surfaced under

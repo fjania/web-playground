@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>End-grain v2 — Arrange harness</title>
+  <title>End-grain v2 — TrimPanel harness</title>
   <style>
     :root {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -34,6 +34,15 @@
       margin: 0;
       font-size: 0.8rem;
       color: #888;
+    }
+    body > header nav {
+      margin-left: auto;
+      font-size: 0.75rem;
+    }
+    body > header nav a {
+      color: #666;
+      text-decoration: none;
+      margin-left: 1rem;
     }
     .layout {
       flex: 1;
@@ -218,64 +227,85 @@
 </head>
 <body>
   <header>
-    <h1>End-grain v2 — Arrange harness</h1>
-    <p class="subtitle">focused I/X/O for Arrange · <code>3d-v2-arrange.html</code></p>
+    <h1>End-grain v2 — TrimPanel harness</h1>
+    <p class="subtitle">focused I/X/O for TrimPanel · <code>3d-trim.html</code></p>
     <nav style="margin-left: auto; font-size: 0.75rem;">
-      <a href="./3d-v2.html" style="color: #666; text-decoration: none;">← Cut harness</a>
+      <a href="./3d-compose.html" style="color: #666; text-decoration: none; margin-left: 0.75rem;">Compose</a>
+      <a href="./3d-cut.html" style="color: #666; text-decoration: none; margin-left: 0.75rem;">Cut</a>
+      <a href="./3d-arrange.html" style="color: #666; text-decoration: none; margin-left: 0.75rem;">Arrange</a>
     </nav>
   </header>
   <section class="description" aria-label="Operation description">
-    <h2>Testing: Arrange — reassemble cut slices into a single panel</h2>
+    <h2>Testing: TrimPanel — crop to a clean rectangle</h2>
     <p>
-      <strong>Arrange</strong> takes the slices produced by an upstream Cut,
-      optionally applies per-slice <strong>PlaceEdits</strong>
-      (<code>rotate</code>, <code>shift</code>, <code>reorder</code>) and
-      <strong>SpacerInserts</strong> between slices, then stitches the
-      result back into a single panel via cursor-slide concatenation.
-      Presets (e.g. <code>flipAlternate</code>, <code>rotate4way</code>)
-      are persistent features that expand into PlaceEdits / SpacerInserts
-      at pipeline time.
+      <strong>TrimPanel</strong> crops the upstream panel to an
+      axis-aligned rectangle. It's first-class (appears in the
+      timeline like any other feature, can run mid-pipeline, changes
+      physical geometry that downstream features see). Three modes:
     </p>
+    <ul>
+      <li><strong><code>flush</code></strong> (default) — largest
+        axis-aligned rectangle inscribed in the panel's top-face
+        outline. Shaves triangular overhangs from a rip-angled
+        glue-up while leaving the top fully covered.</li>
+      <li><strong><code>rectangle</code></strong> — same rectangle
+        but inscribed inside the INTERSECTION of top and bottom
+        faces. At bevel &ne; 90° top and bottom footprints differ;
+        this mode keeps trim cuts perpendicular to the panel
+        surface at every y. Identical to <code>flush</code> at
+        bevel = 90°.</li>
+      <li><strong><code>bbox</code></strong> — user-specified bounds
+        <code>?bounds=xMin,xMax,zMin,zMax</code>. Omitted fields
+        fall back to the panel's current bbox. Requests outside the
+        panel clamp with <code>status=warning</code>.</li>
+    </ul>
     <p>
-      All knobs drive via URL params — see the sidebar for the full
-      reference. Example: <code>?slices=8&amp;preset=flipAlternate</code>
-      for a 2×8 checker,
-      <code>?flip=1,3&amp;spacer=1&amp;spacerWidth=10</code>
-      for two flipped slices with a walnut spacer between slice 1 and slice 2.
+      Upstream: the harness runs a <code>compose → cut → arrange</code>
+      triple with URL-tunable parameters (rip, bevel, slices, preset),
+      then appends the TrimPanel. Example:
+      <code>?rip=30&amp;slices=6&amp;preset=flipAlternate&amp;mode=flush</code>.
     </p>
     <p>Expected in each tile:</p>
     <ul>
-      <li><strong>Input</strong> — the N slices flowing in from the upstream Cut, rendered top-down with gaps between each. Each slice is labelled with its index (<code>0..N-1</code>) so you can address it in <code>?flip=</code> / <code>?shift=</code> / <code>?spacer=</code> params.</li>
-      <li><strong>Operation</strong> — the reassembled panel with overlays showing what Arrange did: <code>↻</code> at each flipped slice's centroid (<code>↻90°</code>, <code>↻270°</code> for non-flip rotations), <code>⇢ ±Δ</code> for shifts, <code>#N</code> for reorders, and diagonal hatching on any inserted spacer volumes.</li>
-      <li><strong>Output</strong> — the assembled panel in 3D. Free orbit, home button, XYZ axis gizmo in the upper-right. The panel's bbox reflects the final size including spacer additions.</li>
+      <li><strong>Input</strong> — the upstream Arrange's reassembled
+        panel, top-down. At rip &gt; 0 this is a parallelogram with
+        triangular overhangs; at bevel &lt; 90° the outline is still
+        a rectangle from above but the top and bottom faces differ.</li>
+      <li><strong>Operation</strong> — the same panel with a dashed
+        rectangle showing the imminent trim bounds and a dimmed
+        overlay on the material about to be discarded (annular fill:
+        panel bbox minus trim rect).</li>
+      <li><strong>Output</strong> — the trimmed panel in 3D. Free
+        orbit, home button, XYZ axis gizmo. The bbox matches
+        <code>appliedBounds</code> exactly.</li>
     </ul>
   </section>
   <div class="layout">
   <main id="tiles">
-    <article class="tile tile--2d" data-stage="cut-0" data-role="input">
+    <article class="tile tile--2d" data-stage="arrange-0" data-role="input">
       <header>
         <h2>Input</h2>
-        <p class="subtitle">cut-0 · slices flowing into arrange</p>
+        <p class="subtitle">arrange-0 · panel flowing into trim</p>
       </header>
       <div class="render" data-slot="render">
         <div class="placeholder">input pending</div>
       </div>
       <div class="meta" data-slot="meta"></div>
     </article>
-    <article class="tile tile--2d" data-stage="arrange-0-op" data-role="operation">
+    <article class="tile tile--2d" data-stage="trim-0-op" data-role="operation">
       <header>
-        <h2>Operation: Arrange</h2>
-        <p class="subtitle">arrange-0 · edits + spacers</p>
+        <h2>Operation: TrimPanel</h2>
+        <p class="subtitle">trim-0 · trim rect + discard overlay</p>
       </header>
       <div class="render" data-slot="render">
         <div class="placeholder">operation diagram pending</div>
       </div>
       <div class="meta" data-slot="meta"></div>
     </article>
-    <article class="tile tile--3d" data-stage="arrange-0" data-role="output">
+    <article class="tile tile--3d" data-stage="trim-0" data-role="output">
       <header>
         <h2>Output</h2>
-        <p class="subtitle">reassembled panel · 3D viewport</p>
+        <p class="subtitle">trimmed panel · 3D viewport</p>
       </header>
       <div class="render" data-slot="render">
         <div class="placeholder">3D viewport pending</div>
@@ -285,54 +315,51 @@
   </main>
   <aside id="inspector" aria-label="Harness help">
     <header>
-      <h2>Arrange harness</h2>
+      <h2>TrimPanel harness</h2>
     </header>
     <div class="inspector-body">
       <section>
         <h3>URL parameters</h3>
-        <div class="hint">Upstream Cut
-  <code>?slices=4</code>   how many slices to feed in (default 4)
-  <code>?rip=30</code>     rip angle in degrees (default 0)
-  <code>?bevel=60</code>   bevel angle 45..90 (default 90)
+        <div class="hint">Trim parameters
+  <code>?mode=flush</code>      (default) largest inscribed rect
+                    in the panel's top-face outline
+  <code>?mode=rectangle</code>  intersect top + bottom footprints
+                    (matters at bevel != 90°)
+  <code>?mode=bbox</code>       user-supplied bounds — omit fields
+                    to inherit the panel's extent on that axis
+  <code>?bounds=-40,40,-150,150</code>
+                    xMin,xMax,zMin,zMax (mm) for bbox mode.
+                    Use <code>_</code> for omitted fields:
+                    <code>?bounds=-40,40,_,_</code> trims X only.
 
-Per-slice edits
-  <code>?flip=1,3</code>   rotate 180° on these slice indices
-  <code>?shift=1:25</code> shift slice 1 by 25 mm along X
-                 (multiple: <code>?shift=1:25,3:-10</code>)
-  <code>?rotate=1:37</code>  free-angle Y rotation (any degrees)
-                 e.g. <code>?rotate=0:15,2:-25</code>
-                 Caveat: mating breaks at non-90/180/270 angles —
-                 the rotated slice's cut faces no longer lie on
-                 the same plane family as its neighbours, so
-                 there'll be visible gaps. Useful for exploration,
-                 not for producing buildable panels.
-  <code>?reorder=2:0</code>   move slice at current position 2 to
-                 position 0. Chain with comma; each move is applied
-                 in order so later moves see the already-reordered
-                 sequence (like dragging slices one at a time).
-                 Example: <code>?reorder=2:0,3:1</code>
+Upstream Cut (same as the Cut harness)
+  <code>?rip=30</code>      rip angle in degrees (default 0)
+  <code>?bevel=60</code>    bevel angle 45..90 (default 90)
+  <code>?slices=6</code>    how many slices to cut (default 6)
 
-Spacers (between slices)
-  <code>?spacer=1</code>   insert a 5 mm walnut spacer
-                 after slice 1 (multiple comma-separated)
-  <code>?spacerWidth=10</code>  width in mm
-  <code>?spacerSpecies=maple</code>  species
-
-Presets (expand into edits/spacers at pipeline time)
+Upstream Arrange (same as the Arrange harness)
+  <code>?flip=1,3</code>    rotate 180° on these slice indices
+  <code>?spacer=1,3</code>  insert spacers after these indices
+  <code>?spacerWidth=10</code>   width in mm (default 5)
+  <code>?spacerSpecies=maple</code>  species (default walnut)
   <code>?preset=flipAlternate</code>
-  <code>?preset=rotateAlternate:90</code>   (90|180|270)
-  <code>?preset=mirrorAlternate</code>
-  <code>?preset=rotate4way</code>
-  <code>?preset=shiftAlternate:25</code>    (shift mm)
-  <code>?preset=spacerEveryRow:6</code>      (width mm)
-  <code>?preset=spacerEveryRow:6:maple</code>
-  Multiple: <code>?preset=flipAlternate,spacerEveryRow:5</code>
+  <code>?preset=spacerEveryRow:6</code>
+  Multiple presets: <code>?preset=flipAlternate,spacerEveryRow:5</code>
 
-Example
-  <code>?slices=4&amp;flip=1,3&amp;spacer=1</code>
-  <code>?slices=8&amp;preset=flipAlternate</code>
-  <code>?slices=8&amp;preset=rotate4way</code>
+Examples
+  Default flush trim on an angled glue-up:
+    <code>?rip=30&amp;slices=6</code>
+  Trim to a specific size:
+    <code>?mode=bbox&amp;bounds=-40,40,-150,150</code>
+  Bevel + rectangle mode:
+    <code>?bevel=60&amp;slices=6&amp;mode=rectangle</code>
+  Arrange pattern + flush trim:
+    <code>?rip=30&amp;slices=8&amp;preset=flipAlternate,spacerEveryRow:5</code>
         </div>
+      </section>
+      <section>
+        <h3>Applied bounds</h3>
+        <div data-slot="applied-bounds" class="hint">bounds pending</div>
       </section>
       <section>
         <h3>Pipeline trace</h3>
@@ -341,6 +368,6 @@ Example
     </div>
   </aside>
   </div>
-  <script type="module" src="./src/main-arrange.ts"></script>
+  <script type="module" src="./src/main-trim.ts"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@
  * Output tile — it builds a 3D mesh from the trimmed live Panel
  * surfaced under `preserveLive`.
  *
- * URL params supported — see 3d-v2-trim.html's sidebar for the
+ * URL params supported — see 3d-trim.html's sidebar for the
  * full reference.
  */
 
