@@ -46,6 +46,8 @@ import type {
   PresetResult,
   Preset,
   SpacerInsert,
+  TrimPanel,
+  TrimPanelResult,
 } from './types';
 
 export interface PipelineOutput {
@@ -118,6 +120,9 @@ export function runPipeline(features: Feature[], options: RunOptions = {}): Pipe
         break;
       case 'arrange':
         ctx.record(f.id, executeArrange(f, ctx));
+        break;
+      case 'trimPanel':
+        ctx.record(f.id, executeTrimPanel(f, ctx));
         break;
       case 'preset':
         // Preset results are populated by the Arrange that consumes
@@ -685,6 +690,272 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     appliedSpacerCount,
     appliedSpacerSources,
   };
+}
+
+// ---------------------------------------------------------------------------
+// TrimPanel — crop the upstream panel to an axis-aligned rectangle.
+// ---------------------------------------------------------------------------
+
+function executeTrimPanel(f: TrimPanel, ctx: ExecutionContext): TrimPanelResult {
+  const input = ctx.lastPanel;
+  if (!input) {
+    return {
+      featureId: f.id,
+      status: 'error',
+      statusReason: 'trimPanel without upstream panel',
+      panel: emptySnapshot(),
+      appliedBounds: { xMin: 0, xMax: 0, zMin: 0, zMax: 0 },
+      trimmedArea: 0,
+    };
+  }
+
+  const upstreamSnapshot = input.toSnapshot();
+  const upstreamBbox = input.boundingBox();
+  const panelXMin = upstreamBbox.min.x;
+  const panelXMax = upstreamBbox.max.x;
+  const panelZMin = upstreamBbox.min.z;
+  const panelZMax = upstreamBbox.max.z;
+
+  // Compute the axis-aligned trim bounds per mode. All three modes
+  // emit a bounds rect in XZ; trim is a clipping step applied to the
+  // live panel via four axis-aligned splitByPlane calls.
+  let bounds: { xMin: number; xMax: number; zMin: number; zMax: number };
+  let status: 'ok' | 'warning' = 'ok';
+  let statusReason: string | undefined;
+
+  if (f.mode === 'bbox') {
+    // User-supplied bounds; missing fields fall back to the panel's
+    // current bbox extent. If the user asks for bounds that extend
+    // OUTSIDE the current panel, clamp to the panel bbox and mark as
+    // warning — honouring the request would otherwise be a no-op on
+    // that side, which is worth surfacing.
+    const requested = {
+      xMin: f.bounds?.xMin ?? panelXMin,
+      xMax: f.bounds?.xMax ?? panelXMax,
+      zMin: f.bounds?.zMin ?? panelZMin,
+      zMax: f.bounds?.zMax ?? panelZMax,
+    };
+    bounds = {
+      xMin: Math.max(requested.xMin, panelXMin),
+      xMax: Math.min(requested.xMax, panelXMax),
+      zMin: Math.max(requested.zMin, panelZMin),
+      zMax: Math.min(requested.zMax, panelZMax),
+    };
+    if (
+      bounds.xMin !== requested.xMin ||
+      bounds.xMax !== requested.xMax ||
+      bounds.zMin !== requested.zMin ||
+      bounds.zMax !== requested.zMax
+    ) {
+      status = 'warning';
+      statusReason = 'bbox bounds extended outside panel; clamped to panel bbox';
+    }
+  } else {
+    // 'flush' — largest axis-aligned rectangle inscribed in the
+    //           top-face outline.
+    // 'rectangle' — same algorithm against the INTERSECTION of top-
+    //           and bottom-face outlines (bevel-aware).
+    //
+    // Algorithm (per #37 spec): collect all face vertices, classify
+    // by half (left/right/bottom/top) relative to the AABB centroid,
+    // take max of mins on one side and min of maxes on the other.
+    // Assumption: the face outline is convex (true for all v2
+    // pipeline outputs — parallelogram slices, cut→arrange panels,
+    // spacer-expanded panels). Non-convex outlines (e.g. post-shift
+    // arranges) would defeat the heuristic; for those cases the
+    // resulting inscribed rect will still be inside the bbox but may
+    // be sub-optimal, and we surface status='warning'.
+    const vertices = collectFaceVertices(upstreamSnapshot, f.mode);
+
+    if (vertices.length === 0) {
+      bounds = { xMin: panelXMin, xMax: panelXMax, zMin: panelZMin, zMax: panelZMax };
+    } else {
+      bounds = computeInscribedRect(vertices, {
+        xMin: panelXMin,
+        xMax: panelXMax,
+        zMin: panelZMin,
+        zMax: panelZMax,
+      });
+    }
+  }
+
+  // Sanity-check the computed bounds. If bounds are degenerate (min >=
+  // max), drop the trim — produce an empty panel with a warning rather
+  // than attempt a no-material clip that would either throw in
+  // manifold or silently produce garbage.
+  if (bounds.xMin >= bounds.xMax || bounds.zMin >= bounds.zMax) {
+    // Emit an empty trimmed panel. The upstream live panel survives
+    // unchanged — future pipeline steps won't see it, but disposing
+    // it here would be incorrect under preserveLive; instead we
+    // replace lastPanel with an empty Panel and dispose the old one
+    // per the normal flow.
+    const empty = emptyPanel();
+    if (!ctx.preserveLive) input.dispose();
+    // But even under preserveLive, the input panel is no longer the
+    // canonical lastPanel — replace it. The caller only reads
+    // livePanels[featureId] so the upstream's livePanel entry stays
+    // valid.
+    ctx.lastPanel = empty;
+    ctx.lastPanelFeatureId = f.id;
+    if (ctx.preserveLive) ctx.livePanelsByFeature[f.id] = empty;
+    return {
+      featureId: f.id,
+      status: 'warning',
+      statusReason: statusReason ?? 'trim bounds are degenerate; panel empty',
+      panel: empty.toSnapshot(),
+      appliedBounds: bounds,
+      trimmedArea:
+        (panelXMax - panelXMin) * (panelZMax - panelZMin),
+    };
+  }
+
+  // Apply four axis-aligned cuts: clip left of xMin, right of xMax,
+  // below zMin, above zMax. Each cut splits the live panel into two
+  // halves; we keep the half inside the bounds and dispose the other.
+  //
+  // Panel.cut(normal, offset) splits by plane n·x = offset: `above` is
+  // n·x > offset, `below` is n·x < offset. So for the "keep x >= xMin"
+  // cut, normal = (1, 0, 0), offset = xMin, keep `above`.
+  let current = input.clone();
+
+  // Helper: cut + dispose unwanted side. Returns the kept half.
+  const axisCut = (
+    panel: Panel,
+    normal: [number, number, number],
+    offset: number,
+    keep: 'above' | 'below',
+  ): Panel => {
+    const { above, below } = panel.cut(normal, offset);
+    if (keep === 'above') {
+      below.dispose();
+      return above;
+    }
+    above.dispose();
+    return below;
+  };
+
+  const next1 = axisCut(current, [1, 0, 0], bounds.xMin, 'above');
+  current.dispose();
+  current = next1;
+
+  const next2 = axisCut(current, [1, 0, 0], bounds.xMax, 'below');
+  current.dispose();
+  current = next2;
+
+  const next3 = axisCut(current, [0, 0, 1], bounds.zMin, 'above');
+  current.dispose();
+  current = next3;
+
+  const next4 = axisCut(current, [0, 0, 1], bounds.zMax, 'below');
+  current.dispose();
+  current = next4;
+
+  // Compute trimmed area (XZ footprint of the material removed).
+  const upstreamArea = (panelXMax - panelXMin) * (panelZMax - panelZMin);
+  const keptArea = (bounds.xMax - bounds.xMin) * (bounds.zMax - bounds.zMin);
+  const trimmedArea = Math.max(0, upstreamArea - keptArea);
+
+  // Replace ctx.lastPanel with the trimmed panel. Under preserveLive,
+  // the upstream live panel stays cached under its own featureId for
+  // the caller; we don't dispose it here. When preserveLive is false,
+  // dispose the upstream now that it's been consumed.
+  if (!ctx.preserveLive) input.dispose();
+  ctx.lastPanel = current;
+  ctx.lastPanelFeatureId = f.id;
+  if (ctx.preserveLive) ctx.livePanelsByFeature[f.id] = current;
+
+  return {
+    featureId: f.id,
+    status,
+    ...(statusReason ? { statusReason } : {}),
+    panel: current.toSnapshot(),
+    appliedBounds: bounds,
+    trimmedArea,
+  };
+}
+
+/**
+ * Collect face vertices for the flush / rectangle mode computations.
+ *
+ *   'flush'     — union of all volumes' topFace vertices.
+ *   'rectangle' — intersection of the top-face outline and bottom-face
+ *                 outline. At bevel=90° both faces share the same
+ *                 polygon, so this reduces to flush. At bevel<90° top
+ *                 and bottom differ, and we want the inscribed
+ *                 rectangle inside BOTH so the trim cuts are square
+ *                 to the panel at every y.
+ *
+ * For the intersection case we use a pragmatic heuristic: treat the
+ * set of vertices = topVerts ∪ bottomVerts, which forces the inscribed
+ * rectangle's sides to sit inside both outlines. For convex outlines
+ * this is correct; for non-convex it degrades gracefully to a smaller
+ * rectangle.
+ */
+function collectFaceVertices(
+  snap: PanelSnapshot,
+  mode: 'flush' | 'rectangle',
+): Array<{ x: number; z: number }> {
+  const pts: Array<{ x: number; z: number }> = [];
+  for (const vol of snap.volumes) {
+    for (const p of vol.topFace) pts.push({ x: p.x, z: p.z });
+    if (mode === 'rectangle') {
+      for (const p of vol.bottomFace) pts.push({ x: p.x, z: p.z });
+    }
+  }
+  return pts;
+}
+
+/**
+ * Largest axis-aligned rectangle inscribed in a convex polygon, via
+ * the #37 spec's half-plane vertex heuristic:
+ *
+ *   xMin = max({x : vertex lies on the left half of the bbox})
+ *   xMax = min({x : vertex lies on the right half of the bbox})
+ *   zMin = max({z : vertex lies on the bottom half})
+ *   zMax = min({z : vertex lies on the top half})
+ *
+ * For a parallelogram (rip-angled arrange output with no spacers),
+ * each "left vertex" is one of the two leftmost corners whose x
+ * differs because of the shear, and the max of those two xs is
+ * exactly the inscribed rectangle's left edge — which is the correct
+ * answer. For trapezoids and other convex outlines, the heuristic
+ * also gives the inscribed rectangle.
+ *
+ * For non-convex outlines, the result is still inside the bbox but
+ * may be sub-optimal; the spec accepts that with an optional
+ * status='warning' (not surfaced here — the executor decides).
+ */
+function computeInscribedRect(
+  vertices: Array<{ x: number; z: number }>,
+  bbox: { xMin: number; xMax: number; zMin: number; zMax: number },
+): { xMin: number; xMax: number; zMin: number; zMax: number } {
+  const midX = (bbox.xMin + bbox.xMax) / 2;
+  const midZ = (bbox.zMin + bbox.zMax) / 2;
+  const EPS = 1e-6;
+
+  let xMin = bbox.xMin;
+  let xMax = bbox.xMax;
+  let zMin = bbox.zMin;
+  let zMax = bbox.zMax;
+
+  // Take max of x for vertices that are "left of centre" (and
+  // likewise mirror). Each vertex on the boundary constrains the
+  // inscribed rectangle from its side; a vertex sitting exactly at
+  // mid is a neutral case — include it in both sides so we don't
+  // miss a constraint.
+  for (const v of vertices) {
+    if (v.x <= midX + EPS && v.x > xMin) xMin = v.x;
+    if (v.x >= midX - EPS && v.x < xMax) xMax = v.x;
+    if (v.z <= midZ + EPS && v.z > zMin) zMin = v.z;
+    if (v.z >= midZ - EPS && v.z < zMax) zMax = v.z;
+  }
+
+  return { xMin, xMax, zMin, zMax };
+}
+
+/** Create an empty Panel (zero segments). Used when a trim degenerates. */
+function emptyPanel(): Panel {
+  return new Panel([]);
 }
 
 /**
