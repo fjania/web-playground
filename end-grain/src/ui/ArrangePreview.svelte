@@ -97,18 +97,21 @@
     return { groups, nonSlice };
   });
 
-  /** viewBox direct from the panel snapshot's bbox — no recentring. */
+  /** viewBox direct from the panel snapshot's bbox — no recentring.
+   *  Axis swap: world Z → SVG X (length horizontal), world X → SVG Y
+   *  (width vertical). Matches `summarize()` and the Compose preview. */
   const viewBox = $derived.by(() => {
     const bb = state.arrangeResult.panel.bbox;
-    const x = bb.min[0];
-    const z = bb.min[2];
-    const w = bb.max[0] - bb.min[0];
-    const h = bb.max[2] - bb.min[2];
-    return { x, z, w, h };
+    const x = bb.min[2];
+    const y = bb.min[0];
+    const w = bb.max[2] - bb.min[2];
+    const h = bb.max[0] - bb.min[0];
+    return { x, y, w, h };
   });
 
   function polygonPoints(vol: Volume): string {
-    return vol.topFace.map((p) => `${fmt(p.x)},${fmt(p.z)}`).join(' ');
+    // Axis swap: (world x, z) → SVG (z, x).
+    return vol.topFace.map((p) => `${fmt(p.z)},${fmt(p.x)}`).join(' ');
   }
 
   function fmt(n: number): string {
@@ -149,35 +152,11 @@
     [...bucketed.groups.keys()].sort((a, b) => a - b),
   );
 
-  /** Tight axis-aligned bbox enclosing all of a slice's volumes in
-   *  world (x, z) coords. Used to draw a single selection-halo rect
-   *  per selected slice, so selection reads as one unit rather than
-   *  N individual strip outlines. */
-  interface SliceBBox {
-    x: number;
-    z: number;
-    w: number;
-    h: number;
-  }
-
-  function sliceBBox(vols: Volume[]): SliceBBox {
-    let minX = Infinity;
-    let minZ = Infinity;
-    let maxX = -Infinity;
-    let maxZ = -Infinity;
-    for (const v of vols) {
-      if (v.bbox.min[0] < minX) minX = v.bbox.min[0];
-      if (v.bbox.max[0] > maxX) maxX = v.bbox.max[0];
-      if (v.bbox.min[2] < minZ) minZ = v.bbox.min[2];
-      if (v.bbox.max[2] > maxZ) maxZ = v.bbox.max[2];
-    }
-    return { x: minX, z: minZ, w: maxX - minX, h: maxZ - minZ };
-  }
 </script>
 
 <svg
   class="arrange-preview"
-  viewBox="{viewBox.x} {viewBox.z} {viewBox.w} {viewBox.h}"
+  viewBox="{viewBox.x} {viewBox.y} {viewBox.w} {viewBox.h}"
   preserveAspectRatio="xMidYMid meet"
   xmlns="http://www.w3.org/2000/svg"
   onclick={onBackgroundClick}
@@ -258,34 +237,9 @@
     {/if}
   {/each}
 
-  <!-- Selection halos — one per selected slice, drawn on top of
-       everything else so they read as a single 'this whole slice is
-       selected' mark rather than N per-strip outlines. Pointer-events
-       disabled so clicks still land on the underlying slice-group.
-       A small horizontal padding pushes the vertical edges off the
-       slice's own side edges so the halo reads as a separate
-       element and the two sets of parallel lines don't co-alias. -->
-  {#each sortedSliceIdxs as sliceIdx (`halo-${sliceIdx}`)}
-    {#if state.selection.has(sliceIdx)}
-      {@const bb = sliceBBox(bucketed.groups.get(sliceIdx)!)}
-      <!-- padX in world units. At the typical preview render scale
-           (viewBox 500 wide → ~1 world unit ≈ 1 screen px) this works
-           out to ~10 screen px of gap between the slice edge and the
-           interior of the 3.5 px halo border. -->
-      {@const padX = 12}
-      <rect
-        class="selection-halo"
-        x={bb.x - padX}
-        y={bb.z}
-        width={bb.w + padX * 2}
-        height={bb.h}
-        rx="10"
-        ry="10"
-        pointer-events="none"
-        vector-effect="non-scaling-stroke"
-      />
-    {/if}
-  {/each}
+  <!-- Selection affordance: dim everything, then un-dim selected
+       slices. Driven entirely via CSS on the .slice-group element
+       — no extra SVG elements. -->
 </svg>
 
 <style>
@@ -312,29 +266,30 @@
   .slice-group polygon {
     stroke: #00000022;
     stroke-width: 0.5;
-    transition: stroke-width 80ms ease-out, stroke 80ms ease-out;
+    transition:
+      stroke-width 80ms ease-out,
+      stroke 80ms ease-out,
+      opacity 80ms ease-out;
+  }
+  /* Selection via dimming: unselected slices fade back, selected
+     ones stay at full strength. The user's attention lands on the
+     slices they've picked. When no slice is selected every slice is
+     dimmed — the preview reads as "waiting for a pick." */
+  .slice-group {
+    opacity: 0.35;
+    transition: opacity 80ms ease-out;
+  }
+  .slice-group.selected {
+    opacity: 1;
   }
   .slice-group:hover polygon {
     stroke: #00000088;
     stroke-width: 1.2;
   }
-
-  /* Selection reads as ONE halo per slice — tight axis-aligned bbox
-     around all the slice's volumes, subtle translucent blue wash
-     inside + solid blue border with softened corners. Rendered above
-     everything via paint order; pointer-events disabled so clicks
-     pass through. */
-  .selection-halo {
-    fill: rgba(37, 99, 235, 0.12);
-    stroke: #2563eb;
-    /* Thicker stroke so rasterisation doesn't alias the corners at
-       small display sizes; combined with rx/ry=4 on the <rect> this
-       reads as a softened rounded-rect rather than hard-cornered. */
-    stroke-width: 3.5;
-    stroke-linejoin: round;
-    stroke-linecap: round;
-    /* Subtle glow so the selection reads as 'lifted' off the panel
-       even at small rendered sizes. */
-    filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.4));
+  .slice-group:hover {
+    opacity: 0.8;
+  }
+  .slice-group.selected:hover {
+    opacity: 1;
   }
 </style>
