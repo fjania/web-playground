@@ -288,9 +288,9 @@
       display: flex;
       gap: 0.6rem;
       align-items: stretch;
-      height: 160px;
+      height: 180px;
     }
-    .stage.focused .stage-body { height: 260px; }
+    .stage.focused .stage-body { height: 280px; }
 
     .panel {
       border: 1px solid #ecebe6;
@@ -330,9 +330,15 @@
     .panel svg { width: 100%; height: 100%; display: block; }
     .panel canvas { display: block; width: 100%; height: 100%; }
 
-    .panel.p-ctrl    { flex: 0 0 240px; }
-    .panel.p-preview { flex: 1 1 0; min-width: 220px; }
-    .panel.p-3d      { flex: 0 0 300px; }
+    /* Controls pane: wide enough for Cut's sliders + value labels
+       and Arrange's edit rows (slice-idx + 90/180/270 picker + ×).
+       Preview pane: capped so it doesn't stretch uselessly at wide
+       viewports — tall-portrait content (Cut TOP view, Arrange
+       stacked slices) just letterboxes into empty space past ~540px.
+       3D pane (focused only): fixed width. */
+    .panel.p-ctrl    { flex: 0 0 340px; min-width: 0; }
+    .panel.p-preview { flex: 1 1 0; min-width: 320px; max-width: 540px; }
+    .panel.p-3d      { flex: 0 0 320px; }
 
     /* Subtle flow arrow between stages */
     .flow {
