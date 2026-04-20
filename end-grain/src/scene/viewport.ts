@@ -39,8 +39,43 @@ import {
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { disposePanelGroup } from './meshBuilder';
 
+/**
+ * Serialisable camera ORIENTATION. Used to copy the user's chosen
+ * view between viewports (hero + focused-stage 3D in the workbench)
+ * and to preserve view across pipeline reruns.
+ *
+ * We sync orientation only — each viewport keeps its own target
+ * (its scene's centroid) and fit distance. Syncing absolute
+ * positions would point Viewport B's camera at the wrong world
+ * coords when the two viewports show different scenes (e.g. the
+ * workbench's hero shows the final trimmed panel while the focused
+ * Cut stage shows exploded slices centered elsewhere).
+ *
+ * direction = (target - position).normalize() — the viewing
+ * direction, independent of where in the world the camera sits.
+ */
+export interface CameraState {
+  /** Camera viewing direction (from camera to target), normalized. */
+  direction: [number, number, number];
+  /** Camera up vector. */
+  up: [number, number, number];
+}
+
 export interface ViewportHandle {
   dispose: () => void;
+  /** Current camera state — position, up, target. */
+  getCameraState: () => CameraState;
+  /**
+   * Apply camera state from the outside (e.g. another synced
+   * viewport) WITHOUT firing the change callbacks. Used by the
+   * workbench to avoid feedback loops between linked viewports.
+   */
+  setCameraState: (state: CameraState) => void;
+  /**
+   * Subscribe to camera-change events. Fires whenever the user
+   * tumbles / pans / zooms. Returns an unsubscribe function.
+   */
+  onCameraChange: (cb: (state: CameraState) => void) => () => void;
 }
 
 export interface ViewportOptions {
@@ -63,6 +98,12 @@ export interface ViewportOptions {
    * up with the 3D panel top-to-bottom.
    */
   vertical?: 'z' | 'x';
+  /**
+   * If provided, skip the default top-down fit and restore this
+   * camera state on mount. Used by the workbench to preserve the
+   * user's view across pipeline reruns.
+   */
+  initialCameraState?: CameraState;
 }
 
 export function setupViewport(
@@ -167,6 +208,14 @@ export function setupViewport(
   camera.lookAt(centre);
   positionCameraAtDistance(computeFitDistance(initialAspect));
 
+  // If the caller supplied an initial camera orientation (to
+  // preserve the user's view across pipeline reruns or to sync
+  // across linked viewports), apply it after the default fit so it
+  // wins. We'll finish applying after controls + target are set up
+  // since rotating the camera requires knowing the target.
+  const pendingInitialState: CameraState | null = options.initialCameraState ?? null;
+  const appliedExternalInitial = pendingInitialState !== null;
+
   function positionCameraAtDistance(d: number): void {
     if (vertical === 'z') {
       camera.position.set(
@@ -202,12 +251,71 @@ export function setupViewport(
   controls.maxDistance = Infinity;
   controls.update();
 
-  // Once the user orbits / dollies, stop auto-fitting on resize so
-  // we don't snap their chosen view.
-  let userHasInteracted = false;
+  // Treat a caller-supplied initial camera state as "user already
+  // interacted" — the fit-on-resize path would otherwise snap the
+  // camera back to a fresh top-down fit on the next ResizeObserver
+  // fire, erasing the restored view.
+  let userHasInteracted = appliedExternalInitial;
   controls.addEventListener('start', () => {
     userHasInteracted = true;
   });
+
+  // Fire subscribers whenever the camera state changes. Swallow
+  // during setCameraState to avoid sync loops across linked viewports.
+  const changeSubs = new Set<(s: CameraState) => void>();
+  let suppressChange = false;
+  controls.addEventListener('change', () => {
+    if (suppressChange) return;
+    const snap = currentCameraState();
+    for (const cb of changeSubs) cb(snap);
+  });
+
+  function currentCameraState(): CameraState {
+    // Direction from camera TO target, normalized.
+    const dx = controls.target.x - camera.position.x;
+    const dy = controls.target.y - camera.position.y;
+    const dz = controls.target.z - camera.position.z;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    return {
+      direction: [dx / len, dy / len, dz / len],
+      up: [camera.up.x, camera.up.y, camera.up.z],
+    };
+  }
+
+  /**
+   * Apply an orientation state — keep our own target + fit distance,
+   * rotate the camera so its viewing direction and up match the
+   * supplied state.
+   */
+  function applyCameraState(state: CameraState): void {
+    const dx = state.direction[0];
+    const dy = state.direction[1];
+    const dz = state.direction[2];
+    // Current distance from camera to target; preserve it.
+    const distance = camera.position.distanceTo(controls.target);
+    // position = target - direction * distance (since direction points
+    // from camera to target).
+    camera.position.set(
+      controls.target.x - dx * distance,
+      controls.target.y - dy * distance,
+      controls.target.z - dz * distance,
+    );
+    camera.up.set(state.up[0], state.up[1], state.up[2]);
+    camera.lookAt(controls.target);
+    controls.update();
+  }
+
+  // Now that controls + target are set, apply any pending initial
+  // orientation. (Must run after the default fit set the position,
+  // because applyCameraState preserves the current distance.)
+  if (pendingInitialState) {
+    suppressChange = true;
+    try {
+      applyCameraState(pendingInitialState);
+    } finally {
+      suppressChange = false;
+    }
+  }
 
   // Wire the home button: reset orbit to the initial top-down fit.
   homeButton.addEventListener('click', () => {
@@ -303,6 +411,24 @@ export function setupViewport(
       if (homeButton.parentElement) {
         homeButton.parentElement.removeChild(homeButton);
       }
+    },
+    getCameraState(): CameraState {
+      return currentCameraState();
+    },
+    setCameraState(state: CameraState): void {
+      suppressChange = true;
+      try {
+        applyCameraState(state);
+      } finally {
+        suppressChange = false;
+      }
+      userHasInteracted = true;
+    },
+    onCameraChange(cb): () => void {
+      changeSubs.add(cb);
+      return () => {
+        changeSubs.delete(cb);
+      };
     },
   };
 }

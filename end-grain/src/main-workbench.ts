@@ -37,7 +37,7 @@ import { runPipeline, type PipelineOutput } from './state/pipeline';
 import { Group } from 'three';
 import { buildPanelGroup } from './scene/meshBuilder';
 import type { Panel } from './domain/Panel';
-import { setupViewport, type ViewportHandle } from './scene/viewport';
+import { setupViewport, type CameraState, type ViewportHandle, type ViewportOptions } from './scene/viewport';
 import { summarize } from './render/summary';
 import {
   renderCutOperation,
@@ -127,6 +127,52 @@ let heroViewport: ViewportHandle | null = null;
 let focusedViewport: ViewportHandle | null = null;
 let lastOutput: PipelineOutput | null = null;
 let saveTimer: number | null = null;
+
+// ---- Shared camera state ------------------------------------------
+// All 3D viewports in the workbench (hero + whichever stage is
+// focused) share a single camera orientation. Tumbling one pushes
+// the new state to the other; pipeline reruns reuse the last-known
+// state so the final-panel viewport doesn't snap back to home on
+// edits (e.g. adding a spacer in Arrange). `null` on first load
+// means "let the viewport pick its default fit view."
+let sharedCameraState: CameraState | null = null;
+const activeSyncedViewports = new Set<ViewportHandle>();
+
+function mountSyncedViewport(
+  el: HTMLElement,
+  group: import('three').Group,
+  opts: ViewportOptions = {},
+): ViewportHandle {
+  const h = setupViewport(el, group, {
+    ...opts,
+    initialCameraState: sharedCameraState ?? undefined,
+  });
+  // Seed shared state from the first viewport's default fit, so a
+  // later viewport syncs against something real.
+  if (sharedCameraState === null) {
+    sharedCameraState = h.getCameraState();
+  }
+  // Fan out local changes to all peers + the shared state.
+  const unsub = h.onCameraChange((state) => {
+    sharedCameraState = state;
+    for (const other of activeSyncedViewports) {
+      if (other !== h) other.setCameraState(state);
+    }
+  });
+  activeSyncedViewports.add(h);
+
+  // Wrap dispose so the set + subscription are cleaned up.
+  const origDispose = h.dispose;
+  const wrapped: ViewportHandle = {
+    ...h,
+    dispose(): void {
+      activeSyncedViewports.delete(h);
+      unsub();
+      origDispose();
+    },
+  };
+  return wrapped;
+}
 
 // Per-stage mounted components. Keyed by stage id.
 interface StageMount {
@@ -862,13 +908,13 @@ function manageStage3D(
     // single livePanel. Assemble them into an exploded stack.
     const slices = liveCutSlices[feature.id] ?? [];
     if (slices.length === 0) return;
-    focusedViewport = setupViewport(body3d, buildSlicesGroup(slices));
+    focusedViewport = mountSyncedViewport(body3d, buildSlicesGroup(slices));
     return;
   }
 
   const live = livePanels[feature.id];
   if (!live) return;
-  focusedViewport = setupViewport(body3d, buildPanelGroup(live));
+  focusedViewport = mountSyncedViewport(body3d, buildPanelGroup(live));
 }
 
 /**
@@ -934,7 +980,7 @@ function renderHero(output: PipelineOutput): void {
       const id = output.trace[i];
       if (livePanels[id]) {
         const fb = livePanels[id];
-        heroViewport = setupViewport(heroViewportSlot, buildPanelGroup(fb), { vertical: 'x' });
+        heroViewport = mountSyncedViewport(heroViewportSlot, buildPanelGroup(fb));
         heroSubEl.textContent = `fallback from ${id}`;
         return;
       }
@@ -947,7 +993,7 @@ function renderHero(output: PipelineOutput): void {
   // reads top-to-bottom. For the workbench we keep the standard
   // vertical='z' (X horizontal, Z down) so Cut's top view matches
   // the preview tiles.
-  heroViewport = setupViewport(heroViewportSlot, buildPanelGroup(live));
+  heroViewport = mountSyncedViewport(heroViewportSlot, buildPanelGroup(live));
   const bb = live.boundingBox();
   const x = (bb.max.x - bb.min.x).toFixed(0);
   const y = (bb.max.y - bb.min.y).toFixed(0);
