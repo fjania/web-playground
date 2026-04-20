@@ -371,45 +371,7 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1>End-grain — Workbench</h1>
-    <input class="design-name" data-slot="design-name" spellcheck="false" placeholder="untitled" />
-    <span class="save-status" data-slot="save-status">—</span>
-    <nav>
-      <a href="./cutting-board-workbench-designs.html">Designs →</a>
-      <a href="./index.html">← Harnesses</a>
-    </nav>
-  </header>
-
-  <div class="shell">
-    <aside class="timeline">
-      <header><h2>Timeline</h2></header>
-      <div class="body" data-slot="timeline-list">
-        <!-- Timeline entries rendered by main-workbench.ts -->
-      </div>
-    </aside>
-
-    <main class="main">
-      <!-- HERO: always-on final 3D -->
-      <section class="hero">
-        <span class="hero-label" data-slot="hero-label">Final panel</span>
-        <span class="hero-sub" data-slot="hero-sub"></span>
-        <div data-slot="hero-viewport"></div>
-      </section>
-
-      <!-- PIPELINE: stages scroll below -->
-      <div class="pipeline-wrap">
-        <div class="pipeline-head">
-          <h2>Pipeline</h2>
-          <span class="hint">click a stage to focus · focused stage shows 3D</span>
-        </div>
-        <div class="pipeline" data-slot="pipeline">
-          <!-- Stage cards rendered by main-workbench.ts -->
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <script type="module" src="./src/main-workbench.ts"></script>
+  <div id="workbench-app"></div>
+  <script type="module" src="./src/main-workbench-app.ts"></script>
 </body>
 </html>
