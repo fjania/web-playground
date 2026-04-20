@@ -1313,6 +1313,17 @@
     border-color: #e8e6df;
     cursor: not-allowed;
   }
+  /* Keyboard focus ring — offset so it reads as 'cursor is here'
+     rather than 'button is toggled'. Suppressed for mouse focus. */
+  .select-bar button:focus,
+  .action-bar button:focus {
+    outline: none;
+  }
+  .select-bar button:focus-visible,
+  .action-bar button:not(:disabled):focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
 
   .compose-inventory-wrap {
     padding: 0.3rem 0.45rem;

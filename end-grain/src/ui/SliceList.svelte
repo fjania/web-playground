@@ -298,6 +298,17 @@
   .row.selected:hover {
     background: #bfdbfe;
   }
+  /* Keyboard focus ring — offset outline reads as 'cursor is here'
+     and stays distinct from the filled-background selection state,
+     so focused-and-selected is visually separable from just-selected.
+     Mouse focus suppressed. */
+  .row:focus {
+    outline: none;
+  }
+  .row:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
 
   .idx {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
