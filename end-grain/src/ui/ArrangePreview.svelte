@@ -268,15 +268,19 @@
   {#each sortedSliceIdxs as sliceIdx (`halo-${sliceIdx}`)}
     {#if state.selection.has(sliceIdx)}
       {@const bb = sliceBBox(bucketed.groups.get(sliceIdx)!)}
-      {@const padX = 4}
+      <!-- padX in world units. At the typical preview render scale
+           (viewBox 500 wide → ~1 world unit ≈ 1 screen px) this works
+           out to ~10 screen px of gap between the slice edge and the
+           interior of the 3.5 px halo border. -->
+      {@const padX = 12}
       <rect
         class="selection-halo"
         x={bb.x - padX}
         y={bb.z}
         width={bb.w + padX * 2}
         height={bb.h}
-        rx="6"
-        ry="6"
+        rx="10"
+        ry="10"
         pointer-events="none"
         vector-effect="non-scaling-stroke"
       />
