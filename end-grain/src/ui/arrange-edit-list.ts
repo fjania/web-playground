@@ -85,12 +85,13 @@ export function mountArrangeEditList(
     wrap.appendChild(header);
 
     // --- list --------------------------------------------------------
+    // No internal max-height / overflow — the stage card grows to
+    // fit all rows. Long lists make the whole stage tall, matching
+    // "tiles grow with their content" rule.
     const list = document.createElement('div');
     list.style.display = 'flex';
     list.style.flexDirection = 'column';
     list.style.gap = '0.2rem';
-    list.style.maxHeight = '220px';
-    list.style.overflowY = 'auto';
     list.style.paddingRight = '2px';
 
     // Interleave edits + spacers by slice idx for readability.

@@ -288,9 +288,13 @@
       display: flex;
       gap: 0.6rem;
       align-items: stretch;
-      height: 180px;
+      /* Use min-height as a floor, not a cap. Stages grow to fit
+         their controls — long arrange edit lists, fat inventories,
+         etc. — so content never spills out of the card. All panels
+         stretch equally, so preview + 3D track the controls height. */
+      min-height: 180px;
     }
-    .stage.focused .stage-body { height: 280px; }
+    .stage.focused .stage-body { min-height: 280px; }
 
     .panel {
       border: 1px solid #ecebe6;

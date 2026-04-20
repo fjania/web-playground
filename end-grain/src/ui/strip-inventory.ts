@@ -103,12 +103,11 @@ export function mountStripInventory(
     wrap.style.gap = '0.5rem';
     wrap.style.fontSize = '0.78rem';
     wrap.style.lineHeight = '1.3';
-    // Fill the render slot vertically so the list can expand to the
-    // full tile height. `minHeight: 0` is required so the inner
-    // flex:1 list can shrink and scroll rather than pushing the
-    // outer container taller than its parent.
-    wrap.style.flex = '1 1 auto';
-    wrap.style.minHeight = '0';
+    // Natural height; the list grows with its content and the
+    // enclosing tile grows to match. Height is no longer constrained
+    // by the parent — if the parent wants a scrollbox it supplies
+    // its own overflow.
+    wrap.style.flex = '0 0 auto';
 
     // Global controls (thickness + length + strip count summary)
     const globals = document.createElement('div');
@@ -197,14 +196,16 @@ export function mountStripInventory(
     }
     wrap.appendChild(header);
 
-    // Strip rows — fill remaining height, scroll if overflow.
+    // Strip rows — natural height; the enclosing tile grows to fit.
+    // No internal scroll here. In the Compose harness's Input tile
+    // (fixed tile height), if the inventory exceeds the tile the
+    // surrounding .render slot's overflow-y clips; in the workbench
+    // the stage card grows, so no clipping.
     const list = document.createElement('div');
-    list.style.flex = '1 1 0';
-    list.style.minHeight = '0';
+    list.style.flex = '0 0 auto';
     list.style.display = 'flex';
     list.style.flexDirection = 'column';
     list.style.gap = '0.25rem';
-    list.style.overflowY = 'auto';
     list.style.paddingRight = '4px';
 
     // Render rows in arrangement order (state.order), not inventory
