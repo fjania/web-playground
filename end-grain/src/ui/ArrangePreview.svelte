@@ -271,6 +271,8 @@
         y={bb.z}
         width={bb.w}
         height={bb.h}
+        rx="4"
+        ry="4"
         pointer-events="none"
         vector-effect="non-scaling-stroke"
       />
@@ -311,14 +313,18 @@
 
   /* Selection reads as ONE halo per slice — tight axis-aligned bbox
      around all the slice's volumes, subtle translucent blue wash
-     inside + solid blue border. Rendered above everything via paint
-     order; pointer-events disabled so clicks pass through. */
+     inside + solid blue border with softened corners. Rendered above
+     everything via paint order; pointer-events disabled so clicks
+     pass through. */
   .selection-halo {
     fill: rgba(37, 99, 235, 0.12);
     stroke: #2563eb;
-    stroke-width: 2.4;
-    stroke-linejoin: miter;
-    stroke-linecap: square;
+    /* Thicker stroke so rasterisation doesn't alias the corners at
+       small display sizes; combined with rx/ry=4 on the <rect> this
+       reads as a softened rounded-rect rather than hard-cornered. */
+    stroke-width: 3.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
     /* Subtle glow so the selection reads as 'lifted' off the panel
        even at small rendered sizes. */
     filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.4));
