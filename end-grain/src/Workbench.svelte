@@ -42,6 +42,7 @@
   import StripReorder, { type ReorderState } from './ui/StripReorder.svelte';
   import CutControls, { type CutControlsState } from './ui/CutControls.svelte';
   import TrimControls, { type TrimControlsState } from './ui/TrimControls.svelte';
+  import SliceList from './ui/SliceList.svelte';
   import ArrangeEditList, {
     type ArrangeEditListState,
     type ArrangeEditListChange,
@@ -174,6 +175,12 @@
   let designName = $state(initialDesignName);
   let timeline = $state<Feature[]>(initialTimeline);
   let focusedStageId = $state<string | null>(null);
+  /** Arrange slice selection — shared between SliceList (Controls
+   *  pane) and, from step 4 on, the interactive preview. Cleared
+   *  when focus moves off the arrange stage. */
+  let arrangeSelection = $state<Set<number>>(new Set());
+  /** Last-clicked slice index; anchor for shift+click range select. */
+  let arrangeAnchor = $state<number | null>(null);
   let saveStatus = $state<'saving' | 'saved' | 'idle'>('idle');
   let manifoldReady = $state(false);
   let output = $state<PipelineOutput | null>(null);
@@ -483,6 +490,9 @@
   // of body-side interactions.
   function toggleFocus(id: string): void {
     focusedStageId = focusedStageId === id ? null : id;
+    // Selection is per-arrange — drop it whenever focus moves.
+    arrangeSelection = new Set();
+    arrangeAnchor = null;
   }
 
   function warnInlineText(featureId: string): string {
@@ -615,15 +625,20 @@
                       onChange={(next) => applyCutControls(feature, next)}
                     />
                   {:else if feature.kind === 'arrange'}
-                    <ArrangeEditList
+                    {@const fcr = firstCutResult(output)}
+                    <SliceList
                       state={{
                         arrangeId: feature.id,
+                        slices: fcr?.slices ?? [],
                         edits: editsFor(feature.id),
                         spacers: spacersFor(feature.id),
-                        sliceCount: sliceCountFromOutput(output),
+                        selection: arrangeSelection,
                       }}
-                      allocateId={allocateIdFn}
-                      onChange={(next) => applyArrangeEditList(feature, next)}
+                      anchor={arrangeAnchor}
+                      onSelectionChange={(ev) => {
+                        arrangeSelection = ev.selection;
+                        arrangeAnchor = ev.anchor;
+                      }}
                     />
                   {:else if feature.kind === 'trimPanel'}
                     <TrimControls
