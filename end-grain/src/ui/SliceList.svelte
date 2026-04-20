@@ -12,8 +12,8 @@
    *
    * This is the primary "authoring space" for the Arrange card in the
    * revamp: the thumbnail shows what the slice looks like post-edit,
-   * the shift chip shows any offset, the edited-dot flags that a
-   * rotate or shift is applied. No form inputs.
+   * and a chip group lists every edit applied to the slice — `flip`,
+   * `90°`, `270°`, and/or `+Nmm`. No form inputs.
    *
    * Actions (flip, rotate, shift, clear) don't live here — they go on
    * the toolbar in step 7/8. This component owns selection only.
@@ -178,15 +178,18 @@
         </svg>
       </span>
 
-      {#if shift !== 0}
-        <span class="chip shift" title="shift {shift} mm">
-          {shift > 0 ? '+' : ''}{shift}<span class="unit">mm</span>
-        </span>
-      {:else}
-        <span class="chip-placeholder"></span>
-      {/if}
-
-      <span class="edited-dot" class:visible={edited} aria-hidden="true"></span>
+      <span class="edits">
+        {#if rot === 180}
+          <span class="chip rot" title="flipped (rotated 180°)">flip</span>
+        {:else if rot === 90 || rot === 270}
+          <span class="chip rot" title="rotated {rot}°">{rot}°</span>
+        {/if}
+        {#if shift !== 0}
+          <span class="chip shift" title="shift {shift} mm">
+            {shift > 0 ? '+' : ''}{shift}<span class="unit">mm</span>
+          </span>
+        {/if}
+      </span>
     </button>
 
   {/each}
@@ -210,7 +213,7 @@
 
   .row {
     display: grid;
-    grid-template-columns: 22px 26px 48px 8px;
+    grid-template-columns: 22px 26px 1fr;
     gap: 0.4rem;
     align-items: center;
     padding: 2px 6px;
@@ -252,6 +255,13 @@
     height: 22px;
   }
 
+  .edits {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   .chip {
     font-size: 0.62rem;
     font-family: ui-monospace, monospace;
@@ -260,28 +270,16 @@
     border: 1px solid #eadbad;
     border-radius: 3px;
     padding: 0 4px;
-    justify-self: start;
     white-space: nowrap;
+    line-height: 1.35;
+  }
+  .chip.rot {
+    /* same palette as shift — chips compose as a single edit group */
+    letter-spacing: 0.02em;
   }
   .chip .unit {
     color: #8a6a2c;
     margin-left: 1px;
-  }
-  .chip-placeholder {
-    /* keep grid slot stable when no shift chip present */
-    width: 0;
-    height: 0;
-  }
-
-  .edited-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: transparent;
-    justify-self: end;
-  }
-  .edited-dot.visible {
-    background: #c89a3c;
   }
 
   .empty {
