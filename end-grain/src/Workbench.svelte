@@ -1236,6 +1236,18 @@
     min-height: 0;
     overflow: auto;
   }
+  /* For the Arrange card: no internal scroll. The pane grows to fit
+     the whole slice list — the outer pipeline column scrolls if it
+     runs past the viewport. p-body switches from flex:1 (fill and
+     scroll) to flex:auto (size to content); stage-body's min-height
+     is dropped so the grid row isn't capped. */
+  .p-body:has(.arrange-ctrl-stack) {
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+  .stage-body:has(.arrange-ctrl-stack) {
+    min-height: 0;
+  }
   .preview-body {
     padding: 0.45rem;
     background: #f6f5f1;
@@ -1252,13 +1264,14 @@
     overflow: hidden;
     background: #1a1a1a;
   }
-  /* Arrange Controls: toolbar above a scrollable SliceList. The
-     toolbar doesn't scroll; the list does. */
+  /* Arrange Controls: select-bar + action-bar above the full slice
+     list. Neither the list nor the stack scrolls — the card grows
+     vertically to fit all slices so the list is always visible in
+     full. The pipeline column itself scrolls if that pushes it past
+     the viewport. */
   .arrange-ctrl-stack {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 0;
     padding: 0.4rem 0.45rem 0.3rem;
     gap: 0.35rem;
   }

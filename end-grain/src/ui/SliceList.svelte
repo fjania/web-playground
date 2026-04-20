@@ -265,9 +265,6 @@
     flex-direction: column;
     gap: 1px;
     font-size: 0.72rem;
-    overflow-y: auto;
-    flex: 1;
-    min-height: 0;
     outline: none;
   }
 
