@@ -28,7 +28,6 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { StripDef } from '../state/types';
   import { SPECIES_COLOURS } from '../render/summary';
 
   interface Props {

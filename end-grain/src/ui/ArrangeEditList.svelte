@@ -29,7 +29,7 @@
 </script>
 
 <script lang="ts">
-  import type { PlaceEdit, SpacerInsert, Species } from '../state/types';
+  import type { Species } from '../state/types';
   import { SPECIES_COLOURS } from '../render/summary';
 
   const SPECIES_LIST: Species[] = ['maple', 'walnut', 'cherry', 'padauk', 'purpleheart'];
