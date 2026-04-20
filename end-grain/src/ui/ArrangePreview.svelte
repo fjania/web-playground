@@ -256,10 +256,12 @@
     stroke-width: 1.2;
   }
   .slice-group.selected polygon {
-    stroke: #c89a3c;
+    /* Blue outline for selection — stronger contrast against wood
+       tones than the amber used elsewhere in the workbench. */
+    stroke: #2563eb;
     stroke-width: 2.2;
   }
   .slice-group.selected:hover polygon {
-    stroke: #a8741e;
+    stroke: #1d4ed8;
   }
 </style>
