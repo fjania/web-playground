@@ -390,38 +390,7 @@
     </ul>
   </section>
   <div class="layout">
-  <main id="tiles">
-    <article class="tile tile--2d" data-stage="compose-0" data-role="input">
-      <header>
-        <h2>Input</h2>
-        <p class="subtitle">compose-0 · the panel being operated on</p>
-      </header>
-      <div class="render" data-slot="render">
-        <div class="placeholder">input pending</div>
-      </div>
-      <div class="meta" data-slot="meta"></div>
-    </article>
-    <article class="tile tile--2d" data-stage="cut-0" data-role="operation">
-      <header>
-        <h2>Operation: Cut</h2>
-        <p class="subtitle">cut-0 · params</p>
-      </header>
-      <div class="render" data-slot="render">
-        <div class="placeholder">operation diagram pending</div>
-      </div>
-      <div class="meta" data-slot="meta"></div>
-    </article>
-    <article class="tile tile--3d" data-stage="arrange-0" data-role="output">
-      <header>
-        <h2>Output</h2>
-        <p class="subtitle">slices from cut-0 · 3D viewport</p>
-      </header>
-      <div class="render" data-slot="render">
-        <div class="placeholder">3D viewport pending</div>
-      </div>
-      <div class="meta" data-slot="meta"></div>
-    </article>
-  </main>
+  <div id="cut-app" style="display: contents;"></div>
   <aside id="inspector" data-collapsed="false" aria-label="Debug inspector">
     <header>
       <h2>Debug inspector</h2>
@@ -439,6 +408,6 @@
     </div>
   </aside>
   </div>
-  <script type="module" src="./src/main-cut.ts"></script>
+  <script type="module" src="./src/main-cut-app.ts"></script>
 </body>
 </html>
