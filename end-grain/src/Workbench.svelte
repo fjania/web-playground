@@ -44,6 +44,12 @@
   import TrimControls, { type TrimControlsState } from './ui/TrimControls.svelte';
   import SliceList from './ui/SliceList.svelte';
   import ArrangePreview from './ui/ArrangePreview.svelte';
+  import {
+    toggleFlip as editsToggleFlip,
+    rotate90 as editsRotate90,
+    clearEditsOnSlices as editsClearOnSlices,
+    type EditContext,
+  } from './state/edits';
   import ArrangeEditList, {
     type ArrangeEditListState,
     type ArrangeEditListChange,
@@ -182,6 +188,10 @@
   let arrangeSelection = $state<Set<number>>(new Set());
   /** Last-clicked slice index; anchor for shift+click range select. */
   let arrangeAnchor = $state<number | null>(null);
+  /** DOM refs to each stage <article> so we can programmatically
+   *  focus the Arrange stage when it becomes focused — keyboard
+   *  actions (F, R, E, O, ...) listen on the article. */
+  const stageRefs: Record<string, HTMLElement | null> = {};
   let saveStatus = $state<'saving' | 'saved' | 'idle'>('idle');
   let manifoldReady = $state(false);
   let output = $state<PipelineOutput | null>(null);
@@ -431,6 +441,125 @@
     timeline = [...filtered, ...next.edits, ...next.spacers];
   }
 
+  /** Replace the PlaceEdits targeting an Arrange, keeping its
+   *  attached spacers untouched (they flow through unmodified). */
+  function applyArrangeEdits(feature: Arrange, nextEdits: PlaceEdit[]): void {
+    const filtered = timeline.filter(
+      (f) => !(f.kind === 'placeEdit' && f.target.arrangeId === feature.id),
+    );
+    timeline = [...filtered, ...nextEdits];
+  }
+
+  /** Keyboard actions on the Arrange stage. Wired to the stage
+   *  <article>'s onkeydown so it only fires while the user is
+   *  interacting with that specific stage. */
+  function handleArrangeKey(feature: Arrange, e: KeyboardEvent): void {
+    // Don't steal keys from text inputs anywhere inside the stage.
+    const tgt = e.target as HTMLElement | null;
+    if (
+      tgt &&
+      (tgt.tagName === 'INPUT' ||
+        tgt.tagName === 'TEXTAREA' ||
+        tgt.isContentEditable)
+    ) {
+      return;
+    }
+
+    const sliceCount = firstCutResult(output)?.slices.length ?? 0;
+    if (sliceCount === 0) return;
+
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+
+    const key = e.key;
+    const cmdLike = e.metaKey || e.ctrlKey;
+
+    // Simple selection builders for pattern-select keys.
+    const makeAll = (): Set<number> => {
+      const s = new Set<number>();
+      for (let i = 0; i < sliceCount; i++) s.add(i);
+      return s;
+    };
+    const makeEven = (): Set<number> => {
+      const s = new Set<number>();
+      for (let i = 0; i < sliceCount; i += 2) s.add(i);
+      return s;
+    };
+    const makeOdd = (): Set<number> => {
+      const s = new Set<number>();
+      for (let i = 1; i < sliceCount; i += 2) s.add(i);
+      return s;
+    };
+
+    switch (key) {
+      case 'f':
+      case 'F': {
+        if (arrangeSelection.size === 0) return;
+        const next = editsToggleFlip(editsFor(feature.id), arrangeSelection, ctx);
+        applyArrangeEdits(feature, next);
+        e.preventDefault();
+        break;
+      }
+      case 'r':
+      case 'R': {
+        if (arrangeSelection.size === 0) return;
+        const next = editsRotate90(editsFor(feature.id), arrangeSelection, ctx);
+        applyArrangeEdits(feature, next);
+        e.preventDefault();
+        break;
+      }
+      case 'Escape': {
+        arrangeSelection = new Set();
+        arrangeAnchor = null;
+        e.preventDefault();
+        break;
+      }
+      case 'a':
+      case 'A': {
+        // Leave cmd/ctrl+A alone (browser select-all).
+        if (cmdLike) return;
+        arrangeSelection = makeAll();
+        arrangeAnchor = sliceCount - 1;
+        e.preventDefault();
+        break;
+      }
+      case 'i':
+      case 'I': {
+        const next = new Set<number>();
+        for (let i = 0; i < sliceCount; i++) {
+          if (!arrangeSelection.has(i)) next.add(i);
+        }
+        arrangeSelection = next;
+        e.preventDefault();
+        break;
+      }
+      case 'e':
+      case 'E': {
+        arrangeSelection = makeEven();
+        arrangeAnchor = Math.max(0, sliceCount - (sliceCount % 2 === 0 ? 2 : 1));
+        e.preventDefault();
+        break;
+      }
+      case 'o':
+      case 'O': {
+        arrangeSelection = makeOdd();
+        arrangeAnchor = sliceCount - 1 - ((sliceCount - 1) % 2 === 0 ? 1 : 0);
+        e.preventDefault();
+        break;
+      }
+      case 'Delete':
+      case 'Backspace': {
+        if (arrangeSelection.size === 0) return;
+        const next = editsClearOnSlices(editsFor(feature.id), arrangeSelection);
+        applyArrangeEdits(feature, next);
+        e.preventDefault();
+        break;
+      }
+    }
+  }
+
   function allocateIdFn(prefix: IdPrefix): string {
     return allocateId(idCounter, prefix);
   }
@@ -494,6 +623,12 @@
     // Selection is per-arrange — drop it whenever focus moves.
     arrangeSelection = new Set();
     arrangeAnchor = null;
+    // Move DOM keyboard focus into the focused stage's <article>
+    // so keydown handlers (Arrange) receive events right away.
+    if (focusedStageId) {
+      const id2 = focusedStageId;
+      queueMicrotask(() => stageRefs[id2]?.focus({ preventScroll: true }));
+    }
   }
 
   function warnInlineText(featureId: string): string {
@@ -581,8 +716,13 @@
           {@const isFocused = focusedStageId === feature.id}
           {@const isLastOp = lastMainOp?.id === feature.id}
           <article
+            bind:this={stageRefs[feature.id]}
             class="stage {stageStatusClass(feature.id)}"
             class:focused={isFocused}
+            tabindex={feature.kind === 'arrange' && isFocused ? 0 : -1}
+            onkeydown={feature.kind === 'arrange'
+              ? (e) => handleArrangeKey(feature, e)
+              : null}
           >
             <header
               class="stage-header"
