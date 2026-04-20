@@ -481,17 +481,13 @@
     switch (key) {
       case 'f':
       case 'F': {
-        if (arrangeSelection.size === 0) return;
-        const next = editsToggleFlip(editsFor(feature.id), arrangeSelection, ctx);
-        applyArrangeEdits(feature, next);
+        flipSelection(feature);
         e.preventDefault();
         break;
       }
       case 'r':
       case 'R': {
-        if (arrangeSelection.size === 0) return;
-        const next = editsRotate90(editsFor(feature.id), arrangeSelection, ctx);
-        applyArrangeEdits(feature, next);
+        rotate90Selection(feature);
         e.preventDefault();
         break;
       }
@@ -529,9 +525,7 @@
       }
       case 'Delete':
       case 'Backspace': {
-        if (arrangeSelection.size === 0) return;
-        const next = editsClearOnSlices(editsFor(feature.id), arrangeSelection);
-        applyArrangeEdits(feature, next);
+        clearSelectionEdits(feature);
         e.preventDefault();
         break;
       }
@@ -580,6 +574,40 @@
     for (let i = offset; i < n; i += 2) s.add(i);
     arrangeSelection = s;
     arrangeAnchor = s.size > 0 ? Math.max(...s) : null;
+  }
+
+  /** Action helpers — shared between the keyboard handler (F / R /
+   *  Delete) and the action toolbar buttons (step 8). Each one's a
+   *  no-op when the selection is empty, so callers don't need to
+   *  guard. */
+  function flipSelection(feature: Arrange): void {
+    if (arrangeSelection.size === 0) return;
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+    applyArrangeEdits(
+      feature,
+      editsToggleFlip(editsFor(feature.id), arrangeSelection, ctx),
+    );
+  }
+  function rotate90Selection(feature: Arrange): void {
+    if (arrangeSelection.size === 0) return;
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+    applyArrangeEdits(
+      feature,
+      editsRotate90(editsFor(feature.id), arrangeSelection, ctx),
+    );
+  }
+  function clearSelectionEdits(feature: Arrange): void {
+    if (arrangeSelection.size === 0) return;
+    applyArrangeEdits(
+      feature,
+      editsClearOnSlices(editsFor(feature.id), arrangeSelection),
+    );
   }
 
   /** Apply a per-slice shift delta: adds `delta` mm to each selected
@@ -806,6 +834,7 @@
                   {:else if feature.kind === 'arrange'}
                     {@const fcr = firstCutResult(output)}
                     {@const sliceCount = fcr?.slices.length ?? 0}
+                    {@const selectionEmpty = arrangeSelection.size === 0}
                     <div class="arrange-ctrl-stack">
                       <!-- Selection toolbar. Each button mirrors a
                            keyboard shortcut (shown in the title). -->
@@ -836,6 +865,30 @@
                           title="Odd indices (O)"
                           onclick={() => selectEvery(sliceCount, 1)}
                         >Odd</button>
+                      </div>
+                      <!-- Action toolbar. Acts on the current
+                           selection; disabled when empty. Each
+                           button mirrors a keyboard shortcut. -->
+                      <div class="action-bar" aria-label="Edit">
+                        <span class="bar-label">Edit</span>
+                        <button
+                          type="button"
+                          title="Flip (F)"
+                          disabled={selectionEmpty}
+                          onclick={() => flipSelection(feature)}
+                        >Flip</button>
+                        <button
+                          type="button"
+                          title="Rotate 90° (R)"
+                          disabled={selectionEmpty}
+                          onclick={() => rotate90Selection(feature)}
+                        >Rotate 90°</button>
+                        <button
+                          type="button"
+                          title="Clear edits (Delete)"
+                          disabled={selectionEmpty}
+                          onclick={() => clearSelectionEdits(feature)}
+                        >Clear edits</button>
                       </div>
                       <SliceList
                         value={{
@@ -1235,22 +1288,30 @@
     padding: 0.4rem 0.45rem 0.3rem;
     gap: 0.35rem;
   }
-  .select-bar {
+  .select-bar,
+  .action-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 4px;
     padding: 2px 1px 4px;
+  }
+  .select-bar {
     border-bottom: 1px solid #eee;
   }
-  .select-bar .bar-label {
+  .action-bar {
+    border-bottom: 1px solid #eee;
+  }
+  .select-bar .bar-label,
+  .action-bar .bar-label {
     font-size: 0.62rem;
     color: #888;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-right: 2px;
   }
-  .select-bar button {
+  .select-bar button,
+  .action-bar button {
     font-size: 0.65rem;
     padding: 2px 6px;
     border: 1px solid #d6d3cd;
@@ -1262,13 +1323,21 @@
     line-height: 1.3;
     white-space: nowrap;
   }
-  .select-bar button:hover {
+  .select-bar button:hover,
+  .action-bar button:not(:disabled):hover {
     border-color: #2563eb;
     color: #1e40af;
     background: #eff6ff;
   }
-  .select-bar button:active {
+  .select-bar button:active,
+  .action-bar button:not(:disabled):active {
     background: #dbeafe;
+  }
+  .action-bar button:disabled {
+    color: #bbb;
+    background: #fafaf7;
+    border-color: #e8e6df;
+    cursor: not-allowed;
   }
 
   .compose-inventory-wrap {
