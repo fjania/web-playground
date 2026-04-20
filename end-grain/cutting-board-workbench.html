@@ -336,13 +336,19 @@
 
     /* Controls pane: wide enough for Cut's sliders + value labels
        and Arrange's edit rows (slice-idx + 90/180/270 picker + ×).
-       Preview pane: capped so it doesn't stretch uselessly at wide
-       viewports — tall-portrait content (Cut TOP view, Arrange
-       stacked slices) just letterboxes into empty space past ~540px.
-       3D pane (focused only): fixed width. */
+       Grows vertically to fit all rows.
+       Preview / 3D panes: capped at 500 px tall so a super-long
+       controls list doesn't stretch them to comical heights.
+       Effective preview height = min(controls height, 500 px).
+       When controls exceed 500, the card shows a tail of empty
+       space to the right of the controls tail — acceptable given
+       the user explicitly preferred growing tiles over scroll.
+       align-items: stretch on stage-body combined with max-height
+       here gives: stretch-to-match-controls when short, cap-at-500
+       when long. */
     .panel.p-ctrl    { flex: 0 0 340px; min-width: 0; }
-    .panel.p-preview { flex: 1 1 0; min-width: 320px; max-width: 540px; }
-    .panel.p-3d      { flex: 0 0 320px; }
+    .panel.p-preview { flex: 1 1 0; min-width: 320px; max-width: 540px; max-height: 500px; }
+    .panel.p-3d      { flex: 0 0 320px; max-height: 500px; }
 
     /* Subtle flow arrow between stages */
     .flow {
