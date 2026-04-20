@@ -288,7 +288,7 @@
       }
       case 'arrange': {
         const r = out.results[f.id] as ArrangeResult | undefined;
-        return r ? `${r.appliedEditCount} edits · ${r.appliedSpacerCount} spacers` : '';
+        return r ? `${r.appliedEditCount} edits` : '';
       }
       case 'trimPanel': {
         const r = out.results[f.id] as TrimPanelResult | undefined;

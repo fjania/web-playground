@@ -1,15 +1,15 @@
 <script lang="ts" module>
   /**
-   * ArrangeEditList — Svelte 5 port of arrange-edit-list.ts.
+   * ArrangeEditList — per-slice PlaceEdit form for one Arrange feature.
    *
-   * Form-based edit list for PlaceEdits + SpacerInserts attached to
-   * one Arrange feature. Each row has op-type-specific controls;
-   * add-buttons at the bottom mint new edits via the supplied
-   * `allocateId` callback.
+   * Spacer editing was removed as of the arrange-revamp branch: spacers
+   * will migrate to a future compose-style assembly op. Existing
+   * SpacerInsert data in the timeline is still passed through the
+   * change payload unchanged so designs with spacers don't lose them
+   * when edits are touched here.
    *
-   * onChange fires with a fresh { edits, spacers } whenever any row is
-   * added, removed, or edited. The workbench uses that payload to
-   * splice the Arrange's attached features in the timeline.
+   * onChange fires with a fresh { edits, spacers } whenever any edit
+   * row is added, removed, or modified.
    */
 
   import type { PlaceEdit, SpacerInsert } from '../state/types';
@@ -17,6 +17,8 @@
   export interface ArrangeEditListState {
     arrangeId: string;
     edits: PlaceEdit[];
+    /** Spacers attached to this arrange. Not editable here — held for
+     *  passthrough so the data isn't dropped on edit commits. */
     spacers: SpacerInsert[];
     /** Upstream Cut's slice count — bounds the slice-idx inputs. */
     sliceCount: number;
@@ -29,11 +31,6 @@
 </script>
 
 <script lang="ts">
-  import type { Species } from '../state/types';
-  import { SPECIES_COLOURS } from '../render/summary';
-
-  const SPECIES_LIST: Species[] = ['maple', 'walnut', 'cherry', 'padauk', 'purpleheart'];
-
   interface Props {
     state: ArrangeEditListState;
     allocateId: (prefix: 'edit' | 'spacer') => string;
@@ -42,10 +39,12 @@
 
   let { state, allocateId, onChange }: Props = $props();
 
-  function emit(edits: PlaceEdit[], spacers: SpacerInsert[]): void {
+  function emit(edits: PlaceEdit[]): void {
+    // Spacers always pass through untouched — this component doesn't
+    // edit them. See module comment.
     onChange({
       edits: edits.map(cloneEdit),
-      spacers: spacers.map((s) => ({ ...s })),
+      spacers: state.spacers.map((s) => ({ ...s })),
     });
   }
 
@@ -67,7 +66,7 @@
       op: { kind: 'rotate', degrees: degrees as 90 | 180 | 270 },
       status: 'ok',
     };
-    emit([...state.edits, next], state.spacers);
+    emit([...state.edits, next]);
   }
 
   function addShift(): void {
@@ -78,34 +77,11 @@
       op: { kind: 'shift', delta: 10 },
       status: 'ok',
     };
-    emit([...state.edits, next], state.spacers);
-  }
-
-  function addSpacer(): void {
-    const next: SpacerInsert = {
-      kind: 'spacerInsert',
-      id: allocateId('spacer'),
-      arrangeId: state.arrangeId,
-      afterSliceIdx: 0,
-      species: 'walnut',
-      width: 5,
-      status: 'ok',
-    };
-    emit(state.edits, [...state.spacers, next]);
+    emit([...state.edits, next]);
   }
 
   function removeEdit(id: string): void {
-    emit(
-      state.edits.filter((e) => e.id !== id),
-      state.spacers,
-    );
-  }
-
-  function removeSpacer(id: string): void {
-    emit(
-      state.edits,
-      state.spacers.filter((s) => s.id !== id),
-    );
+    emit(state.edits.filter((e) => e.id !== id));
   }
 
   function updateEditSliceIdx(id: string, raw: string): void {
@@ -115,14 +91,14 @@
     const nextEdits = state.edits.map((e) =>
       e.id === id ? { ...e, target: { ...e.target, sliceIdx: idx } } : e,
     );
-    emit(nextEdits, state.spacers);
+    emit(nextEdits);
   }
 
   function updateEditRotateDegrees(id: string, degrees: 90 | 180 | 270): void {
     const nextEdits = state.edits.map((e) =>
       e.id === id && e.op.kind === 'rotate' ? { ...e, op: { ...e.op, degrees } } : e,
     );
-    emit(nextEdits, state.spacers);
+    emit(nextEdits);
   }
 
   function updateEditShiftDelta(id: string, raw: string): void {
@@ -132,48 +108,16 @@
     const nextEdits = state.edits.map((e) =>
       e.id === id && e.op.kind === 'shift' ? { ...e, op: { ...e.op, delta } } : e,
     );
-    emit(nextEdits, state.spacers);
+    emit(nextEdits);
   }
 
-  function updateSpacerAfter(id: string, raw: string): void {
-    const v = Number(raw);
-    if (!Number.isFinite(v)) return;
-    const idx = clampInt(v, 0, maxIdx());
-    const nextSpacers = state.spacers.map((s) =>
-      s.id === id ? { ...s, afterSliceIdx: idx } : s,
-    );
-    emit(state.edits, nextSpacers);
-  }
+  // --- display order -----------------------------------------------
+  // Legacy sort-by-idx kept for this step to preserve the current
+  // visual. Step 3 replaces this component with a per-slice list and
+  // the sort goes away.
 
-  function updateSpacerSpecies(id: string, species: Species): void {
-    const nextSpacers = state.spacers.map((s) =>
-      s.id === id ? { ...s, species } : s,
-    );
-    emit(state.edits, nextSpacers);
-  }
-
-  function updateSpacerWidth(id: string, raw: string): void {
-    const v = Number(raw);
-    if (!Number.isFinite(v)) return;
-    const w = clampInt(v, 1, 100);
-    const nextSpacers = state.spacers.map((s) =>
-      s.id === id ? { ...s, width: w } : s,
-    );
-    emit(state.edits, nextSpacers);
-  }
-
-  // --- ordered interleave ------------------------------------------
-
-  type Item =
-    | { kind: 'edit'; idx: number; e: PlaceEdit }
-    | { kind: 'spacer'; idx: number; s: SpacerInsert };
-
-  const items = $derived.by<Item[]>(() => {
-    const out: Item[] = [];
-    for (const e of state.edits) out.push({ kind: 'edit', idx: e.target.sliceIdx, e });
-    for (const s of state.spacers) out.push({ kind: 'spacer', idx: s.afterSliceIdx, s });
-    out.sort((a, b) => a.idx - b.idx);
-    return out;
+  const items = $derived.by<PlaceEdit[]>(() => {
+    return [...state.edits].sort((a, b) => a.target.sliceIdx - b.target.sliceIdx);
   });
 
   function cloneEdit(e: PlaceEdit): PlaceEdit {
@@ -190,7 +134,7 @@
 
 <div class="arrange-edit-list">
   <div class="header">
-    <span class="title">{state.edits.length + state.spacers.length} edits</span>
+    <span class="title">{state.edits.length} edits</span>
     <span class="ctx">· {state.sliceCount} slices</span>
   </div>
 
@@ -198,98 +142,52 @@
     {#if items.length === 0}
       <div class="empty">No edits yet. Add one below.</div>
     {:else}
-      {#each items as item (item.kind === 'edit' ? 'e-' + item.e.id : 's-' + item.s.id)}
-        {#if item.kind === 'edit'}
-          <div class="row">
-            <span class="glyph">{item.e.op.kind === 'shift' ? '⇢' : '↻'}</span>
-            <input
-              class="num"
-              type="number"
-              min="0"
-              max={maxIdx()}
-              step="1"
-              value={item.e.target.sliceIdx}
-              title="slice index"
-              onchange={(e) => updateEditSliceIdx(item.e.id, (e.currentTarget as HTMLInputElement).value)}
-              onkeydown={(e) => { if (e.key === 'Enter') { updateEditSliceIdx(item.e.id, (e.currentTarget as HTMLInputElement).value); (e.currentTarget as HTMLInputElement).blur(); } }}
-            />
-            <span class="unit">slice</span>
+      {#each items as e (e.id)}
+        <div class="row">
+          <span class="glyph">{e.op.kind === 'shift' ? '⇢' : '↻'}</span>
+          <input
+            class="num"
+            type="number"
+            min="0"
+            max={maxIdx()}
+            step="1"
+            value={e.target.sliceIdx}
+            title="slice index"
+            onchange={(ev) => updateEditSliceIdx(e.id, (ev.currentTarget as HTMLInputElement).value)}
+            onkeydown={(ev) => { if (ev.key === 'Enter') { updateEditSliceIdx(e.id, (ev.currentTarget as HTMLInputElement).value); (ev.currentTarget as HTMLInputElement).blur(); } }}
+          />
+          <span class="unit">slice</span>
 
-            <div class="op-editor">
-              {#if item.e.op.kind === 'rotate'}
-                {@const curDeg = item.e.op.degrees}
-                <div class="seg">
-                  {#each [90, 180, 270] as d}
-                    <button
-                      type="button"
-                      class:on={curDeg === d}
-                      onclick={() => updateEditRotateDegrees(item.e.id, d as 90 | 180 | 270)}
-                    >{d}°</button>
-                  {/each}
-                </div>
-              {:else if item.e.op.kind === 'shift'}
-                <input
-                  class="num shift"
-                  type="number"
-                  min="-200"
-                  max="200"
-                  step="1"
-                  value={item.e.op.delta}
-                  title="shift delta (mm)"
-                  onchange={(e) => updateEditShiftDelta(item.e.id, (e.currentTarget as HTMLInputElement).value)}
-                  onkeydown={(e) => { if (e.key === 'Enter') { updateEditShiftDelta(item.e.id, (e.currentTarget as HTMLInputElement).value); (e.currentTarget as HTMLInputElement).blur(); } }}
-                />
-                <span class="unit-inline">mm</span>
-              {/if}
-            </div>
-
-            <button type="button" class="rm" title="Remove" onclick={() => removeEdit(item.e.id)}>×</button>
-          </div>
-        {:else}
-          <div class="row">
-            <span
-              class="swatch"
-              style:background={SPECIES_COLOURS[item.s.species]}
-            ></span>
-            <input
-              class="num"
-              type="number"
-              min="0"
-              max={maxIdx()}
-              step="1"
-              value={item.s.afterSliceIdx}
-              title="after slice index"
-              onchange={(e) => updateSpacerAfter(item.s.id, (e.currentTarget as HTMLInputElement).value)}
-              onkeydown={(e) => { if (e.key === 'Enter') { updateSpacerAfter(item.s.id, (e.currentTarget as HTMLInputElement).value); (e.currentTarget as HTMLInputElement).blur(); } }}
-            />
-            <span class="unit">after</span>
-
-            <div class="op-editor">
-              <select
-                value={item.s.species}
-                onchange={(e) => updateSpacerSpecies(item.s.id, (e.currentTarget as HTMLSelectElement).value as Species)}
-              >
-                {#each SPECIES_LIST as sp}
-                  <option value={sp}>{sp}</option>
+          <div class="op-editor">
+            {#if e.op.kind === 'rotate'}
+              {@const curDeg = e.op.degrees}
+              <div class="seg">
+                {#each [90, 180, 270] as d}
+                  <button
+                    type="button"
+                    class:on={curDeg === d}
+                    onclick={() => updateEditRotateDegrees(e.id, d as 90 | 180 | 270)}
+                  >{d}°</button>
                 {/each}
-              </select>
+              </div>
+            {:else if e.op.kind === 'shift'}
               <input
-                class="num spacer-width"
+                class="num shift"
                 type="number"
-                min="1"
-                max="100"
+                min="-200"
+                max="200"
                 step="1"
-                value={item.s.width}
-                title="spacer width (mm)"
-                onchange={(e) => updateSpacerWidth(item.s.id, (e.currentTarget as HTMLInputElement).value)}
-                onkeydown={(e) => { if (e.key === 'Enter') { updateSpacerWidth(item.s.id, (e.currentTarget as HTMLInputElement).value); (e.currentTarget as HTMLInputElement).blur(); } }}
+                value={e.op.delta}
+                title="shift delta (mm)"
+                onchange={(ev) => updateEditShiftDelta(e.id, (ev.currentTarget as HTMLInputElement).value)}
+                onkeydown={(ev) => { if (ev.key === 'Enter') { updateEditShiftDelta(e.id, (ev.currentTarget as HTMLInputElement).value); (ev.currentTarget as HTMLInputElement).blur(); } }}
               />
               <span class="unit-inline">mm</span>
-            </div>
-
-            <button type="button" class="rm" title="Remove" onclick={() => removeSpacer(item.s.id)}>×</button>
+            {/if}
           </div>
-        {/if}
+
+          <button type="button" class="rm" title="Remove" onclick={() => removeEdit(e.id)}>×</button>
+        </div>
       {/each}
     {/if}
   </div>
@@ -298,7 +196,6 @@
     <button type="button" class="add" onclick={() => addRotate(180)}>+ flip</button>
     <button type="button" class="add" onclick={() => addRotate(90)}>+ rotate</button>
     <button type="button" class="add" onclick={() => addShift()}>+ shift</button>
-    <button type="button" class="add" onclick={() => addSpacer()}>+ spacer</button>
   </div>
 </div>
 
@@ -348,14 +245,6 @@
     text-align: center;
     color: #555;
   }
-  .swatch {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    margin: 0 auto;
-    border-radius: 1px;
-    border: 1px solid #00000033;
-  }
   .unit {
     font-size: 0.62rem;
     color: #888;
@@ -374,21 +263,11 @@
   .num.shift {
     width: 60px;
   }
-  .num.spacer-width {
-    width: 46px;
-  }
   .op-editor {
     display: flex;
     align-items: center;
     gap: 0.3rem;
     font-size: 0.66rem;
-  }
-  .op-editor select {
-    font-size: 0.64rem;
-    padding: 1px 3px;
-    border: 1px solid #d6d3cd;
-    border-radius: 2px;
-    background: #fff;
   }
   .unit-inline {
     color: #888;
