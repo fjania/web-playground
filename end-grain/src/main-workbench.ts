@@ -325,11 +325,14 @@ function buildInitialDom(): void {
     card.className = 'stage';
     card.dataset.stage = feature.id;
     card.addEventListener('click', (e) => {
-      // Ignore clicks from within controls so sliders/inputs don't
-      // toggle focus.
-      if ((e.target as Element).closest(
-        '.cut-controls, .trim-controls, .arrange-edit-list, .strip-inventory, .strip-reorder, input, select, button',
-      )) return;
+      // Only the stage header (title + subtitle) toggles focus.
+      // Anything inside .stage-body is either a control surface
+      // (CutControls slider, Arrange edit row, inventory input)
+      // or an interactive canvas — a mouseup after a trackball
+      // tumble on the 3D canvas emits a click event on the canvas
+      // that bubbles up here, so we have to swallow those too.
+      const target = e.target as Element;
+      if (target.closest('.stage-body')) return;
       setFocusedStage(card.dataset.stage === state.focusedStageId ? null : feature.id);
     });
 
