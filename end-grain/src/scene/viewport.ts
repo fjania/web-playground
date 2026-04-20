@@ -24,7 +24,6 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
-  DirectionalLight,
   Group,
   LineBasicMaterial,
   LineSegments,
@@ -137,18 +136,10 @@ export function setupViewport(
   const scene = new Scene();
   scene.background = new Color(0x262422);
 
-  const key = new DirectionalLight(0xfff5e6, 1.6);
-  key.position.set(300, 400, 200);
-  key.castShadow = true;
-  scene.add(key);
-  scene.add(
-    new DirectionalLight(0xc8d8e8, 0.6)
-      .translateX(-200)
-      .translateY(100)
-      .translateZ(-100),
-  );
-  scene.add(new DirectionalLight(0xd4c8b8, 0.5).translateY(-300));
-  scene.add(new AmbientLight(0x5a5450, 1.0));
+  // Flat, omnidirectional lighting — every face of the board reads
+  // at the same brightness so panels aren't dimmed on their
+  // downward-facing sides. Ambient only; no directional keys.
+  scene.add(new AmbientLight(0xffffff, 3.0));
 
   scene.add(panelGroup);
 
