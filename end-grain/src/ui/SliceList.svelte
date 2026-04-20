@@ -3,10 +3,12 @@
    * SliceList — one row per cut slice, rendered in stack order, with
    * a grain-oriented mini-thumbnail that reifies the current edit
    * state. Clicking a row selects that slice; selection mirrors the
-   * interactive preview (built in step 4). Spacer inserts are shown
-   * inline as read-only separator chips between their surrounding
-   * slices — they're not editable here, but still visible so the
-   * assembled order makes sense at a glance.
+   * interactive preview (built in step 4).
+   *
+   * Spacers are deliberately absent from this UI — they're still in
+   * the timeline (the pipeline still applies them) and still visible
+   * in the 2D/3D previews, but the Arrange card treats the panel as
+   * a pure slice stack. Spacer editing moves to a future assembly op.
    *
    * This is the primary "authoring space" for the Arrange card in the
    * revamp: the thumbnail shows what the slice looks like post-edit,
@@ -17,7 +19,7 @@
    * the toolbar in step 7/8. This component owns selection only.
    */
 
-  import type { PanelSnapshot, PlaceEdit, Species, SpacerInsert } from '../state/types';
+  import type { PanelSnapshot, PlaceEdit, Species } from '../state/types';
 
   export interface SliceListState {
     /** Arrange feature id — used purely for keying. */
@@ -26,8 +28,6 @@
     slices: PanelSnapshot[];
     /** PlaceEdits attached to the Arrange. */
     edits: PlaceEdit[];
-    /** Spacers attached to the Arrange (read-only in this UI). */
-    spacers: SpacerInsert[];
     /** Currently-selected slice indexes. */
     selection: ReadonlySet<number>;
   }
@@ -114,16 +114,7 @@
     }
   }
 
-  // Spacer inserts keyed by afterSliceIdx for inline rendering.
-  const spacersAfter = $derived.by<Map<number, SpacerInsert[]>>(() => {
-    const m = new Map<number, SpacerInsert[]>();
-    for (const s of state.spacers) {
-      const arr = m.get(s.afterSliceIdx) ?? [];
-      arr.push(s);
-      m.set(s.afterSliceIdx, arr);
-    }
-    return m;
-  });
+
 </script>
 
 <div class="slice-list" role="listbox" aria-label="Slices" tabindex="-1">
@@ -198,18 +189,6 @@
       <span class="edited-dot" class:visible={edited} aria-hidden="true"></span>
     </button>
 
-    {#if spacersAfter.has(i)}
-      {#each spacersAfter.get(i)! as s (s.id)}
-        <div class="spacer-row" title="Spacer (read-only · edit in a future compose)">
-          <span class="s-idx">↳</span>
-          <span
-            class="s-swatch"
-            style:background={SPECIES_COLOURS[s.species]}
-          ></span>
-          <span class="s-label">{s.width} mm spacer</span>
-        </div>
-      {/each}
-    {/if}
   {/each}
 
   {#if state.slices.length === 0}
@@ -303,33 +282,6 @@
   }
   .edited-dot.visible {
     background: #c89a3c;
-  }
-
-  .spacer-row {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 1px 6px 1px 28px;
-    color: #999;
-    font-size: 0.64rem;
-    font-family: ui-monospace, monospace;
-    background: #f6f5f1;
-    border-radius: 3px;
-    margin: 1px 0;
-    cursor: default;
-  }
-  .s-idx {
-    color: #bbb;
-  }
-  .s-swatch {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 1px;
-    border: 1px solid #00000033;
-  }
-  .s-label {
-    color: #888;
   }
 
   .empty {

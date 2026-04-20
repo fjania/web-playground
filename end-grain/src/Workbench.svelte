@@ -631,7 +631,6 @@
                         arrangeId: feature.id,
                         slices: fcr?.slices ?? [],
                         edits: editsFor(feature.id),
-                        spacers: spacersFor(feature.id),
                         selection: arrangeSelection,
                       }}
                       anchor={arrangeAnchor}
