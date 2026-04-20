@@ -370,20 +370,22 @@ function buildInitialDom(): void {
     const card = document.createElement('article');
     card.className = 'stage';
     card.dataset.stage = feature.id;
-    card.addEventListener('click', (e) => {
-      // Only the stage header (title + subtitle) toggles focus.
-      // Anything inside .stage-body is either a control surface
-      // (CutControls slider, Arrange edit row, inventory input)
-      // or an interactive canvas — a mouseup after a trackball
-      // tumble on the 3D canvas emits a click event on the canvas
-      // that bubbles up here, so we have to swallow those too.
-      const target = e.target as Element;
-      if (target.closest('.stage-body')) return;
-      setFocusedStage(card.dataset.stage === state.focusedStageId ? null : feature.id);
-    });
 
     // Header
     const header = document.createElement('header');
+    // Click handler lives on the HEADER, not the card, so it never
+    // fires from stage-body interactions. Previously we attached to
+    // the card and early-returned when target.closest('.stage-body')
+    // was truthy — but synchronous rebuilds inside a control's click
+    // handler (e.g. "+ spacer" calling emitAndRender on the edit
+    // list) detach the clicked button from its ancestor chain before
+    // the event finishes bubbling; closest() then walks a null
+    // parent chain and the guard fails. Moving the handler to the
+    // header side-steps the race entirely.
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => {
+      setFocusedStage(card.dataset.stage === state.focusedStageId ? null : feature.id);
+    });
     const h3 = document.createElement('h3');
     h3.textContent = labelFor(feature);
     const sub = document.createElement('span');
