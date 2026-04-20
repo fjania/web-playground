@@ -289,12 +289,14 @@
   .row:hover {
     background: #f6f5f1;
   }
+  /* Selection = blue, matching the halo in the preview. Chips stay
+     amber since they represent edits (a separate visual vocabulary). */
   .row.selected {
-    background: #fff3dc;
-    border-color: #c89a3c;
+    background: #dbeafe;
+    border-color: #2563eb;
   }
   .row.selected:hover {
-    background: #fdeac2;
+    background: #bfdbfe;
   }
 
   .idx {
@@ -304,7 +306,7 @@
     text-align: right;
   }
   .row.selected .idx {
-    color: #5b4a2e;
+    color: #1e40af;
   }
 
   .thumb {

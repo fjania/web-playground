@@ -148,6 +148,31 @@
   const sortedSliceIdxs = $derived.by(() =>
     [...bucketed.groups.keys()].sort((a, b) => a - b),
   );
+
+  /** Tight axis-aligned bbox enclosing all of a slice's volumes in
+   *  world (x, z) coords. Used to draw a single selection-halo rect
+   *  per selected slice, so selection reads as one unit rather than
+   *  N individual strip outlines. */
+  interface SliceBBox {
+    x: number;
+    z: number;
+    w: number;
+    h: number;
+  }
+
+  function sliceBBox(vols: Volume[]): SliceBBox {
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+    for (const v of vols) {
+      if (v.bbox.min[0] < minX) minX = v.bbox.min[0];
+      if (v.bbox.max[0] > maxX) maxX = v.bbox.max[0];
+      if (v.bbox.min[2] < minZ) minZ = v.bbox.min[2];
+      if (v.bbox.max[2] > maxZ) maxZ = v.bbox.max[2];
+    }
+    return { x: minX, z: minZ, w: maxX - minX, h: maxZ - minZ };
+  }
 </script>
 
 <svg
@@ -232,6 +257,25 @@
       />
     {/if}
   {/each}
+
+  <!-- Selection halos — one per selected slice, drawn on top of
+       everything else so they read as a single 'this whole slice is
+       selected' mark rather than N per-strip outlines. Pointer-events
+       disabled so clicks still land on the underlying slice-group. -->
+  {#each sortedSliceIdxs as sliceIdx (`halo-${sliceIdx}`)}
+    {#if state.selection.has(sliceIdx)}
+      {@const bb = sliceBBox(bucketed.groups.get(sliceIdx)!)}
+      <rect
+        class="selection-halo"
+        x={bb.x}
+        y={bb.z}
+        width={bb.w}
+        height={bb.h}
+        pointer-events="none"
+        vector-effect="non-scaling-stroke"
+      />
+    {/if}
+  {/each}
 </svg>
 
 <style>
@@ -264,13 +308,19 @@
     stroke: #00000088;
     stroke-width: 1.2;
   }
-  .slice-group.selected polygon {
-    /* Blue outline for selection — stronger contrast against wood
-       tones than the amber used elsewhere in the workbench. */
+
+  /* Selection reads as ONE halo per slice — tight axis-aligned bbox
+     around all the slice's volumes, subtle translucent blue wash
+     inside + solid blue border. Rendered above everything via paint
+     order; pointer-events disabled so clicks pass through. */
+  .selection-halo {
+    fill: rgba(37, 99, 235, 0.12);
     stroke: #2563eb;
-    stroke-width: 2.2;
-  }
-  .slice-group.selected:hover polygon {
-    stroke: #1d4ed8;
+    stroke-width: 2.4;
+    stroke-linejoin: miter;
+    stroke-linecap: square;
+    /* Subtle glow so the selection reads as 'lifted' off the panel
+       even at small rendered sizes. */
+    filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.4));
   }
 </style>
