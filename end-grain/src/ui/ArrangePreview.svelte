@@ -261,18 +261,22 @@
   <!-- Selection halos — one per selected slice, drawn on top of
        everything else so they read as a single 'this whole slice is
        selected' mark rather than N per-strip outlines. Pointer-events
-       disabled so clicks still land on the underlying slice-group. -->
+       disabled so clicks still land on the underlying slice-group.
+       A small horizontal padding pushes the vertical edges off the
+       slice's own side edges so the halo reads as a separate
+       element and the two sets of parallel lines don't co-alias. -->
   {#each sortedSliceIdxs as sliceIdx (`halo-${sliceIdx}`)}
     {#if state.selection.has(sliceIdx)}
       {@const bb = sliceBBox(bucketed.groups.get(sliceIdx)!)}
+      {@const padX = 4}
       <rect
         class="selection-halo"
-        x={bb.x}
+        x={bb.x - padX}
         y={bb.z}
-        width={bb.w}
+        width={bb.w + padX * 2}
         height={bb.h}
-        rx="4"
-        ry="4"
+        rx="6"
+        ry="6"
         pointer-events="none"
         vector-effect="non-scaling-stroke"
       />
