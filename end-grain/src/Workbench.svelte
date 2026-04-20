@@ -1097,6 +1097,15 @@
     border-color: #8a6a44;
     box-shadow: 0 2px 4px rgba(138, 106, 68, 0.2);
   }
+  /* The Arrange stage is focusable (tabindex=0) so it can receive
+     keydown events for F/R/E/O/etc. Suppress the browser's default
+     focus ring — the existing .focused border + 'FOCUSED' badge
+     already communicate focus. A keyboard-only focus-visible state
+     can come back in the step-9 a11y pass if needed. */
+  .stage:focus,
+  .stage:focus-visible {
+    outline: none;
+  }
   .stage.warn { border-left: 3px solid #d99a3a; }
   .stage.err  { border-left: 3px solid #b83a3a; }
   .stage-header {

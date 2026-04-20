@@ -245,6 +245,15 @@
 
   .slice-group {
     cursor: pointer;
+    /* Suppress the browser's default gold focus ring on the <g> —
+       we draw our own selection treatment via the blue stroke below.
+       A keyboard-only focus-visible state will come in the a11y
+       pass (step 9) if we need it. */
+    outline: none;
+  }
+  .slice-group:focus,
+  .slice-group:focus-visible {
+    outline: none;
   }
   .slice-group polygon {
     stroke: #00000022;
