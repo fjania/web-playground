@@ -43,6 +43,7 @@
   import CutControls, { type CutControlsState } from './ui/CutControls.svelte';
   import TrimControls, { type TrimControlsState } from './ui/TrimControls.svelte';
   import SliceList from './ui/SliceList.svelte';
+  import ArrangePreview from './ui/ArrangePreview.svelte';
   import ArrangeEditList, {
     type ArrangeEditListState,
     type ArrangeEditListChange,
@@ -670,9 +671,19 @@
                     {/if}
                   {:else if feature.kind === 'arrange'}
                     {@const ar = output?.results[feature.id] as ArrangeResult | undefined}
-                    {@const fcr = firstCutResult(output)}
-                    {#if fcr && ar}
-                      {@html renderArrangeOperation(fcr, ar, editsFor(feature.id), spacersFor(feature.id))}
+                    {#if ar}
+                      <ArrangePreview
+                        state={{
+                          arrangeResult: ar,
+                          spacers: spacersFor(feature.id),
+                          selection: arrangeSelection,
+                        }}
+                        anchor={arrangeAnchor}
+                        onSelectionChange={(ev) => {
+                          arrangeSelection = ev.selection;
+                          arrangeAnchor = ev.anchor;
+                        }}
+                      />
                     {/if}
                   {:else if feature.kind === 'trimPanel'}
                     {@const tr = output?.results[feature.id] as TrimPanelResult | undefined}
