@@ -45,14 +45,52 @@
   import { SPECIES_COLOURS } from '../render/summary';
 
   interface Props {
-    state: SliceListState;
+    /** Prop name `value` rather than `state` — `$state` rune collides
+     *  with that identifier inside a Svelte 5 component script
+     *  (same workaround as StripReorder.svelte). */
+    value: SliceListState;
     /** Fires on any selection change. Parent owns the state. */
     onSelectionChange: (ev: SliceListSelectionEvent) => void;
     /** Anchor from parent — the last-clicked slice, used for shift-range. */
     anchor: number | null;
+    /** Commit a new shift value for a single slice (set via the
+     *  inline numeric chip editor). Parent writes through to its
+     *  edit list via the canonical `setShift` helper. */
+    onShiftCommit: (sliceIdx: number, delta: number) => void;
   }
 
-  let { state, anchor, onSelectionChange }: Props = $props();
+  let { value, anchor, onSelectionChange, onShiftCommit }: Props = $props();
+
+  /** Row currently in numeric-chip edit mode. Only one at a time. */
+  let editingIdx = $state<number | null>(null);
+  let editingDraft = $state('');
+  let editingInputEl: HTMLInputElement | null = $state(null);
+
+  function startChipEdit(sliceIdx: number, currentDelta: number, ev: Event): void {
+    ev.stopPropagation();
+    editingIdx = sliceIdx;
+    editingDraft = String(currentDelta);
+    // focus + select on the next tick so the input is rendered
+    queueMicrotask(() => {
+      editingInputEl?.focus();
+      editingInputEl?.select();
+    });
+  }
+
+  function commitChipEdit(sliceIdx: number): void {
+    // Read directly from the DOM — bind:value can lag when commit
+    // is triggered synchronously from Enter in programmatic tests.
+    const raw = editingInputEl?.value ?? editingDraft;
+    const v = Number(raw);
+    if (Number.isFinite(v)) onShiftCommit(sliceIdx, Math.round(v));
+    editingIdx = null;
+    editingDraft = '';
+  }
+
+  function cancelChipEdit(): void {
+    editingIdx = null;
+    editingDraft = '';
+  }
 
   /**
    * Decompose a slice into proportional species bands along the
@@ -97,7 +135,7 @@
   }
 
   function onRowClick(sliceIdx: number, ev: MouseEvent): void {
-    const current = new Set(state.selection);
+    const current = new Set(value.selection);
     if (ev.shiftKey && anchor !== null) {
       const lo = Math.min(anchor, sliceIdx);
       const hi = Math.max(anchor, sliceIdx);
@@ -118,12 +156,12 @@
 </script>
 
 <div class="slice-list" role="listbox" aria-label="Slices" tabindex="-1">
-  {#each state.slices as slice, i (i)}
-    {@const rot = rotationForSlice(state.edits, i)}
-    {@const shift = shiftForSlice(state.edits, i)}
+  {#each value.slices as slice, i (i)}
+    {@const rot = rotationForSlice(value.edits, i)}
+    {@const shift = shiftForSlice(value.edits, i)}
     {@const bands = sliceSpeciesBands(slice)}
     {@const edited = rot !== 0 || shift !== 0}
-    {@const selected = state.selection.has(i)}
+    {@const selected = value.selection.has(i)}
 
     <button
       type="button"
@@ -184,8 +222,30 @@
         {:else if rot === 90 || rot === 270}
           <span class="chip rot" title="rotated {rot}°">{rot}°</span>
         {/if}
-        {#if shift !== 0}
-          <span class="chip shift" title="shift {shift} mm">
+        {#if editingIdx === i}
+          <span class="chip shift editing" onclick={(e) => e.stopPropagation()} role="presentation">
+            <input
+              bind:this={editingInputEl}
+              class="chip-input"
+              type="number"
+              step="1"
+              bind:value={editingDraft}
+              onkeydown={(ev) => {
+                if (ev.key === 'Enter') { ev.stopPropagation(); commitChipEdit(i); }
+                else if (ev.key === 'Escape') { ev.stopPropagation(); cancelChipEdit(); }
+              }}
+              onblur={() => commitChipEdit(i)}
+            />
+            <span class="unit">mm</span>
+          </span>
+        {:else if shift !== 0}
+          <span
+            class="chip shift editable"
+            title="click to edit · arrow keys to nudge"
+            role="button"
+            tabindex="-1"
+            onclick={(e) => startChipEdit(i, shift, e)}
+          >
             {shift > 0 ? '+' : ''}{shift}<span class="unit">mm</span>
           </span>
         {/if}
@@ -194,7 +254,7 @@
 
   {/each}
 
-  {#if state.slices.length === 0}
+  {#if value.slices.length === 0}
     <div class="empty">No slices — run Cut first.</div>
   {/if}
 </div>
@@ -276,6 +336,32 @@
   .chip.rot {
     /* same palette as shift — chips compose as a single edit group */
     letter-spacing: 0.02em;
+  }
+  .chip.editable {
+    cursor: text;
+  }
+  .chip.editable:hover {
+    background: #ffe9b8;
+  }
+  .chip.editing {
+    padding: 0 3px;
+    background: #fff;
+    border-color: #c89a3c;
+  }
+  .chip-input {
+    width: 44px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: #5b4a2e;
+    padding: 0;
+    outline: none;
+    -moz-appearance: textfield;
+  }
+  .chip-input::-webkit-inner-spin-button,
+  .chip-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
   .chip .unit {
     color: #8a6a2c;

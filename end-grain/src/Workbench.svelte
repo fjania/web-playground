@@ -47,7 +47,9 @@
   import {
     toggleFlip as editsToggleFlip,
     rotate90 as editsRotate90,
+    setShift as editsSetShift,
     clearEditsOnSlices as editsClearOnSlices,
+    shiftForSlice as editsShiftForSlice,
     type EditContext,
   } from './state/edits';
   import ArrangeEditList, {
@@ -557,7 +559,41 @@
         e.preventDefault();
         break;
       }
+      // ---- shift (per-slice nudge along the stack-perpendicular
+      // world axis; see revamp plan note) --------------------------
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        if (arrangeSelection.size === 0) return;
+        const step = e.shiftKey ? 5 : 1;
+        const dir = key === 'ArrowLeft' ? -1 : 1;
+        applyShiftDelta(feature, ctx, dir * step);
+        e.preventDefault();
+        break;
+      }
+      case '0': {
+        if (arrangeSelection.size === 0) return;
+        const next = editsSetShift(editsFor(feature.id), arrangeSelection, 0, ctx);
+        applyArrangeEdits(feature, next);
+        e.preventDefault();
+        break;
+      }
     }
+  }
+
+  /** Apply a per-slice shift delta: adds `delta` mm to each selected
+   *  slice's current shift (not a bulk-set — so nudging a mixed
+   *  selection keeps their relative offsets). */
+  function applyShiftDelta(
+    feature: Arrange,
+    ctx: EditContext,
+    delta: number,
+  ): void {
+    let next = editsFor(feature.id);
+    for (const idx of arrangeSelection) {
+      const current = editsShiftForSlice(next, idx);
+      next = editsSetShift(next, [idx], current + delta, ctx);
+    }
+    applyArrangeEdits(feature, next);
   }
 
   function allocateIdFn(prefix: IdPrefix): string {
@@ -768,7 +804,7 @@
                   {:else if feature.kind === 'arrange'}
                     {@const fcr = firstCutResult(output)}
                     <SliceList
-                      state={{
+                      value={{
                         arrangeId: feature.id,
                         slices: fcr?.slices ?? [],
                         edits: editsFor(feature.id),
@@ -778,6 +814,19 @@
                       onSelectionChange={(ev) => {
                         arrangeSelection = ev.selection;
                         arrangeAnchor = ev.anchor;
+                      }}
+                      onShiftCommit={(sliceIdx, delta) => {
+                        const ctx: EditContext = {
+                          arrangeId: feature.id,
+                          allocateId: () => allocateId(idCounter, 'edit'),
+                        };
+                        const next = editsSetShift(
+                          editsFor(feature.id),
+                          [sliceIdx],
+                          delta,
+                          ctx,
+                        );
+                        applyArrangeEdits(feature, next);
                       }}
                     />
                   {:else if feature.kind === 'trimPanel'}
