@@ -59,10 +59,11 @@ describe('summarize — default timeline', () => {
     expect(countFillOccurrences(svg, SPECIES_COLOURS.walnut)).toBe(8);
   });
 
-  it('viewBox reflects the panel bbox (X=100, Z=400)', () => {
+  it('viewBox reflects the panel bbox with axis swap (Z=400 horizontal, X=100 vertical)', () => {
     const snap = finalPanel(defaultTimeline(createIdCounter()));
     const svg = summarize(snap);
-    expect(svg).toMatch(/viewBox="-50 -200 100 400"/);
+    // world X=100 → SVG Y extent 100; world Z=400 → SVG X extent 400
+    expect(svg).toMatch(/viewBox="-200 -50 400 100"/);
   });
 
   it('emits a data-species attribute for each volume', () => {
@@ -246,7 +247,9 @@ describe('summarize — brick', () => {
     // Panel isn't re-centered when spacers extend it — min-Z stays
     // at the input's -200, extent grows to 435 (spacers pushed
     // slices along +Z).
-    expect(svg).toMatch(/viewBox="-95 -200 190 435"/);
+    // With axis swap: world Z (435, length) is horizontal, world X
+    // (190, width) is vertical.
+    expect(svg).toMatch(/viewBox="-200 -95 435 190"/);
   });
 
   it('matches the stored snapshot', () => {

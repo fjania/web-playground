@@ -272,8 +272,9 @@ describe('renderTrimOperation', () => {
       bounds: { xMin: -40, xMax: 40, zMin: -150, zMax: 150 },
     });
     const svg = renderTrimOperation(arrangeResult.panel, trimResult);
-    // appliedBounds = (-40,-150) to (40,150) → width 80, height 300.
-    expect(svg).toMatch(/<rect x="-40" y="-150" width="80" height="300"/);
+    // appliedBounds = (-40,-150) to (40,150). Axis swap → SVG X=Z
+    // (length extent 300), SVG Y=X (width extent 80).
+    expect(svg).toMatch(/<rect x="-150" y="-40" width="300" height="80"/);
   });
 
   it('snapshot-is-truth: the rect is driven by appliedBounds, not input params', () => {
@@ -318,7 +319,8 @@ describe('renderTrimOperation', () => {
     const arrangeResult = out.results['arrange-0'] as ArrangeResult;
     const trimResult = out.results[trim.id] as TrimPanelResult;
     const svg = renderTrimOperation(arrangeResult.panel, trimResult);
-    // Panel is 100 × 400 (X × Z). Trim rect should match.
-    expect(svg).toMatch(/<rect x="-50" y="-200" width="100" height="400"/);
+    // Panel is 100 × 400 (X × Z). Axis swap → SVG X=Z (length=400),
+    // SVG Y=X (width=100). Trim rect should match.
+    expect(svg).toMatch(/<rect x="-200" y="-50" width="400" height="100"/);
   });
 });
