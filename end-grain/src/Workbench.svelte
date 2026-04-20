@@ -478,23 +478,6 @@
     const key = e.key;
     const cmdLike = e.metaKey || e.ctrlKey;
 
-    // Simple selection builders for pattern-select keys.
-    const makeAll = (): Set<number> => {
-      const s = new Set<number>();
-      for (let i = 0; i < sliceCount; i++) s.add(i);
-      return s;
-    };
-    const makeEven = (): Set<number> => {
-      const s = new Set<number>();
-      for (let i = 0; i < sliceCount; i += 2) s.add(i);
-      return s;
-    };
-    const makeOdd = (): Set<number> => {
-      const s = new Set<number>();
-      for (let i = 1; i < sliceCount; i += 2) s.add(i);
-      return s;
-    };
-
     switch (key) {
       case 'f':
       case 'F': {
@@ -513,7 +496,7 @@
         break;
       }
       case 'Escape': {
-        arrangeSelection = new Set();
+        selectNone();
         arrangeAnchor = null;
         e.preventDefault();
         break;
@@ -522,32 +505,25 @@
       case 'A': {
         // Leave cmd/ctrl+A alone (browser select-all).
         if (cmdLike) return;
-        arrangeSelection = makeAll();
-        arrangeAnchor = sliceCount - 1;
+        selectAll(sliceCount);
         e.preventDefault();
         break;
       }
       case 'i':
       case 'I': {
-        const next = new Set<number>();
-        for (let i = 0; i < sliceCount; i++) {
-          if (!arrangeSelection.has(i)) next.add(i);
-        }
-        arrangeSelection = next;
+        invertSelection(sliceCount);
         e.preventDefault();
         break;
       }
       case 'e':
       case 'E': {
-        arrangeSelection = makeEven();
-        arrangeAnchor = Math.max(0, sliceCount - (sliceCount % 2 === 0 ? 2 : 1));
+        selectEvery(sliceCount, 0);
         e.preventDefault();
         break;
       }
       case 'o':
       case 'O': {
-        arrangeSelection = makeOdd();
-        arrangeAnchor = sliceCount - 1 - ((sliceCount - 1) % 2 === 0 ? 1 : 0);
+        selectEvery(sliceCount, 1);
         e.preventDefault();
         break;
       }
@@ -578,6 +554,32 @@
         break;
       }
     }
+  }
+
+  /** Selection-mutation helpers. Shared between the keyboard handler
+   *  and the selection toolbar (step 7). Each sets both the
+   *  selection set and an appropriate anchor for future shift+click
+   *  range-extension. */
+  function selectAll(n: number): void {
+    const s = new Set<number>();
+    for (let i = 0; i < n; i++) s.add(i);
+    arrangeSelection = s;
+    arrangeAnchor = n > 0 ? n - 1 : null;
+  }
+  function selectNone(): void {
+    arrangeSelection = new Set();
+    // Leave anchor in place so shift+click still makes sense.
+  }
+  function invertSelection(n: number): void {
+    const s = new Set<number>();
+    for (let i = 0; i < n; i++) if (!arrangeSelection.has(i)) s.add(i);
+    arrangeSelection = s;
+  }
+  function selectEvery(n: number, offset: 0 | 1): void {
+    const s = new Set<number>();
+    for (let i = offset; i < n; i += 2) s.add(i);
+    arrangeSelection = s;
+    arrangeAnchor = s.size > 0 ? Math.max(...s) : null;
   }
 
   /** Apply a per-slice shift delta: adds `delta` mm to each selected
@@ -803,32 +805,65 @@
                     />
                   {:else if feature.kind === 'arrange'}
                     {@const fcr = firstCutResult(output)}
-                    <SliceList
-                      value={{
-                        arrangeId: feature.id,
-                        slices: fcr?.slices ?? [],
-                        edits: editsFor(feature.id),
-                        selection: arrangeSelection,
-                      }}
-                      anchor={arrangeAnchor}
-                      onSelectionChange={(ev) => {
-                        arrangeSelection = ev.selection;
-                        arrangeAnchor = ev.anchor;
-                      }}
-                      onShiftCommit={(sliceIdx, delta) => {
-                        const ctx: EditContext = {
+                    {@const sliceCount = fcr?.slices.length ?? 0}
+                    <div class="arrange-ctrl-stack">
+                      <!-- Selection toolbar. Each button mirrors a
+                           keyboard shortcut (shown in the title). -->
+                      <div class="select-bar" aria-label="Select">
+                        <span class="bar-label">Select</span>
+                        <button
+                          type="button"
+                          title="All (A)"
+                          onclick={() => selectAll(sliceCount)}
+                        >All</button>
+                        <button
+                          type="button"
+                          title="None (Esc)"
+                          onclick={() => selectNone()}
+                        >None</button>
+                        <button
+                          type="button"
+                          title="Invert (I)"
+                          onclick={() => invertSelection(sliceCount)}
+                        >Invert</button>
+                        <button
+                          type="button"
+                          title="Every other (E)"
+                          onclick={() => selectEvery(sliceCount, 0)}
+                        >Every other</button>
+                        <button
+                          type="button"
+                          title="Odd indices (O)"
+                          onclick={() => selectEvery(sliceCount, 1)}
+                        >Odd</button>
+                      </div>
+                      <SliceList
+                        value={{
                           arrangeId: feature.id,
-                          allocateId: () => allocateId(idCounter, 'edit'),
-                        };
-                        const next = editsSetShift(
-                          editsFor(feature.id),
-                          [sliceIdx],
-                          delta,
-                          ctx,
-                        );
-                        applyArrangeEdits(feature, next);
-                      }}
-                    />
+                          slices: fcr?.slices ?? [],
+                          edits: editsFor(feature.id),
+                          selection: arrangeSelection,
+                        }}
+                        anchor={arrangeAnchor}
+                        onSelectionChange={(ev) => {
+                          arrangeSelection = ev.selection;
+                          arrangeAnchor = ev.anchor;
+                        }}
+                        onShiftCommit={(sliceIdx, delta) => {
+                          const ctx: EditContext = {
+                            arrangeId: feature.id,
+                            allocateId: () => allocateId(idCounter, 'edit'),
+                          };
+                          const next = editsSetShift(
+                            editsFor(feature.id),
+                            [sliceIdx],
+                            delta,
+                            ctx,
+                          );
+                          applyArrangeEdits(feature, next);
+                        }}
+                      />
+                    </div>
                   {:else if feature.kind === 'trimPanel'}
                     <TrimControls
                       state={{
@@ -1190,6 +1225,52 @@
     overflow: hidden;
     background: #1a1a1a;
   }
+  /* Arrange Controls: toolbar above a scrollable SliceList. The
+     toolbar doesn't scroll; the list does. */
+  .arrange-ctrl-stack {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 0.4rem 0.45rem 0.3rem;
+    gap: 0.35rem;
+  }
+  .select-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 1px 4px;
+    border-bottom: 1px solid #eee;
+  }
+  .select-bar .bar-label {
+    font-size: 0.62rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 2px;
+  }
+  .select-bar button {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border: 1px solid #d6d3cd;
+    background: #fff;
+    color: #555;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  .select-bar button:hover {
+    border-color: #2563eb;
+    color: #1e40af;
+    background: #eff6ff;
+  }
+  .select-bar button:active {
+    background: #dbeafe;
+  }
+
   .compose-inventory-wrap {
     padding: 0.3rem 0.45rem;
     display: flex;
