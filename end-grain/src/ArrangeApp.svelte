@@ -8,8 +8,8 @@
    * the timeline targeting arrange-0.
    *
    * URL-only: the harness itself has no live controls — one
-   * pipeline pass at load. ArrangeEditList etc. are reserved for
-   * the workbench.
+   * pipeline pass at load. Live editing UI is reserved for the
+   * workbench.
    */
 
   import { onMount } from 'svelte';

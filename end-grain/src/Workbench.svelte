@@ -52,10 +52,6 @@
     shiftForSlice as editsShiftForSlice,
     type EditContext,
   } from './state/edits';
-  import ArrangeEditList, {
-    type ArrangeEditListState,
-    type ArrangeEditListChange,
-  } from './ui/ArrangeEditList.svelte';
   import type {
     Arrange,
     ArrangeResult,
@@ -433,16 +429,6 @@
     rerun();
   }
 
-  function applyArrangeEditList(feature: Arrange, next: ArrangeEditListChange): void {
-    // Replace PlaceEdits/SpacerInserts for this arrange wholesale.
-    const filtered = timeline.filter(
-      (f) =>
-        !(f.kind === 'placeEdit' && f.target.arrangeId === feature.id) &&
-        !(f.kind === 'spacerInsert' && f.arrangeId === feature.id),
-    );
-    timeline = [...filtered, ...next.edits, ...next.spacers];
-  }
-
   /** Replace the PlaceEdits targeting an Arrange, keeping its
    *  attached spacers untouched (they flow through unmodified). */
   function applyArrangeEdits(feature: Arrange, nextEdits: PlaceEdit[]): void {
@@ -632,18 +618,6 @@
 
   function allocateStripId(): string {
     return allocateId(idCounter, 'strip');
-  }
-
-  // Slice count for ArrangeEditList bounds.
-  function sliceCountFromOutput(out: PipelineOutput | null): number {
-    if (!out) return 0;
-    for (const id of out.trace) {
-      const r = out.results[id];
-      if (r && 'slices' in r && Array.isArray((r as CutResult).slices)) {
-        return (r as CutResult).slices.length;
-      }
-    }
-    return 0;
   }
 
   // ---- Stage content helpers ----
