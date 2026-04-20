@@ -921,6 +921,68 @@ describe('runPipeline — TrimPanel (flush at rip > 0)', () => {
   });
 });
 
+describe('runPipeline — TrimPanel (flush with protrusion-hull)', () => {
+  it('flush keeps the full panel width when spacer inflation at rip!=0 protrudes beyond the nominal x-extent', () => {
+    // Regression for the case the workbench surfaced live: rip=12°
+    // with flipAlternate on all 15 slices + 2 inflated spacers. The
+    // spacers' rotated/inflated topFace vertices sit ~1 mm past the
+    // panel's nominal x-extent, forming a 9-vertex hull with narrow
+    // protrusions at the hull's true x-extrema. The naive "use hull
+    // x-min / x-max" approach picks those protruding vertices as
+    // rectangle edges, which pinches the z-span to near zero and
+    // returns a degenerate (200mm) x 15mm rectangle. The brute-force
+    // search over all hull-vertex x-pairs correctly picks the
+    // x = +/-100 pair, giving the full 200mm panel width back.
+    const { out, trim } = runWithTrim(
+      (t, counter) => {
+        const cut = t[1];
+        if (cut.kind !== 'cut') throw new Error('bad timeline');
+        cut.rip = 12;
+        cut.spacingMode = 'slices';
+        cut.slices = 15;
+
+        const arrangeId = t.find((f) => f.kind === 'arrange')?.id ?? 'arrange-0';
+
+        // flipAlternate on every even-indexed slice (0, 2, 4, ... 14).
+        for (let idx = 0; idx < 15; idx += 2) {
+          t.push({
+            kind: 'placeEdit',
+            id: allocateId(counter, 'edit'),
+            target: { arrangeId, sliceIdx: idx },
+            op: { kind: 'rotate', degrees: 180 },
+            status: 'ok',
+          });
+        }
+        // Two inflated purpleheart spacers.
+        for (const afterSliceIdx of [0, 2]) {
+          t.push({
+            kind: 'spacerInsert',
+            id: allocateId(counter, 'spacer'),
+            arrangeId,
+            afterSliceIdx,
+            species: 'purpleheart',
+            width: 5,
+            status: 'ok',
+          });
+        }
+      },
+      { mode: 'flush' },
+    );
+    const trimResult = out.results[trim.id] as TrimPanelResult;
+    expect(trimResult.status).toBe('ok');
+    const w = trimResult.appliedBounds.xMax - trimResult.appliedBounds.xMin;
+    const l = trimResult.appliedBounds.zMax - trimResult.appliedBounds.zMin;
+    // Full panel width (~200 mm — composeStrips default is 2 strips
+    // of 50 mm each, but the spacer inflation bumps the hull past +/-50;
+    // the brute-force search should pick a meaningful pair).
+    // defaultTimeline gives 2 strips x 50mm wide = 100mm X extent.
+    expect(w).toBeGreaterThan(90);
+    expect(w).toBeLessThanOrEqual(100 + 1e-3);
+    // Length should be > 100 mm (old buggy heuristic gave ~15mm).
+    expect(l).toBeGreaterThan(100);
+  });
+});
+
 describe('runPipeline — TrimPanel (bbox mode)', () => {
   it('bbox clips panel to exact user-supplied bounds', () => {
     const { out, trim } = runWithTrim(() => {}, {

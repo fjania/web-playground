@@ -906,55 +906,114 @@ function collectFaceVertices(
 }
 
 /**
- * Largest axis-aligned rectangle inscribed in a convex polygon, via
- * the #37 spec's half-plane vertex heuristic applied to the convex
- * hull of the input vertex set:
+ * Largest axis-aligned rectangle inscribed in a convex polygon.
  *
- *   1. Compute convex hull of all input vertices (discards interior
- *      points — shared-edge vertices between adjacent volumes, strip
- *      boundaries etc. — which would spuriously constrain the rect).
- *   2. xMin = max({x : hull vertex on the STRICT left of centroid})
- *      xMax = min({x : hull vertex on the STRICT right of centroid})
- *      zMin = max({z : hull vertex on the STRICT bottom of centroid})
- *      zMax = min({z : hull vertex on the STRICT top of centroid})
+ * Algorithm (replaces the #37 spec's half-plane vertex heuristic,
+ * which failed for hexagonal hulls like flipAlternate at rip≠0 and
+ * for panels with spacer protrusions):
  *
- * For a parallelogram (rip-angled arrange output with no spacers),
- * the hull has 4 vertices; each side of the centroid has two hull
- * vertices at differing x or z, and the max/min of those gives the
- * inscribed rectangle's edge — which is correct. For trapezoids and
- * other convex outlines, the heuristic still gives the inscribed
- * rectangle.
+ *   1. Compute the convex hull of the input vertex set. That
+ *      discards interior points (strip boundaries, shared edges).
+ *   2. Enumerate every pair (xL, xR) of distinct hull-vertex
+ *      x-coordinates with xL < xR. For each pair, compute the
+ *      polygon's vertical span at x=xL and at x=xR by intersecting
+ *      hull edges with those vertical lines. The candidate
+ *      rectangle's z-range is the intersection of the two spans
+ *      (max of mins, min of maxes). Track the max-area valid
+ *      candidate.
  *
- * Non-convex outlines (would only arise post-spacer at odd rip/
- * shift combinations we don't currently produce) degrade to the
- * hull's inscribed rect, which is a conservative but still
- * material-preserving trim.
+ * Why the brute-force pair search: the naive "use hull x-extrema
+ * for xMin / xMax" approach fails when the hull has a protruding
+ * vertex (e.g. an inflated spacer at rip≠0 pushes a single hull
+ * vertex slightly past the panel's otherwise-straight left edge).
+ * At that protrusion the polygon pinches to a point, giving zero
+ * z-span, and the resulting rectangle has zero area. Instead we
+ * try every hull-vertex x and pick the pair that maximises the
+ * inscribed rectangle's area — the protrusion pair loses; the
+ * next-most-extreme pair (where the polygon has a real vertical
+ * extent) wins.
+ *
+ * Complexity: O(n²) hull pairs × O(n) edge-intersect per pair =
+ * O(n³). Our hulls are small (≤ ~20 vertices even at high slice
+ * counts + spacers), so this is fine. If n ever grows beyond
+ * ~100 we'd switch to Alt-Blum-Hagerup-Mehlhorn O(n log n).
+ *
+ * Non-convex outlines defeat the hull-based approach — the hull
+ * encloses concave regions and the computed rectangle may extend
+ * outside the real panel. Those cases surface status='warning'
+ * via executeTrimPanel.
  */
 function computeInscribedRect(
   vertices: Array<{ x: number; z: number }>,
   bbox: { xMin: number; xMax: number; zMin: number; zMax: number },
 ): { xMin: number; xMax: number; zMin: number; zMax: number } {
   const hull = convexHull(vertices);
-  const midX = (bbox.xMin + bbox.xMax) / 2;
-  const midZ = (bbox.zMin + bbox.zMax) / 2;
+  if (hull.length < 3) return { ...bbox };
 
-  let xMin = bbox.xMin;
-  let xMax = bbox.xMax;
-  let zMin = bbox.zMin;
-  let zMax = bbox.zMax;
+  // Intersect hull edges with the vertical line x=xTarget. Returns
+  // the z-range the polygon spans there, or null if the line doesn't
+  // meet the polygon (shouldn't happen for xTarget within hull's
+  // x-range, but defensive).
+  const zSpanAt = (xTarget: number): { zMin: number; zMax: number } | null => {
+    let zMin = Number.POSITIVE_INFINITY;
+    let zMax = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i];
+      const b = hull[(i + 1) % hull.length];
+      const ax = a.x - xTarget;
+      const bx = b.x - xTarget;
+      // Edge crosses or touches the vertical line.
+      if ((ax <= 0 && bx >= 0) || (ax >= 0 && bx <= 0)) {
+        if (a.x === b.x) {
+          // Vertical edge coincident with x=xTarget — both endpoints
+          // count. (Non-coincident vertical edges are filtered by
+          // the straddle test above.)
+          if (ax === 0) {
+            if (a.z < zMin) zMin = a.z;
+            if (a.z > zMax) zMax = a.z;
+            if (b.z < zMin) zMin = b.z;
+            if (b.z > zMax) zMax = b.z;
+          }
+          continue;
+        }
+        const t = (xTarget - a.x) / (b.x - a.x);
+        const z = a.z + t * (b.z - a.z);
+        if (z < zMin) zMin = z;
+        if (z > zMax) zMax = z;
+      }
+    }
+    if (!Number.isFinite(zMin) || !Number.isFinite(zMax)) return null;
+    return { zMin, zMax };
+  };
 
-  // Strict left/right/bottom/top classification. A hull vertex sitting
-  // exactly at the centroid would be a degenerate symmetric case — we
-  // ignore it in that case (neither constrains) rather than letting it
-  // clamp the rect to a point.
+  // Collect unique hull x-values. 1e-6 mm epsilon to dedupe numerical
+  // jitter without merging legitimately-close values.
+  const uniqXs: number[] = [];
   for (const v of hull) {
-    if (v.x < midX && v.x > xMin) xMin = v.x;
-    if (v.x > midX && v.x < xMax) xMax = v.x;
-    if (v.z < midZ && v.z > zMin) zMin = v.z;
-    if (v.z > midZ && v.z < zMax) zMax = v.z;
+    if (!uniqXs.some((x) => Math.abs(x - v.x) < 1e-6)) uniqXs.push(v.x);
+  }
+  uniqXs.sort((a, b) => a - b);
+
+  let best: { xMin: number; xMax: number; zMin: number; zMax: number; area: number } | null = null;
+  for (let i = 0; i < uniqXs.length; i++) {
+    for (let j = i + 1; j < uniqXs.length; j++) {
+      const xL = uniqXs[i];
+      const xR = uniqXs[j];
+      const left = zSpanAt(xL);
+      const right = zSpanAt(xR);
+      if (!left || !right) continue;
+      const zMin = Math.max(left.zMin, right.zMin);
+      const zMax = Math.min(left.zMax, right.zMax);
+      if (zMin >= zMax) continue;
+      const area = (xR - xL) * (zMax - zMin);
+      if (best === null || area > best.area) {
+        best = { xMin: xL, xMax: xR, zMin, zMax, area };
+      }
+    }
   }
 
-  return { xMin, xMax, zMin, zMax };
+  if (best === null) return { ...bbox };
+  return { xMin: best.xMin, xMax: best.xMax, zMin: best.zMin, zMax: best.zMax };
 }
 
 /**
