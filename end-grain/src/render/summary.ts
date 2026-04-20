@@ -13,12 +13,15 @@
  * emits one `<rect>` per volume using species-keyed fill colours.
  *
  * Coordinate convention: the board's top face is the XZ plane at
- * y = bbox.max[1]. We project directly onto SVG user space:
- *   svgX = worldX
- *   svgY = worldZ
- * with the SVG `viewBox` set to the panel's X × Z extent. No scale
- * factor is applied — consumers size the rendered SVG via CSS or
- * outer width/height attributes.
+ * y = bbox.max[1]. We project onto SVG user space with a 90° axis
+ * swap so the panel's length axis (world Z) runs HORIZONTALLY and
+ * the width / stack axis (world X) runs VERTICALLY — matching the
+ * Compose preview's convention:
+ *   svgX = worldZ   (length — "runs away from the maker")
+ *   svgY = worldX   (width — strip-stacking direction)
+ * The SVG `viewBox` is set to the panel's Z × X extent (swapped
+ * from the world bbox). No scale factor is applied — consumers
+ * size the rendered SVG via CSS or outer width/height attributes.
  *
  * Known limitation: for rip != 0 cuts, each volume is a parallelogram
  * whose AABB over-approximates the true top-face footprint. Rendering
@@ -118,9 +121,11 @@ export function summarize(snapshot: PanelSnapshot): SvgString {
   const extentX = Math.max(0, max[0] - min[0]);
   const extentZ = Math.max(0, max[2] - min[2]);
 
+  // Axis swap: world Z → SVG X, world X → SVG Y. ViewBox therefore
+  // uses (minZ, minX, extentZ, extentX).
   const header =
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
-    `viewBox="${fmt(minX)} ${fmt(minZ)} ${fmt(extentX)} ${fmt(extentZ)}" ` +
+    `viewBox="${fmt(minZ)} ${fmt(minX)} ${fmt(extentZ)} ${fmt(extentX)}" ` +
     `preserveAspectRatio="xMidYMid meet">`;
 
   const shapes = snapshot.volumes.map(volumeShape).join('');
@@ -138,8 +143,9 @@ function volumeShape(v: PanelSnapshot['volumes'][number]): string {
   const fill = SPECIES_COLOURS[v.species];
   const stroke = `stroke="${STROKE}" stroke-width="${STROKE_WIDTH}"`;
   const species = `data-species="${v.species}"`;
+  // Axis swap: world (x, z) → SVG (z, x).
   if (v.topFace && v.topFace.length >= 3) {
-    const pts = v.topFace.map((p) => `${fmt(p.x)},${fmt(p.z)}`).join(' ');
+    const pts = v.topFace.map((p) => `${fmt(p.z)},${fmt(p.x)}`).join(' ');
     return `<polygon points="${pts}" fill="${fill}" ${stroke} ${species}/>`;
   }
   // Fallback — should be unreachable for pipeline output.
@@ -148,8 +154,8 @@ function volumeShape(v: PanelSnapshot['volumes'][number]): string {
   const w = v.bbox.max[0] - v.bbox.min[0];
   const h = v.bbox.max[2] - v.bbox.min[2];
   return (
-    `<rect x="${fmt(x)}" y="${fmt(z)}" ` +
-    `width="${fmt(w)}" height="${fmt(h)}" ` +
+    `<rect x="${fmt(z)}" y="${fmt(x)}" ` +
+    `width="${fmt(h)}" height="${fmt(w)}" ` +
     `fill="${fill}" ${stroke} ${species}/>`
   );
 }

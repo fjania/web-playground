@@ -42,10 +42,16 @@
   import StripReorder, { type ReorderState } from './ui/StripReorder.svelte';
   import CutControls, { type CutControlsState } from './ui/CutControls.svelte';
   import TrimControls, { type TrimControlsState } from './ui/TrimControls.svelte';
-  import ArrangeEditList, {
-    type ArrangeEditListState,
-    type ArrangeEditListChange,
-  } from './ui/ArrangeEditList.svelte';
+  import SliceList from './ui/SliceList.svelte';
+  import ArrangePreview from './ui/ArrangePreview.svelte';
+  import {
+    toggleFlip as editsToggleFlip,
+    rotate90 as editsRotate90,
+    setShift as editsSetShift,
+    clearEditsOnSlices as editsClearOnSlices,
+    shiftForSlice as editsShiftForSlice,
+    type EditContext,
+  } from './state/edits';
   import type {
     Arrange,
     ArrangeResult,
@@ -174,6 +180,16 @@
   let designName = $state(initialDesignName);
   let timeline = $state<Feature[]>(initialTimeline);
   let focusedStageId = $state<string | null>(null);
+  /** Arrange slice selection — shared between SliceList (Controls
+   *  pane) and, from step 4 on, the interactive preview. Cleared
+   *  when focus moves off the arrange stage. */
+  let arrangeSelection = $state<Set<number>>(new Set());
+  /** Last-clicked slice index; anchor for shift+click range select. */
+  let arrangeAnchor = $state<number | null>(null);
+  /** DOM refs to each stage <article> so we can programmatically
+   *  focus the Arrange stage when it becomes focused — keyboard
+   *  actions (F, R, E, O, ...) listen on the article. */
+  const stageRefs: Record<string, HTMLElement | null> = {};
   let saveStatus = $state<'saving' | 'saved' | 'idle'>('idle');
   let manifoldReady = $state(false);
   let output = $state<PipelineOutput | null>(null);
@@ -288,7 +304,7 @@
       }
       case 'arrange': {
         const r = out.results[f.id] as ArrangeResult | undefined;
-        return r ? `${r.appliedEditCount} edits · ${r.appliedSpacerCount} spacers` : '';
+        return r ? `${r.appliedEditCount} edits` : '';
       }
       case 'trimPanel': {
         const r = out.results[f.id] as TrimPanelResult | undefined;
@@ -413,14 +429,187 @@
     rerun();
   }
 
-  function applyArrangeEditList(feature: Arrange, next: ArrangeEditListChange): void {
-    // Replace PlaceEdits/SpacerInserts for this arrange wholesale.
+  /** Replace the PlaceEdits targeting an Arrange, keeping its
+   *  attached spacers untouched (they flow through unmodified). */
+  function applyArrangeEdits(feature: Arrange, nextEdits: PlaceEdit[]): void {
     const filtered = timeline.filter(
-      (f) =>
-        !(f.kind === 'placeEdit' && f.target.arrangeId === feature.id) &&
-        !(f.kind === 'spacerInsert' && f.arrangeId === feature.id),
+      (f) => !(f.kind === 'placeEdit' && f.target.arrangeId === feature.id),
     );
-    timeline = [...filtered, ...next.edits, ...next.spacers];
+    timeline = [...filtered, ...nextEdits];
+  }
+
+  /** Keyboard actions on the Arrange stage. Wired to the stage
+   *  <article>'s onkeydown so it only fires while the user is
+   *  interacting with that specific stage. */
+  function handleArrangeKey(feature: Arrange, e: KeyboardEvent): void {
+    // Don't steal keys from text inputs anywhere inside the stage.
+    const tgt = e.target as HTMLElement | null;
+    if (
+      tgt &&
+      (tgt.tagName === 'INPUT' ||
+        tgt.tagName === 'TEXTAREA' ||
+        tgt.isContentEditable)
+    ) {
+      return;
+    }
+
+    const sliceCount = firstCutResult(output)?.slices.length ?? 0;
+    if (sliceCount === 0) return;
+
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+
+    const key = e.key;
+    const cmdLike = e.metaKey || e.ctrlKey;
+
+    switch (key) {
+      case 'f':
+      case 'F': {
+        flipSelection(feature);
+        e.preventDefault();
+        break;
+      }
+      case 'r':
+      case 'R': {
+        rotate90Selection(feature);
+        e.preventDefault();
+        break;
+      }
+      case 'Escape': {
+        selectNone();
+        arrangeAnchor = null;
+        e.preventDefault();
+        break;
+      }
+      case 'a':
+      case 'A': {
+        // Leave cmd/ctrl+A alone (browser select-all).
+        if (cmdLike) return;
+        selectAll(sliceCount);
+        e.preventDefault();
+        break;
+      }
+      case 'i':
+      case 'I': {
+        invertSelection(sliceCount);
+        e.preventDefault();
+        break;
+      }
+      case 'e':
+      case 'E': {
+        selectEvery(sliceCount, 0);
+        e.preventDefault();
+        break;
+      }
+      case 'o':
+      case 'O': {
+        selectEvery(sliceCount, 1);
+        e.preventDefault();
+        break;
+      }
+      case 'Delete':
+      case 'Backspace': {
+        clearSelectionEdits(feature);
+        e.preventDefault();
+        break;
+      }
+      // ---- shift (per-slice nudge along the stack-perpendicular
+      // world axis; see revamp plan note) --------------------------
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        if (arrangeSelection.size === 0) return;
+        const step = e.shiftKey ? 5 : 1;
+        const dir = key === 'ArrowLeft' ? -1 : 1;
+        applyShiftDelta(feature, ctx, dir * step);
+        e.preventDefault();
+        break;
+      }
+      case '0': {
+        if (arrangeSelection.size === 0) return;
+        const next = editsSetShift(editsFor(feature.id), arrangeSelection, 0, ctx);
+        applyArrangeEdits(feature, next);
+        e.preventDefault();
+        break;
+      }
+    }
+  }
+
+  /** Selection-mutation helpers. Shared between the keyboard handler
+   *  and the selection toolbar (step 7). Each sets both the
+   *  selection set and an appropriate anchor for future shift+click
+   *  range-extension. */
+  function selectAll(n: number): void {
+    const s = new Set<number>();
+    for (let i = 0; i < n; i++) s.add(i);
+    arrangeSelection = s;
+    arrangeAnchor = n > 0 ? n - 1 : null;
+  }
+  function selectNone(): void {
+    arrangeSelection = new Set();
+    // Leave anchor in place so shift+click still makes sense.
+  }
+  function invertSelection(n: number): void {
+    const s = new Set<number>();
+    for (let i = 0; i < n; i++) if (!arrangeSelection.has(i)) s.add(i);
+    arrangeSelection = s;
+  }
+  function selectEvery(n: number, offset: 0 | 1): void {
+    const s = new Set<number>();
+    for (let i = offset; i < n; i += 2) s.add(i);
+    arrangeSelection = s;
+    arrangeAnchor = s.size > 0 ? Math.max(...s) : null;
+  }
+
+  /** Action helpers — shared between the keyboard handler (F / R /
+   *  Delete) and the action toolbar buttons (step 8). Each one's a
+   *  no-op when the selection is empty, so callers don't need to
+   *  guard. */
+  function flipSelection(feature: Arrange): void {
+    if (arrangeSelection.size === 0) return;
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+    applyArrangeEdits(
+      feature,
+      editsToggleFlip(editsFor(feature.id), arrangeSelection, ctx),
+    );
+  }
+  function rotate90Selection(feature: Arrange): void {
+    if (arrangeSelection.size === 0) return;
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+    applyArrangeEdits(
+      feature,
+      editsRotate90(editsFor(feature.id), arrangeSelection, ctx),
+    );
+  }
+  function clearSelectionEdits(feature: Arrange): void {
+    if (arrangeSelection.size === 0) return;
+    applyArrangeEdits(
+      feature,
+      editsClearOnSlices(editsFor(feature.id), arrangeSelection),
+    );
+  }
+
+  /** Apply a per-slice shift delta: adds `delta` mm to each selected
+   *  slice's current shift (not a bulk-set — so nudging a mixed
+   *  selection keeps their relative offsets). */
+  function applyShiftDelta(
+    feature: Arrange,
+    ctx: EditContext,
+    delta: number,
+  ): void {
+    let next = editsFor(feature.id);
+    for (const idx of arrangeSelection) {
+      const current = editsShiftForSlice(next, idx);
+      next = editsSetShift(next, [idx], current + delta, ctx);
+    }
+    applyArrangeEdits(feature, next);
   }
 
   function allocateIdFn(prefix: IdPrefix): string {
@@ -429,18 +618,6 @@
 
   function allocateStripId(): string {
     return allocateId(idCounter, 'strip');
-  }
-
-  // Slice count for ArrangeEditList bounds.
-  function sliceCountFromOutput(out: PipelineOutput | null): number {
-    if (!out) return 0;
-    for (const id of out.trace) {
-      const r = out.results[id];
-      if (r && 'slices' in r && Array.isArray((r as CutResult).slices)) {
-        return (r as CutResult).slices.length;
-      }
-    }
-    return 0;
   }
 
   // ---- Stage content helpers ----
@@ -483,6 +660,15 @@
   // of body-side interactions.
   function toggleFocus(id: string): void {
     focusedStageId = focusedStageId === id ? null : id;
+    // Selection is per-arrange — drop it whenever focus moves.
+    arrangeSelection = new Set();
+    arrangeAnchor = null;
+    // Move DOM keyboard focus into the focused stage's <article>
+    // so keydown handlers (Arrange) receive events right away.
+    if (focusedStageId) {
+      const id2 = focusedStageId;
+      queueMicrotask(() => stageRefs[id2]?.focus({ preventScroll: true }));
+    }
   }
 
   function warnInlineText(featureId: string): string {
@@ -570,8 +756,13 @@
           {@const isFocused = focusedStageId === feature.id}
           {@const isLastOp = lastMainOp?.id === feature.id}
           <article
+            bind:this={stageRefs[feature.id]}
             class="stage {stageStatusClass(feature.id)}"
             class:focused={isFocused}
+            tabindex={feature.kind === 'arrange' && isFocused ? 0 : -1}
+            onkeydown={feature.kind === 'arrange'
+              ? (e) => handleArrangeKey(feature, e)
+              : null}
           >
             <header
               class="stage-header"
@@ -615,16 +806,91 @@
                       onChange={(next) => applyCutControls(feature, next)}
                     />
                   {:else if feature.kind === 'arrange'}
-                    <ArrangeEditList
-                      state={{
-                        arrangeId: feature.id,
-                        edits: editsFor(feature.id),
-                        spacers: spacersFor(feature.id),
-                        sliceCount: sliceCountFromOutput(output),
-                      }}
-                      allocateId={allocateIdFn}
-                      onChange={(next) => applyArrangeEditList(feature, next)}
-                    />
+                    {@const fcr = firstCutResult(output)}
+                    {@const sliceCount = fcr?.slices.length ?? 0}
+                    {@const selectionEmpty = arrangeSelection.size === 0}
+                    <div class="arrange-ctrl-stack">
+                      <!-- Selection toolbar. Each button mirrors a
+                           keyboard shortcut (shown in the title). -->
+                      <div class="select-bar" aria-label="Select">
+                        <span class="bar-label">Select</span>
+                        <button
+                          type="button"
+                          title="All (A)"
+                          onclick={() => selectAll(sliceCount)}
+                        >All</button>
+                        <button
+                          type="button"
+                          title="None (Esc)"
+                          onclick={() => selectNone()}
+                        >None</button>
+                        <button
+                          type="button"
+                          title="Invert (I)"
+                          onclick={() => invertSelection(sliceCount)}
+                        >Invert</button>
+                        <button
+                          type="button"
+                          title="Every other (E)"
+                          onclick={() => selectEvery(sliceCount, 0)}
+                        >Every other</button>
+                        <button
+                          type="button"
+                          title="Odd indices (O)"
+                          onclick={() => selectEvery(sliceCount, 1)}
+                        >Odd</button>
+                      </div>
+                      <!-- Action toolbar. Acts on the current
+                           selection; disabled when empty. Each
+                           button mirrors a keyboard shortcut. -->
+                      <div class="action-bar" aria-label="Edit">
+                        <span class="bar-label">Edit</span>
+                        <button
+                          type="button"
+                          title="Flip (F)"
+                          disabled={selectionEmpty}
+                          onclick={() => flipSelection(feature)}
+                        >Flip</button>
+                        <button
+                          type="button"
+                          title="Rotate 90° (R)"
+                          disabled={selectionEmpty}
+                          onclick={() => rotate90Selection(feature)}
+                        >Rotate 90°</button>
+                        <button
+                          type="button"
+                          title="Clear edits (Delete)"
+                          disabled={selectionEmpty}
+                          onclick={() => clearSelectionEdits(feature)}
+                        >Clear edits</button>
+                      </div>
+                      <SliceList
+                        value={{
+                          arrangeId: feature.id,
+                          slices: fcr?.slices ?? [],
+                          edits: editsFor(feature.id),
+                          selection: arrangeSelection,
+                        }}
+                        anchor={arrangeAnchor}
+                        onSelectionChange={(ev) => {
+                          arrangeSelection = ev.selection;
+                          arrangeAnchor = ev.anchor;
+                        }}
+                        onShiftCommit={(sliceIdx, delta) => {
+                          const ctx: EditContext = {
+                            arrangeId: feature.id,
+                            allocateId: () => allocateId(idCounter, 'edit'),
+                          };
+                          const next = editsSetShift(
+                            editsFor(feature.id),
+                            [sliceIdx],
+                            delta,
+                            ctx,
+                          );
+                          applyArrangeEdits(feature, next);
+                        }}
+                      />
+                    </div>
                   {:else if feature.kind === 'trimPanel'}
                     <TrimControls
                       state={{
@@ -656,9 +922,19 @@
                     {/if}
                   {:else if feature.kind === 'arrange'}
                     {@const ar = output?.results[feature.id] as ArrangeResult | undefined}
-                    {@const fcr = firstCutResult(output)}
-                    {#if fcr && ar}
-                      {@html renderArrangeOperation(fcr, ar, editsFor(feature.id), spacersFor(feature.id))}
+                    {#if ar}
+                      <ArrangePreview
+                        state={{
+                          arrangeResult: ar,
+                          spacers: spacersFor(feature.id),
+                          selection: arrangeSelection,
+                        }}
+                        anchor={arrangeAnchor}
+                        onSelectionChange={(ev) => {
+                          arrangeSelection = ev.selection;
+                          arrangeAnchor = ev.anchor;
+                        }}
+                      />
                     {/if}
                   {:else if feature.kind === 'trimPanel'}
                     {@const tr = output?.results[feature.id] as TrimPanelResult | undefined}
@@ -883,6 +1159,15 @@
     border-color: #8a6a44;
     box-shadow: 0 2px 4px rgba(138, 106, 68, 0.2);
   }
+  /* The Arrange stage is focusable (tabindex=0) so it can receive
+     keydown events for F/R/E/O/etc. Suppress the browser's default
+     focus ring — the existing .focused border + 'FOCUSED' badge
+     already communicate focus. A keyboard-only focus-visible state
+     can come back in the step-9 a11y pass if needed. */
+  .stage:focus,
+  .stage:focus-visible {
+    outline: none;
+  }
   .stage.warn { border-left: 3px solid #d99a3a; }
   .stage.err  { border-left: 3px solid #b83a3a; }
   .stage-header {
@@ -951,6 +1236,18 @@
     min-height: 0;
     overflow: auto;
   }
+  /* For the Arrange card: no internal scroll. The pane grows to fit
+     the whole slice list — the outer pipeline column scrolls if it
+     runs past the viewport. p-body switches from flex:1 (fill and
+     scroll) to flex:auto (size to content); stage-body's min-height
+     is dropped so the grid row isn't capped. */
+  .p-body:has(.arrange-ctrl-stack) {
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+  .stage-body:has(.arrange-ctrl-stack) {
+    min-height: 0;
+  }
   .preview-body {
     padding: 0.45rem;
     background: #f6f5f1;
@@ -967,6 +1264,80 @@
     overflow: hidden;
     background: #1a1a1a;
   }
+  /* Arrange Controls: select-bar + action-bar above the full slice
+     list. Neither the list nor the stack scrolls — the card grows
+     vertically to fit all slices so the list is always visible in
+     full. The pipeline column itself scrolls if that pushes it past
+     the viewport. */
+  .arrange-ctrl-stack {
+    display: flex;
+    flex-direction: column;
+    padding: 0.4rem 0.45rem 0.3rem;
+    gap: 0.35rem;
+  }
+  .select-bar,
+  .action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 1px 4px;
+  }
+  .select-bar {
+    border-bottom: 1px solid #eee;
+  }
+  .action-bar {
+    border-bottom: 1px solid #eee;
+  }
+  .select-bar .bar-label,
+  .action-bar .bar-label {
+    font-size: 0.62rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 2px;
+  }
+  .select-bar button,
+  .action-bar button {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border: 1px solid #d6d3cd;
+    background: #fff;
+    color: #555;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  .select-bar button:hover,
+  .action-bar button:not(:disabled):hover {
+    border-color: #2563eb;
+    color: #1e40af;
+    background: #eff6ff;
+  }
+  .select-bar button:active,
+  .action-bar button:not(:disabled):active {
+    background: #dbeafe;
+  }
+  .action-bar button:disabled {
+    color: #bbb;
+    background: #fafaf7;
+    border-color: #e8e6df;
+    cursor: not-allowed;
+  }
+  /* Keyboard focus ring — offset so it reads as 'cursor is here'
+     rather than 'button is toggled'. Suppressed for mouse focus. */
+  .select-bar button:focus,
+  .action-bar button:focus {
+    outline: none;
+  }
+  .select-bar button:focus-visible,
+  .action-bar button:not(:disabled):focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+
   .compose-inventory-wrap {
     padding: 0.3rem 0.45rem;
     display: flex;

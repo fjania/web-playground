@@ -18,14 +18,13 @@
 
 import {
   ACESFilmicToneMapping,
-  AmbientLight,
   Box3,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
   Color,
-  DirectionalLight,
   Group,
+  HemisphereLight,
   LineBasicMaterial,
   LineSegments,
   OrthographicCamera,
@@ -137,18 +136,11 @@ export function setupViewport(
   const scene = new Scene();
   scene.background = new Color(0x262422);
 
-  const key = new DirectionalLight(0xfff5e6, 1.6);
-  key.position.set(300, 400, 200);
-  key.castShadow = true;
-  scene.add(key);
-  scene.add(
-    new DirectionalLight(0xc8d8e8, 0.6)
-      .translateX(-200)
-      .translateY(100)
-      .translateZ(-100),
-  );
-  scene.add(new DirectionalLight(0xd4c8b8, 0.5).translateY(-300));
-  scene.add(new AmbientLight(0x5a5450, 1.0));
+  // Hemisphere light — sky from above, ground from below. Every
+  // face of the board is lit; slight warm/cool gradient across top
+  // vs. bottom faces keeps the 3D form readable without any face
+  // falling into deep shadow. Single light, no directional shadows.
+  scene.add(new HemisphereLight(0xfff5e6, 0xe0d4b8, 2.2));
 
   scene.add(panelGroup);
 

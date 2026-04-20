@@ -13,25 +13,28 @@
  * updates automatically because both are driven by the produced
  * slice/offcut geometry.
  *
- * For Cut we emit TWO orthographic projections placed side-by-side:
+ * For Cut we emit TWO orthographic projections placed side-by-side.
+ * Axis convention matches `summary.ts`: world Z (length) → SVG X
+ * (horizontal), world X (strip width / stacking) → SVG Y (vertical).
  *
  *   TOP  — XZ plan view. Panel outline from the input snapshot,
  *          cut-plane lines drawn between shared vertices of
  *          adjacent slice/offcut topFace polygons, offcut regions
  *          rendered from the offcut snapshots' topFace polygons.
+ *          (z, x) → SVG (x, y).
  *
  *   SIDE — YZ elevation, cross-section at x = 0. Horizontal axis =
- *          world Y (panel thickness); vertical axis = world Z
- *          (matches TOP, so cut lines align between the views).
- *          Cut-plane lines drawn from (y_max, z at x=0 on shared
- *          topFace edge) to (y_min, z at x=0 on shared bottomFace
- *          edge). Offcut shading = each offcut's cross-section at
- *          x=0 between its top and bottom edges.
+ *          world Z (length, matches TOP); vertical axis = world Y
+ *          (panel thickness). Cut lines at the same Z therefore
+ *          land at the same horizontal screen position as in TOP.
+ *          Cut-plane lines drawn from (z_shared_top, y_max) to
+ *          (z_shared_bottom, y_min). Offcut shading = each offcut's
+ *          cross-section at x=0 between its top and bottom edges.
  *
- * Layout: horizontal flex — TOP on the left (wider), SIDE on the
- * right (narrower). Both are constrained to the tile's height so
- * their Z axes render at the same scale; cut lines at the same d
- * land at the same vertical screen position.
+ * Layout: vertical flex — TOP on top (taller), SIDE beneath it
+ * (shorter). Both span the tile's full width so their Z axes render
+ * at the same scale; cut lines at the same d land at the same
+ * horizontal screen position.
  *
  * Operation views for Arrange/PlaceEdit/Preset will be added as the
  * corresponding feature-editing issues land (#27–#36).
@@ -75,17 +78,21 @@ export function renderCutOperation(
 ): HtmlString {
   const top = renderTopView(inputPanel, cutResult);
   const side = renderSideView(inputPanel, cutResult);
+  // Axis swap: SVG Y = world X (width), SVG X = world Z (length).
+  // TOP takes the width axis (SVG Y); SIDE takes the thickness axis
+  // (world Y). They share the same horizontal (length) axis, so we
+  // stack them vertically and flex by their vertical extents.
   const Lx = inputPanel.bbox.max[0] - inputPanel.bbox.min[0];
   const Ly = inputPanel.bbox.max[1] - inputPanel.bbox.min[1];
   const topFlex = Lx > 0 ? Lx : 1;
   const sideFlex = Ly > 0 ? Ly : 1;
   return (
-    `<div style="display:flex;flex-direction:row;gap:0.5rem;width:100%;height:100%;align-items:stretch;">` +
-    `  <div style="flex:${topFlex} 1 0;display:flex;flex-direction:column;gap:0.25rem;min-width:0;">` +
+    `<div style="display:flex;flex-direction:column;gap:0.5rem;width:100%;height:100%;align-items:stretch;">` +
+    `  <div style="flex:${topFlex} 1 0;display:flex;flex-direction:column;gap:0.25rem;min-height:0;">` +
     `    ${projectionLabel('TOP')}` +
     `    <div style="flex:1 1 0;min-height:0;display:flex;align-items:stretch;justify-content:center;">${wrapSvg(top)}</div>` +
     `  </div>` +
-    `  <div style="flex:${sideFlex} 1 0;display:flex;flex-direction:column;gap:0.25rem;min-width:0;">` +
+    `  <div style="flex:${sideFlex} 1 0;display:flex;flex-direction:column;gap:0.25rem;min-height:0;">` +
     `    ${projectionLabel('SIDE')}` +
     `    <div style="flex:1 1 0;min-height:0;display:flex;align-items:stretch;justify-content:center;">${wrapSvg(side)}</div>` +
     `  </div>` +
@@ -125,14 +132,15 @@ function renderTopView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStri
   // on the top face (y = y_max) that shared face projects to a line
   // segment whose endpoints are the two most-distant vertices shared
   // between the pair's topFace polygons.
+  // Axis swap: world (x, z) → SVG (z, x).
   const lines: string[] = [];
   for (let i = 0; i < pieces.length - 1; i++) {
     const segment = findSharedCutSegment(pieces[i].snap, pieces[i + 1].snap, 'topFace');
     if (!segment) continue;
     const [a, b] = segment;
     lines.push(
-      `<line x1="${fmt(a.x)}" y1="${fmt(a.z)}" ` +
-        `x2="${fmt(b.x)}" y2="${fmt(b.z)}" ` +
+      `<line x1="${fmt(a.z)}" y1="${fmt(a.x)}" ` +
+        `x2="${fmt(b.z)}" y2="${fmt(b.x)}" ` +
         `${DASHED_STROKE}/>`,
     );
   }
@@ -145,7 +153,7 @@ function renderTopView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStri
     if (p.kind !== 'offcut') continue;
     for (const vol of p.snap.volumes) {
       if (vol.topFace.length < 3) continue;
-      const pts = vol.topFace.map((q) => `${fmt(q.x)},${fmt(q.z)}`).join(' ');
+      const pts = vol.topFace.map((q) => `${fmt(q.z)},${fmt(q.x)}`).join(' ');
       shades.push(`<polygon points="${pts}" ${OFFCUT_FILL}/>`);
     }
   }
@@ -168,21 +176,21 @@ function renderSideView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStr
 
   const pieces = piecesInCutOrder(cutResult);
 
-  // Horizontal-axis convention: we are looking at the panel from
-  // +X toward −X (third-angle right elevation, placed to the right
-  // of TOP). The Y axis of the panel therefore runs RIGHT-TO-LEFT
-  // across our view — world Y_max is on the left edge of the SVG,
-  // world Y_min is on the right edge. This mapping makes a bevel
-  // that leans +Z at the top of the panel also lean toward +Z (down
-  // on screen) on the LEFT side of the view, matching how a
-  // woodworker looking at the side of the board would expect the
-  // cut geometry to read.
-  const sxFromY = (y: number): number => yMax - y; // y_max → 0 (left), y_min → Ly (right)
+  // Vertical-axis convention: we are looking at the panel from
+  // +X toward −X (third-angle right elevation). After the axis
+  // swap (length horizontal), SIDE sits BELOW the TOP view; world
+  // Y_max (top face) maps to the top of the SVG, Y_min (bottom
+  // face) to the bottom. A bevel that leans +Z at the top of the
+  // panel therefore leans right on the top edge of the SIDE view,
+  // matching how a woodworker looking at the near long edge of
+  // the board expects the cut geometry to read.
+  const syFromY = (y: number): number => yMax - y; // y_max → 0 (top of SVG), y_min → Ly (bottom)
 
   // Cut-plane lines: the shared face between adjacent pieces is a 3D
   // plane. Its intersection with x = 0 is a line in (y, z); the
   // endpoints come from the shared topFace edge (at y_max) and
   // shared bottomFace edge (at y_min), interpolated at x = 0.
+  // SVG mapping: (z, yMax-y) → (svgX, svgY).
   const lines: string[] = [];
   for (let i = 0; i < pieces.length - 1; i++) {
     const topSeg = findSharedCutSegment(pieces[i].snap, pieces[i + 1].snap, 'topFace');
@@ -192,8 +200,8 @@ function renderSideView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStr
     const zBot = interpolateZAtX(botSeg, 0);
     if (zTop === null || zBot === null) continue;
     lines.push(
-      `<line x1="${fmt(sxFromY(yMax))}" y1="${fmt(zTop)}" ` +
-        `x2="${fmt(sxFromY(yMin))}" y2="${fmt(zBot)}" ` +
+      `<line x1="${fmt(zTop)}" y1="${fmt(syFromY(yMax))}" ` +
+        `x2="${fmt(zBot)}" y2="${fmt(syFromY(yMin))}" ` +
         `${DASHED_STROKE}/>`,
     );
   }
@@ -206,23 +214,23 @@ function renderSideView(inputPanel: PanelSnapshot, cutResult: CutResult): SvgStr
     const botRange = pieceXZeroZRange(p.snap, 'bottomFace');
     if (!topRange || !botRange) continue;
     const pts = [
-      [sxFromY(yMax), topRange.min],
-      [sxFromY(yMax), topRange.max],
-      [sxFromY(yMin), botRange.max],
-      [sxFromY(yMin), botRange.min],
+      [topRange.min, syFromY(yMax)],
+      [topRange.max, syFromY(yMax)],
+      [botRange.max, syFromY(yMin)],
+      [botRange.min, syFromY(yMin)],
     ]
-      .map(([x, z]) => `${fmt(x)},${fmt(z)}`)
+      .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
       .join(' ');
     shades.push(`<polygon points="${pts}" ${OFFCUT_FILL}/>`);
   }
 
   const panelRect =
-    `<rect x="0" y="${fmt(zMin)}" ` +
-    `width="${fmt(Ly)}" height="${fmt(Lz)}" ${PANEL_OUTLINE}/>`;
+    `<rect x="${fmt(zMin)}" y="0" ` +
+    `width="${fmt(Lz)}" height="${fmt(Ly)}" ${PANEL_OUTLINE}/>`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
-    `viewBox="0 ${fmt(zMin)} ${fmt(Ly)} ${fmt(Lz)}" ` +
+    `viewBox="${fmt(zMin)} 0 ${fmt(Lz)} ${fmt(Ly)}" ` +
     `preserveAspectRatio="xMidYMid meet">` +
     `${panelRect}${shades.join('')}${lines.join('')}` +
     `</svg>`
@@ -421,7 +429,8 @@ export function renderArrangeOperation(
     for (const vol of arrangeResult.panel.volumes) {
       if (!vol.contributingStripIds.some((id) => spacerIds.has(id))) continue;
       if (vol.topFace.length < 3) continue;
-      const pts = vol.topFace.map((p) => `${fmt(p.x)},${fmt(p.z)}`).join(' ');
+      // Axis swap: (x, z) → (svgX=z, svgY=x).
+      const pts = vol.topFace.map((p) => `${fmt(p.z)},${fmt(p.x)}`).join(' ');
       spacerFills.push(
         `<polygon points="${pts}" fill="url(#arrange-op-spacer-hatch)" ` +
           `stroke="none" pointer-events="none"/>`,
@@ -445,9 +454,11 @@ export function renderArrangeOperation(
   for (const [sliceIdx, labels] of editsPerSlice) {
     const centroid = sliceCentroids.get(sliceIdx);
     if (!centroid) continue;
-    const baseline = centroid.z - ((labels.length - 1) * BADGE_LINE_HEIGHT) / 2;
+    // Axis swap: centroid (world x, z) → SVG (z, x). Vertical stack
+    // of labels therefore offsets along SVG Y = world X.
+    const baseline = centroid.x - ((labels.length - 1) * BADGE_LINE_HEIGHT) / 2;
     labels.forEach((label, i) => {
-      badges.push(renderBadge(centroid.x, baseline + i * BADGE_LINE_HEIGHT, label));
+      badges.push(renderBadge(centroid.z, baseline + i * BADGE_LINE_HEIGHT, label));
     });
   }
 
@@ -537,19 +548,19 @@ export function renderTrimOperation(
   const pzMin = inputPanel.bbox.min[2];
   const pzMax = inputPanel.bbox.max[2];
 
-  // Outer ring (CW): start at bbox top-left, go clockwise.
-  // Inner ring (CCW): start at trim top-left, go counter-clockwise.
-  // Opposite windings with evenodd produce the "annular" fill.
+  // Axis swap: world (x, z) → SVG (z, x). Outer ring (CW in SVG
+  // space): start at bbox top-left, go clockwise. Inner ring (CCW):
+  // opposite winding so evenodd fills the annulus.
   const outerRing =
-    `M ${fmt(pxMin)} ${fmt(pzMin)} ` +
-    `L ${fmt(pxMax)} ${fmt(pzMin)} ` +
-    `L ${fmt(pxMax)} ${fmt(pzMax)} ` +
-    `L ${fmt(pxMin)} ${fmt(pzMax)} Z`;
+    `M ${fmt(pzMin)} ${fmt(pxMin)} ` +
+    `L ${fmt(pzMax)} ${fmt(pxMin)} ` +
+    `L ${fmt(pzMax)} ${fmt(pxMax)} ` +
+    `L ${fmt(pzMin)} ${fmt(pxMax)} Z`;
   const innerRing =
-    `M ${fmt(b.xMin)} ${fmt(b.zMin)} ` +
-    `L ${fmt(b.xMin)} ${fmt(b.zMax)} ` +
-    `L ${fmt(b.xMax)} ${fmt(b.zMax)} ` +
-    `L ${fmt(b.xMax)} ${fmt(b.zMin)} Z`;
+    `M ${fmt(b.zMin)} ${fmt(b.xMin)} ` +
+    `L ${fmt(b.zMin)} ${fmt(b.xMax)} ` +
+    `L ${fmt(b.zMax)} ${fmt(b.xMax)} ` +
+    `L ${fmt(b.zMax)} ${fmt(b.xMin)} Z`;
   const discardOverlay =
     `<path d="${outerRing} ${innerRing}" ` +
     `fill="#0000000d" fill-rule="evenodd" ` +
@@ -557,8 +568,8 @@ export function renderTrimOperation(
 
   // Dashed trim rectangle — the imminent operation.
   const trimRect =
-    `<rect x="${fmt(b.xMin)}" y="${fmt(b.zMin)}" ` +
-    `width="${fmt(b.xMax - b.xMin)}" height="${fmt(b.zMax - b.zMin)}" ` +
+    `<rect x="${fmt(b.zMin)}" y="${fmt(b.xMin)}" ` +
+    `width="${fmt(b.zMax - b.zMin)}" height="${fmt(b.xMax - b.xMin)}" ` +
     `fill="none" ${DASHED_STROKE}/>`;
 
   return base.replace('</svg>', `${discardOverlay}${trimRect}</svg>`);
