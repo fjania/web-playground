@@ -111,6 +111,7 @@ function checkerboardTimeline(): Feature[] {
     {
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'pitch',
@@ -191,6 +192,7 @@ function brickTimeline(): Feature[] {
     {
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'pitch',

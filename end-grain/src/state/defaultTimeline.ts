@@ -45,6 +45,7 @@ export function defaultTimeline(counter: IdCounter): Feature[] {
   const cut: Cut = {
     kind: 'cut',
     id: allocateId(counter, 'cut'),
+    orientation: 0,
     rip: 0,
     bevel: 90,
     spacingMode: 'pitch',

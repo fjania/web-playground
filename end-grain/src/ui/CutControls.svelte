@@ -11,7 +11,12 @@
    */
 
   export interface CutControlsState {
-    /** -90..90 degrees. */
+    /** Coarse cut direction. 0 = cuts sweep across the panel's length
+     *  (+Z); 90 = cuts sweep across the panel's width (+X). Combined
+     *  with `rip` ∈ [0,45], this covers every practical cut direction. */
+    orientation: 0 | 90;
+    /** 0..45 degrees. Acute skew of the cut plane about Y, on top of
+     *  `orientation`. */
     rip: number;
     /** 45..90 degrees. */
     bevel: number;
@@ -34,8 +39,8 @@
 
   let { state, onChange }: Props = $props();
 
-  const MIN_RIP = -90;
-  const MAX_RIP = 90;
+  const MIN_RIP = 0;
+  const MAX_RIP = 45;
   const MIN_BEVEL = 45;
   const MAX_BEVEL = 90;
   const MIN_SLICES = 2;
@@ -82,6 +87,11 @@
     emit({ spacingMode: next });
   }
 
+  function setOrientation(next: 0 | 90): void {
+    if (state.orientation === next) return;
+    emit({ orientation: next });
+  }
+
   const spacingMin = $derived(state.spacingMode === 'slices' ? MIN_SLICES : MIN_PITCH);
   const spacingMax = $derived(state.spacingMode === 'slices' ? MAX_SLICES : MAX_PITCH);
   const spacingValue = $derived(
@@ -94,6 +104,24 @@
 </script>
 
 <div class="cut-controls">
+  <div class="row mode-row">
+    <label>orient</label>
+    <div class="seg">
+      <button
+        type="button"
+        title="Cut sweeps across the panel's length — slices stack along +Z"
+        class:on={state.orientation === 0}
+        onclick={() => setOrientation(0)}
+      >across length</button>
+      <button
+        type="button"
+        title="Cut sweeps across the panel's width — slices stack along +X"
+        class:on={state.orientation === 90}
+        onclick={() => setOrientation(90)}
+      >across width</button>
+    </div>
+  </div>
+
   <div class="row">
     <label>rip</label>
     <input

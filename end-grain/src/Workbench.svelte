@@ -118,6 +118,7 @@
     const cut: Cut = {
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'slices',
@@ -414,6 +415,7 @@
   }
 
   function applyCutControls(feature: Cut, next: CutControlsState): void {
+    feature.orientation = next.orientation;
     feature.rip = next.rip;
     feature.bevel = next.bevel;
     feature.spacingMode = next.spacingMode;
@@ -815,6 +817,7 @@
                   {:else if feature.kind === 'cut'}
                     <CutControls
                       state={{
+                        orientation: feature.orientation,
                         rip: feature.rip,
                         bevel: feature.bevel,
                         spacingMode: feature.spacingMode,

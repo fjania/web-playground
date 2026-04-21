@@ -560,6 +560,7 @@ function checkerboardTimeline(): Feature[] {
     {
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'pitch',
@@ -661,6 +662,7 @@ function brickTimelineNoSpacers(): Feature[] {
     {
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'pitch',
@@ -813,6 +815,7 @@ describe('runPipeline — malformed timelines', () => {
       {
         kind: 'cut',
         id: 'cut-0',
+        orientation: 0,
         rip: 0,
         bevel: 90,
         spacingMode: 'pitch',
@@ -1069,6 +1072,7 @@ describe('runPipeline — TrimPanel feeds downstream features', () => {
     timeline.push({
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'pitch',
