@@ -49,6 +49,7 @@
     rotate90 as editsRotate90,
     setShift as editsSetShift,
     clearEditsOnSlices as editsClearOnSlices,
+    reorderSlice as editsReorderSlice,
     shiftForSlice as editsShiftForSlice,
     type EditContext,
   } from './state/edits';
@@ -596,6 +597,24 @@
     );
   }
 
+  /** Append a reorder edit from a drag-and-drop on the ArrangePreview.
+   *  `fromPos` / `toPos` are positions in the currently-rendered
+   *  slice order, matching the pipeline's reorderSequence semantics. */
+  function reorderArrangeSlice(
+    feature: Arrange,
+    fromPos: number,
+    toPos: number,
+  ): void {
+    const ctx: EditContext = {
+      arrangeId: feature.id,
+      allocateId: () => allocateId(idCounter, 'edit'),
+    };
+    applyArrangeEdits(
+      feature,
+      editsReorderSlice(editsFor(feature.id), fromPos, toPos, ctx),
+    );
+  }
+
   /** Apply a per-slice shift delta: adds `delta` mm to each selected
    *  slice's current shift (not a bulk-set — so nudging a mixed
    *  selection keeps their relative offsets). */
@@ -924,7 +943,7 @@
                     {@const ar = output?.results[feature.id] as ArrangeResult | undefined}
                     {#if ar}
                       <ArrangePreview
-                        state={{
+                        value={{
                           arrangeResult: ar,
                           spacers: spacersFor(feature.id),
                           selection: arrangeSelection,
@@ -934,6 +953,9 @@
                           arrangeSelection = ev.selection;
                           arrangeAnchor = ev.anchor;
                         }}
+                        onReorder={(ev) =>
+                          reorderArrangeSlice(feature, ev.fromPos, ev.toPos)
+                        }
                       />
                     {/if}
                   {:else if feature.kind === 'trimPanel'}
