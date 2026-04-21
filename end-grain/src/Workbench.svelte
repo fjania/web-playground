@@ -432,6 +432,50 @@
     rerun();
   }
 
+  /**
+   * Append a Cut + Arrange pair to the timeline, inserted before the
+   * terminal Trim (or at the end if no Trim exists). Every Cut needs a
+   * following Arrange to make its slices into a panel again, so the
+   * pair is the atomic unit the timeline UI adds.
+   *
+   * The new Cut inherits orientation=0 and the same default knobs as
+   * the seeded first Cut; the user toggles orientation=90 to get the
+   * perpendicular re-cut behaviour.
+   */
+  function addCutAndArrange(): void {
+    const newCut: Cut = {
+      kind: 'cut',
+      id: allocateId(idCounter, 'cut'),
+      orientation: 0,
+      rip: 0,
+      bevel: 90,
+      spacingMode: 'slices',
+      pitch: 50,
+      slices: 4,
+      showOffcuts: false,
+      status: 'ok',
+    };
+    const newArrange: Arrange = {
+      kind: 'arrange',
+      id: allocateId(idCounter, 'arrange'),
+      layout: 'cursor-slide',
+      status: 'ok',
+    };
+    const trimIdx = timeline.findIndex((f) => f.kind === 'trimPanel');
+    if (trimIdx === -1) {
+      timeline = [...timeline, newCut, newArrange];
+    } else {
+      timeline = [
+        ...timeline.slice(0, trimIdx),
+        newCut,
+        newArrange,
+        ...timeline.slice(trimIdx),
+      ];
+    }
+    focusedStageId = newCut.id;
+    rerun();
+  }
+
   /** Replace the PlaceEdits targeting an Arrange, keeping its
    *  attached spacers untouched (they flow through unmodified). */
   function applyArrangeEdits(feature: Arrange, nextEdits: PlaceEdit[]): void {
@@ -752,6 +796,13 @@
           <span class="sub">{subForFeature(f, output)}</span>
         </div>
       {/each}
+      <div class="t-connector"></div>
+      <button
+        type="button"
+        class="t-add"
+        onclick={addCutAndArrange}
+        title="Insert a new Cut + Arrange pair before the Trim"
+      >+ Cut</button>
     </div>
   </aside>
 
@@ -1095,6 +1146,23 @@
     width: 1px;
     height: 8px;
     background: #d6d4cf;
+  }
+  .t-add {
+    padding: 0.35rem 0.55rem;
+    border: 1px dashed #c4c0b8;
+    border-radius: 5px;
+    background: transparent;
+    color: #8a7f6d;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-family: inherit;
+    font-weight: 500;
+    text-align: left;
+  }
+  .t-add:hover {
+    border-color: #6a80b4;
+    color: #2f4f8a;
+    background: #f4f6fb;
   }
   .main {
     display: flex;
