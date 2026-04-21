@@ -271,66 +271,75 @@ function executeComposeStrips(
 // ---------------------------------------------------------------------------
 
 function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
-  const input = ctx.lastPanel;
-  if (!input) {
+  const rawInput = ctx.lastPanel;
+  if (!rawInput) {
     return {
       featureId: f.id,
       status: 'error',
       statusReason: 'cut without upstream panel',
+      inputPanel: emptySnapshot(),
       slices: [],
       offcuts: [],
       sliceProvenance: [],
     };
   }
 
+  // orientation=90 is modelled as a 90° panel rotation about Y
+  // APPLIED BEFORE the cut runs. The rest of the executor (and
+  // every downstream stage) sees a panel whose long axis is +Z and
+  // cuts across its length — no mate-axis or chord-extent branching
+  // anywhere downstream. Physically: the woodworker turns the panel
+  // 90° on the bench, then makes a crosscut.
+  //
+  // Rotate about the panel's bbox centre so the rotated panel stays
+  // centred at the same point (downstream stages that assume a
+  // centre-near-origin snapshot keep working).
+  const rawBbox = rawInput.boundingBox();
+  const rotationAngle = f.orientation === 90 ? -Math.PI / 2 : 0;
+  const input =
+    rotationAngle !== 0
+      ? rawInput.rotateAbout(
+          new Vector3(0, 1, 0),
+          rotationAngle,
+          new Vector3(
+            (rawBbox.min.x + rawBbox.max.x) / 2,
+            0,
+            (rawBbox.min.z + rawBbox.max.z) / 2,
+          ),
+        )
+      : rawInput;
+  const rotationArtifact = input !== rawInput ? input : null;
+
   // Cut normal: rip is rotation of the cut plane about Y (in XZ), and
   // bevel is tilt of the plane from vertical about the in-plane chord
-  // axis. orientation (0 or 90°) adds a coarse 90° rotation about Y,
-  // on top of rip. Writing θ = rip + orientation (the effective rip),
-  // and α = 90° − bevel (tilt MAGNITUDE, zero when cut is vertical),
-  // the normal is:
-  //   n = (sin θ·cos α, −sin α, cos θ·cos α)
-  // orientation=0,  rip=0  → n = (0, 0, 1)  (crosscut, sweeps along +Z)
-  // orientation=90, rip=0  → n = (1, 0, 0)  (rip, sweeps along +X)
-  const orientation = f.orientation;
-  const effRipRad = ((f.rip + orientation) * Math.PI) / 180;
+  // axis. Writing α = 90° − bevel (tilt MAGNITUDE, zero when cut is
+  // vertical), the normal is the rip-only normal (sin θ, 0, cos θ)
+  // tilted by α about the cut-chord axis (cos θ, 0, −sin θ):
+  //   n = (sin rip·cos α, −sin α, cos rip·cos α)
+  const ripRad = (f.rip * Math.PI) / 180;
   const alphaRad = ((90 - f.bevel) * Math.PI) / 180;
-  const sinEff = Math.sin(effRipRad);
-  const cosEff = Math.cos(effRipRad);
+  const sinRip = Math.sin(ripRad);
+  const cosRip = Math.cos(ripRad);
   const sinA = Math.sin(alphaRad);
   const cosA = Math.cos(alphaRad);
   const normal: [number, number, number] = [
-    sinEff * cosA,
+    sinRip * cosA,
     -sinA,
-    cosEff * cosA,
+    cosRip * cosA,
   ];
 
-  // Safe extent — range of plane offsets (measured along the normal,
-  // in 3D) that produce a full-chord slice.
-  //
-  // The sweep direction is whichever horizontal axis the cut is
-  // principally oriented along: +Z for orientation=0, +X for
-  // orientation=90. The chord direction is the other axis. `rip`
-  // (∈ [0,45]) then skews the cut plane within that frame.
-  //
-  // Formula (bevel=90°, 2D in XZ):
-  //   safe = Lsweep·|cos rip| − Lchord·|sin rip|
-  //
-  // Bevel < 90° adds a cos α scale (normal is no longer in XZ) and
-  // subtracts Ly·|sin α| (plane now tilts across Y too):
-  //   safe = cos α · (Lsweep·|cos rip| − Lchord·|sin rip|) − Ly·|sin α|
-  const ripRad = (f.rip * Math.PI) / 180;
-  const sinRip = Math.sin(ripRad);
-  const cosRip = Math.cos(ripRad);
+  // Safe extent — range of plane offsets (along the normal) that
+  // produce a full-chord slice. At bevel=90° (α=0) this reduces to
+  // the 2D XZ problem: safe = Lz·|cos rip| − Lx·|sin rip|. Bevel<90°
+  // adds a cos α factor and subtracts the Ly·|sin α| the plane
+  // sweeps across the panel's Y.
   const inputBbox = input.boundingBox();
   const panelX = inputBbox.max.x - inputBbox.min.x;
   const panelY = inputBbox.max.y - inputBbox.min.y;
   const panelZ = inputBbox.max.z - inputBbox.min.z;
-  const Lsweep = orientation === 90 ? panelX : panelZ;
-  const Lchord = orientation === 90 ? panelZ : panelX;
   const safeExtent = Math.max(
     0,
-    cosA * (Lsweep * Math.abs(cosRip) - Lchord * Math.abs(sinRip)) -
+    cosA * (panelZ * Math.abs(cosRip) - panelX * Math.abs(sinRip)) -
       panelY * Math.abs(sinA),
   );
 
@@ -387,6 +396,7 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   }
 
   // Take snapshots before we move the live geometry into ctx / dispose.
+  const inputSnapshot: PanelSnapshot = input.toSnapshot();
   const sliceSnapshots: PanelSnapshot[] = slices.map((s) => s.toSnapshot());
   const offcutSnapshots: PanelSnapshot[] = offcuts.map((p) => p.toSnapshot());
   const sliceProvenance = slices.map((s, sliceIdx) => ({
@@ -403,10 +413,16 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   }
 
   // Stash live slices for the downstream Arrange. Offcuts always
-  // dispose (we don't surface them). The input panel disposes only
-  // when preserveLive is false — under preserveLive it stays alive
-  // inside livePanelsByFeature for the caller's viewport access.
-  if (!ctx.preserveLive) input.dispose();
+  // dispose (we don't surface them).
+  //
+  // Two cleanup concerns:
+  //   1. The rotation artifact (if we built one for orientation=90)
+  //      was a scratch Panel owned by this executor — always dispose.
+  //   2. The raw input panel: dispose when !preserveLive; when
+  //      preserveLive is on it stays alive inside livePanelsByFeature
+  //      for the caller's viewport access.
+  if (rotationArtifact) rotationArtifact.dispose();
+  if (!ctx.preserveLive) rawInput.dispose();
   ctx.lastPanel = null;
   for (const o of offcuts) o.dispose();
   ctx.lastSlices = slices;
@@ -416,6 +432,7 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   return {
     featureId: f.id,
     status: 'ok',
+    inputPanel: inputSnapshot,
     slices: sliceSnapshots,
     offcuts: offcutSnapshots,
     sliceProvenance,
@@ -614,26 +631,18 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   const normalAxis: [number, number, number] = ctx.lastCut
     ? computeCutNormalForArrange(ctx.lastCut)
     : [0, 0, 1];
-  // Mate axis — the single horizontal world axis we translate along
-  // when assembling slices. For orientation=0 cuts this is +Z (the
-  // classic crosscut case); for orientation=90 cuts it's +X.
+  // z-component of the normal — the conversion factor from
+  // along-normal shifts to along-Z shifts. Guard against near-zero
+  // (normal in XY plane, rip very close to ±90° or extreme bevel)
+  // to avoid division blow-up; in that regime the panel's geometry
+  // degenerates anyway and the user would see the cut go sideways.
   //
-  // Why a world axis and not the normal: translating along the normal
-  // at non-zero rip moves pieces diagonally, so the assembly grows
-  // in two dimensions and drifts off the fence. Using the single
-  // axis closest to the normal keeps every piece aligned to one
-  // column (the "fence-and-bench glue-up" physical analogue).
-  //
-  // Guard against near-zero dot product (degenerate extreme-bevel
-  // cases) to avoid division blow-up.
-  const mateAxis: [number, number, number] =
-    ctx.lastCut?.orientation === 90 ? [1, 0, 0] : [0, 0, 1];
-  const nDotMate = Math.abs(
-    normalAxis[0] * mateAxis[0] +
-      normalAxis[1] * mateAxis[1] +
-      normalAxis[2] * mateAxis[2],
-  );
-  const mateFactor = nDotMate > 1e-6 ? nDotMate : 1;
+  // Arrange always mates along +Z — slices from an "across-width"
+  // cut come from the Cut executor already pre-rotated, so their
+  // cut normal is in the same +Z family as any other cut's. No
+  // mate-axis branching needed.
+  const nZ = Math.abs(normalAxis[2]);
+  const zFactor = nZ > 1e-6 ? nZ : 1;
 
   const firstSlice = transformedSlices[sliceOrder[0]];
   let cursor = firstSlice.projectOnto(normalAxis).min;
@@ -655,10 +664,8 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     const sliceIdx = sliceOrder[outIdx];
     const slice = transformedSlices[sliceIdx];
     const m = slice.projectOnto(normalAxis);
-    const delta = (cursor - m.min) / mateFactor;
-    placedSlices.push(
-      slice.translate(mateAxis[0] * delta, 0, mateAxis[2] * delta),
-    );
+    const dz = (cursor - m.min) / zFactor;
+    placedSlices.push(slice.translate(0, 0, dz));
     cursor += m.extent;
 
     // After placing slice-at-sliceIdx, insert any spacers keyed on
@@ -667,19 +674,10 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     // references just like edits).
     const here = spacersByAfterIdx.get(sliceIdx) ?? [];
     for (const { spacer, source } of here) {
-      // ctx.lastCut is non-null here: upstreamSlices.length > 0 means
-      // a Cut ran upstream, and executeCut always sets lastCut.
-      const spacerPanel = makeSpacerPanel(
-        spacer,
-        upstreamSlices[0],
-        ctx.lastCut!,
-        mateAxis,
-      );
+      const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0], normalAxis);
       const sm = spacerPanel.projectOnto(normalAxis);
-      const sdelta = (cursor - sm.min) / mateFactor;
-      placedSlices.push(
-        spacerPanel.translate(mateAxis[0] * sdelta, 0, mateAxis[2] * sdelta),
-      );
+      const sdz = (cursor - sm.min) / zFactor;
+      placedSlices.push(spacerPanel.translate(0, 0, sdz));
       spacerPanel.dispose();
       cursor += sm.extent;
       appliedSpacerSources.push(source);
@@ -1096,12 +1094,15 @@ function emptyPanel(): Panel {
  *   n = (sin θ·cos α,  −sin α,  cos θ·cos α).
  */
 function computeCutNormalForArrange(cut: Cut): [number, number, number] {
-  const effRipRad = ((cut.rip + cut.orientation) * Math.PI) / 180;
+  // Orientation is handled by pre-rotating the panel in executeCut;
+  // the slices Arrange consumes are already in that rotated frame,
+  // so the normal here is rip+bevel only.
+  const ripRad = (cut.rip * Math.PI) / 180;
   const alphaRad = ((90 - cut.bevel) * Math.PI) / 180;
   return [
-    Math.sin(effRipRad) * Math.cos(alphaRad),
+    Math.sin(ripRad) * Math.cos(alphaRad),
     -Math.sin(alphaRad),
-    Math.cos(effRipRad) * Math.cos(alphaRad),
+    Math.cos(ripRad) * Math.cos(alphaRad),
   ];
 }
 
@@ -1145,48 +1146,47 @@ function reorderSequence(seq: number[], fromIdx: number, newIdx: number): number
 function makeSpacerPanel(
   spacer: SpacerInsert,
   reference: Panel,
-  cut: Cut,
-  mateAxis: [number, number, number],
+  cutNormal: [number, number, number],
 ): Panel {
   const Manifold = getManifold();
   const bb = reference.boundingBox();
-  // Chord extent = the horizontal span of the panel PERPENDICULAR to
-  // the mate axis. For a crosscut (mateAxis=+Z) that's panelX; for a
-  // rip (mateAxis=+X) that's panelZ.
-  const chordExtent =
-    Math.abs(mateAxis[0]) > 0.5
-      ? bb.max.z - bb.min.z
-      : bb.max.x - bb.min.x;
+  const xExtent = bb.max.x - bb.min.x;
   const yExtent = bb.max.y - bb.min.y;
 
-  // Separate the Y-rotation into a discrete orientation (0 or 90°) and
-  // an acute rip skew (|rip| ≤ 45°). The spacer cube is sized in
-  // CHORD-local coordinates where the chord always runs along X, so
-  // only the skew angle enters the chord-inflation formula — applying
-  // the orientation 90° to it would blow up cos(rip) near zero.
-  const ripRad = (cut.rip * Math.PI) / 180;
-  const totalYRotRad = ripRad + (cut.orientation * Math.PI) / 180;
-  const bevelTiltRad = ((90 - cut.bevel) * Math.PI) / 180;
+  // Decompose the cut-normal into a Y-rotation (rip) and a
+  // chord-axis rotation (bevel). If the normal is already +Z, both
+  // angles are zero and the spacer is just an axis-aligned cube.
+  const [nx, ny, nz] = cutNormal;
+  const nxzLen = Math.hypot(nx, nz);
+  const ripAngleRad = Math.atan2(nx, nz); // 0 when normal has no X component
+  const bevelTiltRad = Math.atan2(-ny, nxzLen); // 0 when normal lies in XZ
 
   // Inflate the chord and thickness directions so the rotated
   // spacer's low AND high cut faces both fully span the slice's
   // X × Y extents — no triangular gaps where the spacer tapers
   // past the slice at non-zero rip or bevel.
   //
-  // Geometry (chord-local): a cube of (a × b × W) rotated by rip
-  // about Y and bevel α about the chord has each cut face's
-  // projection shift by ±W/2·sin rip along the chord, ±W/2·sin α
-  // along Y. To make every cut face span chordExtent × yExtent:
-  //   a = (chordExtent + W·|sin rip|) / |cos rip|
-  //   b = (yExtent     + W·|sin α|)   / |cos α|
-  const cosRip = Math.cos(ripRad);
-  const sinRipMag = Math.abs(Math.sin(ripRad));
+  // Geometry: after rotating a cube of (a × b × W) by rip about Y
+  // and bevel α about the chord, each cut face's projection onto
+  // the world X axis shifts by ±W/2 · sin(rip) (relative to the
+  // cube's own X center), and onto world Y by ±W/2 · sin(α).
+  // Adjacent cut planes therefore have their material staggered
+  // in X by W · sin(rip) and in Y by W · sin(α). To make every
+  // cut face span xExtent × yExtent after rotation, the cube
+  // needs that same stagger added to its pre-rotation size, then
+  // divided by the cos factor that the rotation introduces:
+  //   a = (xExtent + W · |sin rip|) / |cos rip|
+  //   b = (yExtent + W · |sin α|)   / |cos α|
+  // At rip = 0 (|sin| = 0, |cos| = 1) this reduces to a = xExtent;
+  // at α = 0 to b = yExtent. No geometric penalty on the easy case.
+  const cosRip = Math.cos(ripAngleRad);
+  const sinRipMag = Math.abs(Math.sin(ripAngleRad));
   const cosBevel = Math.cos(bevelTiltRad);
   const sinBevelMag = Math.abs(Math.sin(bevelTiltRad));
   const chordLen =
     Math.abs(cosRip) > 1e-6
-      ? (chordExtent + spacer.width * sinRipMag) / Math.abs(cosRip)
-      : chordExtent;
+      ? (xExtent + spacer.width * sinRipMag) / Math.abs(cosRip)
+      : xExtent;
   const thicknessHeight =
     Math.abs(cosBevel) > 1e-6
       ? (yExtent + spacer.width * sinBevelMag) / Math.abs(cosBevel)
@@ -1203,12 +1203,12 @@ function makeSpacerPanel(
     },
   ]);
 
-  // Apply the full Y-rotation (orientation + rip). Pivot at origin —
-  // the spacer is centred there from Manifold.cube(..., true).
-  if (Math.abs(totalYRotRad) > 1e-9) {
+  // Apply rip rotation (about Y). Pivot at origin — the spacer is
+  // centred there from Manifold.cube(..., true).
+  if (Math.abs(ripAngleRad) > 1e-9) {
     const rotated = panel.rotateAbout(
       new Vector3(0, 1, 0),
-      totalYRotRad,
+      ripAngleRad,
       new Vector3(0, 0, 0),
     );
     panel.dispose();
@@ -1216,9 +1216,9 @@ function makeSpacerPanel(
   }
 
   // Apply bevel tilt about the (now world-space) chord axis. After
-  // the Y-rotation above, the chord axis is (cos(totalY), 0, -sin(totalY)).
+  // the Y-rotation above, the chord axis is (cos(rip), 0, -sin(rip)).
   if (Math.abs(bevelTiltRad) > 1e-9) {
-    const chordAxis = new Vector3(Math.cos(totalYRotRad), 0, -Math.sin(totalYRotRad));
+    const chordAxis = new Vector3(Math.cos(ripAngleRad), 0, -Math.sin(ripAngleRad));
     const tilted = panel.rotateAbout(chordAxis, bevelTiltRad, new Vector3(0, 0, 0));
     panel.dispose();
     panel = tilted;

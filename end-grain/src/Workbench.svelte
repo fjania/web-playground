@@ -1037,9 +1037,8 @@
                     />
                   {:else if feature.kind === 'cut'}
                     {@const cr = output?.results[feature.id] as CutResult | undefined}
-                    {@const inp = upstreamOutputFor(feature.id, 'panel')}
-                    {#if inp && cr}
-                      {@html renderCutOperation(inp, cr)}
+                    {#if cr}
+                      {@html renderCutOperation(cr)}
                     {/if}
                   {:else if feature.kind === 'arrange'}
                     {@const ar = output?.results[feature.id] as ArrangeResult | undefined}

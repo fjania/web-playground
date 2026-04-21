@@ -72,10 +72,12 @@ const X_CROSS_EPS = 1e-6;
  * snapshot pipeline output — so nothing in here re-derives what
  * the pipeline already computed.
  */
-export function renderCutOperation(
-  inputPanel: PanelSnapshot,
-  cutResult: CutResult,
-): HtmlString {
+export function renderCutOperation(cutResult: CutResult): HtmlString {
+  // Pull the input snapshot from the result — it's the panel the cut
+  // ACTUALLY operated on, in the same frame as the produced slices.
+  // For orientation=90 cuts that's the post-rotation panel, which
+  // means cut lines, slice polygons, and the panel outline all agree.
+  const inputPanel = cutResult.inputPanel;
   const top = renderTopView(inputPanel, cutResult);
   const side = renderSideView(inputPanel, cutResult);
   // Axis swap: SVG Y = world X (width), SVG X = world Z (length).

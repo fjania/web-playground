@@ -358,6 +358,16 @@ export interface CutResult {
   featureId: string;
   status: Status;
   statusReason?: string;
+  /**
+   * The panel the cut actually operated on, AS operated on. For
+   * orientation=0 this is identical to the upstream panel. For
+   * orientation=90 the Cut pre-rotates its input 90° about Y so the
+   * downstream cut/arrange math can assume "across length" — this
+   * field carries the post-rotation snapshot so the Cut's own
+   * preview renderer can draw the panel outline in the same frame
+   * as the produced slices.
+   */
+  inputPanel: PanelSnapshot;
   slices: PanelSnapshot[];
   offcuts: PanelSnapshot[];
   sliceProvenance: Array<{ sliceIdx: number; contributingStripIds: string[] }>;

@@ -115,9 +115,7 @@
   const liveCutSlices = $derived(output?.liveCutSlices?.['cut-0'] ?? []);
 
   const inputSvg = $derived(composeResult ? summarize(composeResult.panel) : '');
-  const opSvg = $derived(
-    composeResult && cutResult ? renderCutOperation(composeResult.panel, cutResult) : '',
-  );
+  const opSvg = $derived(cutResult ? renderCutOperation(cutResult) : '');
 
   const inputMeta = $derived.by(() => {
     if (!composeResult) return '';
