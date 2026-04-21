@@ -62,8 +62,9 @@ describe('summarize — default timeline', () => {
   it('viewBox reflects the panel bbox with axis swap (Z=400 horizontal, X=100 vertical)', () => {
     const snap = finalPanel(defaultTimeline(createIdCounter()));
     const svg = summarize(snap);
-    // world X=100 → SVG Y extent 100; world Z=400 → SVG X extent 400
-    expect(svg).toMatch(/viewBox="-200 -50 400 100"/);
+    // Bench-anchored panel: X ∈ [-100, 0], Z ∈ [0, 400].
+    // Axis swap makes viewBox = (minZ, minX, extentZ, extentX).
+    expect(svg).toMatch(/viewBox="0 -100 400 100"/);
   });
 
   it('emits a data-species attribute for each volume', () => {
@@ -154,7 +155,8 @@ describe('summarize — checkerboard', () => {
   it('viewBox reflects the 200×200 reassembled panel', () => {
     const snap = finalPanel(checkerboardTimeline());
     const svg = summarize(snap);
-    expect(svg).toMatch(/viewBox="-100 -100 200 200"/);
+    // Bench-anchored: X ∈ [-200, 0], Z ∈ [0, 200].
+    expect(svg).toMatch(/viewBox="0 -200 200 200"/);
   });
 
   it('matches the stored snapshot', () => {
@@ -246,12 +248,9 @@ describe('summarize — brick', () => {
   it('Z extent = 400 (original) + 7×5 mortar = 435', () => {
     const snap = finalPanel(brickTimeline());
     const svg = summarize(snap);
-    // Panel isn't re-centered when spacers extend it — min-Z stays
-    // at the input's -200, extent grows to 435 (spacers pushed
-    // slices along +Z).
-    // With axis swap: world Z (435, length) is horizontal, world X
-    // (190, width) is vertical.
-    expect(svg).toMatch(/viewBox="-200 -95 435 190"/);
+    // Bench-anchored: X ∈ [-190, 0], Z ∈ [0, 435].
+    // (Spacer-extended panels still anchor to max.x=0 and min.z=0.)
+    expect(svg).toMatch(/viewBox="0 -190 435 190"/);
   });
 
   it('matches the stored snapshot', () => {
