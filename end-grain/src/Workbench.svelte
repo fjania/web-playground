@@ -1120,7 +1120,9 @@
   .hero .hero-sub {
     position: absolute;
     top: 8px;
-    right: 12px;
+    /* Leaves room for the viewport's top-right home button (22px
+       wide at right: 8px → ends ~38px from the right edge). */
+    right: 42px;
     color: #b8b5ae;
     font-size: 0.72rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
