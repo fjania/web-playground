@@ -227,10 +227,12 @@ describe.each([
     expect(arrange.panel.bbox.max[2]).toBeLessThanOrEqual(compose.panel.bbox.max[2] + eps);
   });
 
-  it('output bbox is centered (symmetric about origin)', () => {
+  it('output bbox is bench-anchored (max.x=0, min.z=0)', () => {
     const { arrange } = runAtRip();
-    expect(arrange.panel.bbox.min[0] + arrange.panel.bbox.max[0]).toBeCloseTo(0, 2);
-    expect(arrange.panel.bbox.min[2] + arrange.panel.bbox.max[2]).toBeCloseTo(0, 2);
+    // Maker's-frame invariant (principle #5): high-X edge flush to the
+    // bench at X=0, leading edge at Z=0.
+    expect(arrange.panel.bbox.max[0]).toBeCloseTo(0, 2);
+    expect(arrange.panel.bbox.min[2]).toBeCloseTo(0, 2);
   });
 
   it('every slice has topFace polygon with 3+ points (no degenerate slices)', () => {
@@ -350,10 +352,10 @@ describe.each([
     expect(outputZ).toBeCloseTo(expectedZ, 1);
   });
 
-  it('output bbox is centred (symmetric about origin)', () => {
+  it('output bbox is bench-anchored (max.x=0, min.z=0)', () => {
     const { arrange } = runAtBevel();
-    expect(arrange.panel.bbox.min[0] + arrange.panel.bbox.max[0]).toBeCloseTo(0, 2);
-    expect(arrange.panel.bbox.min[2] + arrange.panel.bbox.max[2]).toBeCloseTo(0, 2);
+    expect(arrange.panel.bbox.max[0]).toBeCloseTo(0, 2);
+    expect(arrange.panel.bbox.min[2]).toBeCloseTo(0, 2);
   });
 
   it('panel thickness (Y) is preserved through the cut', () => {
@@ -988,46 +990,52 @@ describe('runPipeline — TrimPanel (flush with protrusion-hull)', () => {
 
 describe('runPipeline — TrimPanel (bbox mode)', () => {
   it('bbox clips panel to exact user-supplied bounds', () => {
+    // Upstream panel is in the bench frame: X ∈ [-100, 0], Z ∈ [0, 400].
+    // Request bounds that already sit on the bench edges so the post-
+    // trim anchor is a no-op and appliedBounds matches the panel bbox.
     const { out, trim } = runWithTrim(() => {}, {
       mode: 'bbox',
-      bounds: { xMin: -40, xMax: 40, zMin: -150, zMax: 150 },
+      bounds: { xMin: -80, xMax: 0, zMin: 0, zMax: 300 },
     });
     const trimResult = out.results[trim.id] as TrimPanelResult;
     expect(trimResult.status).toBe('ok');
-    expect(trimResult.appliedBounds).toEqual({ xMin: -40, xMax: 40, zMin: -150, zMax: 150 });
-    expect(trimResult.panel.bbox.min[0]).toBeCloseTo(-40, 3);
-    expect(trimResult.panel.bbox.max[0]).toBeCloseTo(40, 3);
-    expect(trimResult.panel.bbox.min[2]).toBeCloseTo(-150, 3);
-    expect(trimResult.panel.bbox.max[2]).toBeCloseTo(150, 3);
+    expect(trimResult.appliedBounds).toEqual({ xMin: -80, xMax: 0, zMin: 0, zMax: 300 });
+    expect(trimResult.panel.bbox.min[0]).toBeCloseTo(-80, 3);
+    expect(trimResult.panel.bbox.max[0]).toBeCloseTo(0, 3);
+    expect(trimResult.panel.bbox.min[2]).toBeCloseTo(0, 3);
+    expect(trimResult.panel.bbox.max[2]).toBeCloseTo(300, 3);
   });
 
   it('bbox with missing fields falls back to panel bbox on that axis', () => {
     const { out, trim } = runWithTrim(() => {}, {
       mode: 'bbox',
-      bounds: { xMin: -40, xMax: 40 },
+      bounds: { xMin: -80, xMax: 0 },
     });
     const arrange = out.results['arrange-0'] as ArrangeResult;
     const trimResult = out.results[trim.id] as TrimPanelResult;
     expect(trimResult.status).toBe('ok');
-    // X trimmed to [-40, 40]; Z untouched.
-    expect(trimResult.appliedBounds.xMin).toBeCloseTo(-40, 3);
-    expect(trimResult.appliedBounds.xMax).toBeCloseTo(40, 3);
+    // X trimmed to [-80, 0]; Z untouched (falls back to upstream bbox).
+    expect(trimResult.appliedBounds.xMin).toBeCloseTo(-80, 3);
+    expect(trimResult.appliedBounds.xMax).toBeCloseTo(0, 3);
     expect(trimResult.appliedBounds.zMin).toBeCloseTo(arrange.panel.bbox.min[2], 3);
     expect(trimResult.appliedBounds.zMax).toBeCloseTo(arrange.panel.bbox.max[2], 3);
   });
 
   it('bbox outside panel bbox clamps to panel + sets status=warning', () => {
-    // Panel is 100×50×400 centred on origin; xMax=50, request xMax=200.
+    // Bench-anchored panel is X ∈ [-100, 0], Z ∈ [0, 400]. Request
+    // extends past both edges; every requested bound gets clamped.
     const { out, trim } = runWithTrim(() => {}, {
       mode: 'bbox',
-      bounds: { xMin: -50, xMax: 200, zMin: -200, zMax: 200 },
+      bounds: { xMin: -200, xMax: 100, zMin: -50, zMax: 500 },
     });
     const trimResult = out.results[trim.id] as TrimPanelResult;
     expect(trimResult.status).toBe('warning');
     expect(trimResult.statusReason).toMatch(/clamped/);
-    // xMax should clamp to 50 (panel's xMax), zMax to 200 (== panel's zMax).
-    expect(trimResult.appliedBounds.xMax).toBeCloseTo(50, 3);
-    expect(trimResult.appliedBounds.zMax).toBeCloseTo(200, 3);
+    // Clamps: xMin → -100, xMax → 0, zMin → 0, zMax → 400.
+    expect(trimResult.appliedBounds.xMin).toBeCloseTo(-100, 3);
+    expect(trimResult.appliedBounds.xMax).toBeCloseTo(0, 3);
+    expect(trimResult.appliedBounds.zMin).toBeCloseTo(0, 3);
+    expect(trimResult.appliedBounds.zMax).toBeCloseTo(400, 3);
   });
 });
 
@@ -1064,7 +1072,8 @@ describe('runPipeline — TrimPanel feeds downstream features', () => {
       kind: 'trimPanel',
       id: allocateId(counter, 'trim'),
       mode: 'bbox',
-      bounds: { xMin: -40, xMax: 40, zMin: -150, zMax: 150 },
+      // Bench-anchored trim: 80 mm wide (X) × 300 mm long (Z).
+      bounds: { xMin: -80, xMax: 0, zMin: 0, zMax: 300 },
       status: 'ok',
     });
     // Add a second cut after the trim. Pitch-driven so slice count
@@ -1104,22 +1113,24 @@ describe('runPipeline — TrimPanel (multi-trim)', () => {
       kind: 'trimPanel',
       id: allocateId(counter, 'trim'),
       mode: 'bbox',
-      bounds: { xMin: -50, xMax: 50, zMin: -200, zMax: 200 },
+      // First trim takes the full bench-anchored panel (no-op bounds).
+      bounds: { xMin: -100, xMax: 0, zMin: 0, zMax: 400 },
       status: 'ok',
     });
     timeline.push({
       kind: 'trimPanel',
       id: allocateId(counter, 'trim'),
       mode: 'bbox',
-      bounds: { xMin: -30, xMax: 30, zMin: -100, zMax: 100 },
+      // Second trim is strictly inside, still anchored to the bench.
+      bounds: { xMin: -60, xMax: 0, zMin: 0, zMax: 200 },
       status: 'ok',
     });
     const out = runPipeline(timeline);
     const second = out.results['trim-1'] as TrimPanelResult;
     expect(second.status).toBe('ok');
-    expect(second.appliedBounds).toEqual({ xMin: -30, xMax: 30, zMin: -100, zMax: 100 });
-    expect(second.panel.bbox.min[0]).toBeCloseTo(-30, 3);
-    expect(second.panel.bbox.max[0]).toBeCloseTo(30, 3);
+    expect(second.appliedBounds).toEqual({ xMin: -60, xMax: 0, zMin: 0, zMax: 200 });
+    expect(second.panel.bbox.min[0]).toBeCloseTo(-60, 3);
+    expect(second.panel.bbox.max[0]).toBeCloseTo(0, 3);
   });
 });
 

@@ -251,7 +251,8 @@ function executeComposeStrips(
   f: ComposeStrips,
   ctx: ExecutionContext,
 ): ComposeStripsResult {
-  const panel = Panel.fromStrips(f.strips, f.stripHeight, f.stripLength);
+  const raw = Panel.fromStrips(f.strips, f.stripHeight, f.stripLength);
+  const panel = anchorPanel(raw);
   // Stash the live panel for the next feature to consume. Dispose any
   // previous lastPanel first — ComposeStrips is typically the first
   // feature, but we stay defensive.
@@ -296,7 +297,13 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   // centre-near-origin snapshot keep working).
   const rawBbox = rawInput.boundingBox();
   const rotationAngle = f.orientation === 90 ? -Math.PI / 2 : 0;
-  const input =
+  // For orient=90 we rotate the workpiece about its bbox centre, then
+  // anchor the result back into the canonical frame — physically, the
+  // maker spins the panel on the bench and slides it back against the
+  // fence. anchorPanel consumes its input, so the rotated scratch
+  // Panel is freed there; the anchored Panel is what downstream code
+  // (rotationArtifact cleanup, snapshots, cutRepeated) sees as `input`.
+  const rotated =
     rotationAngle !== 0
       ? rawInput.rotateAbout(
           new Vector3(0, 1, 0),
@@ -308,6 +315,7 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
           ),
         )
       : rawInput;
+  const input = rotated !== rawInput ? anchorPanel(rotated) : rawInput;
   const rotationArtifact = input !== rawInput ? input : null;
 
   // Cut normal: rip is rotation of the cut plane about Y (in XZ), and
@@ -360,7 +368,21 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
     effectivePitch = f.pitch;
   }
 
-  const { slices, offcuts: rawOffcuts } = input.cutRepeated(normal, effectivePitch, count, 0);
+  // cutRepeated centers its cut planes at `centerOffset` along the
+  // normal. Pre-anchor, panels were centred at origin so centerOffset=0
+  // worked; post-anchor, panels live in X ≤ 0, Z ≥ 0 so we centre the
+  // cut bundle on the panel's own along-normal midpoint. projectOnto
+  // (exact vertex projection) matches the extent used by the safe-
+  // extent calculation above.
+  const normalProjection = input.projectOnto(normal);
+  const cutCenterOffset = (normalProjection.min + normalProjection.max) / 2;
+
+  const { slices, offcuts: rawOffcuts } = input.cutRepeated(
+    normal,
+    effectivePitch,
+    count,
+    cutCenterOffset,
+  );
 
   // Drop no-op offcuts — at rip=0/bevel=90 (or whenever the slice
   // count evenly divides the safe extent) the outer cut planes sit
@@ -644,8 +666,13 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   const nZ = Math.abs(normalAxis[2]);
   const zFactor = nZ > 1e-6 ? nZ : 1;
 
-  const firstSlice = transformedSlices[sliceOrder[0]];
-  let cursor = firstSlice.projectOnto(normalAxis).min;
+  // Cursor starts at the bench (Z=0), not at wherever the first slice
+  // happens to project to along the normal. Upstream slices are in the
+  // canonical (bench-anchored) frame, so for identity-order Arrange
+  // the first slice's d_low is already 0 and this is a no-op; for a
+  // reordered Arrange it prevents the assembled panel from drifting
+  // by up to one pitch in Z. See principle #5 (the maker's frame).
+  let cursor = 0;
 
   const placedSlices: Panel[] = [];
   // Spacer placement: at each afterSliceIdx, after placing the slice
@@ -697,6 +724,13 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   for (const s of upstreamSlices) s.dispose();
   ctx.lastSlices = [];
   ctx.lastSliceProvenance = [];
+
+  // Anchor the assembled panel to the maker's frame. Under a clean
+  // cursor-slide this is a no-op (the upstream was already anchored
+  // and the cursor started at 0), but PlaceEdits like shift or 90°
+  // rotate can shove volumes outside the upstream bbox — anchor
+  // handles those cases without special-casing.
+  assembled = anchorPanel(assembled);
 
   ctx.lastPanel = assembled;
   ctx.lastPanelFeatureId = f.id;
@@ -872,6 +906,13 @@ function executeTrimPanel(f: TrimPanel, ctx: ExecutionContext): TrimPanelResult 
   const next4 = axisCut(current, [0, 0, 1], bounds.zMax, 'below');
   current.dispose();
   current = next4;
+
+  // Anchor the trimmed panel back to the maker's frame. Normally a
+  // no-op (upstream was anchored and a flush/rectangle trim keeps the
+  // high-X edge and the z=0 edge), but a bbox trim with user-supplied
+  // bounds can shrink both edges — anchor resets the result so any
+  // downstream op still sees a canonical panel.
+  current = anchorPanel(current);
 
   // Compute trimmed area (XZ footprint of the material removed).
   const upstreamArea = (panelXMax - panelXMin) * (panelZMax - panelZMin);
@@ -1224,6 +1265,24 @@ function makeSpacerPanel(
     panel = tilted;
   }
 
+  // Translate the spacer so its (X, Y) center matches the reference
+  // slice's (X, Y) center. Before bench anchoring this was a no-op —
+  // both the spacer cube and the reference slice lived centred on
+  // origin. Now that slices are bench-anchored (X ∈ [-width, 0]), the
+  // spacer must shift to keep its cut faces in the same fence-and-
+  // bench plane as the slices it sits between. Z alignment is handled
+  // by the caller's cursor slide.
+  const spacerBbox = panel.boundingBox();
+  const dx =
+    (bb.min.x + bb.max.x) / 2 - (spacerBbox.min.x + spacerBbox.max.x) / 2;
+  const dy =
+    (bb.min.y + bb.max.y) / 2 - (spacerBbox.min.y + spacerBbox.max.y) / 2;
+  if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) {
+    const aligned = panel.translate(dx, dy, 0);
+    panel.dispose();
+    panel = aligned;
+  }
+
   return panel;
 }
 
@@ -1233,4 +1292,26 @@ function makeSpacerPanel(
 
 function emptySnapshot(): PanelSnapshot {
   return { bbox: { min: [0, 0, 0], max: [0, 0, 0] }, volumes: [] };
+}
+
+/**
+ * Translate a panel into the maker's canonical frame (principle #5):
+ *   bbox.max.x = 0  — high-X edge flush against the bench at world X=0
+ *   bbox.min.z = 0  — leading edge at world Z=0, panel extends into +Z
+ *
+ * Y is untouched — bench surface height is whatever the executor gave us.
+ *
+ * Consumes the input Panel (disposes it). If the delta is already zero
+ * (panel is in the canonical frame), returns the input unchanged — so
+ * repeat calls are free.
+ */
+function anchorPanel(panel: Panel): Panel {
+  if (panel.segments.length === 0) return panel;
+  const bb = panel.boundingBox();
+  const dx = -bb.max.x;
+  const dz = -bb.min.z;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dz) < 1e-9) return panel;
+  const translated = panel.translate(dx, 0, dz);
+  panel.dispose();
+  return translated;
 }
