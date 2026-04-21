@@ -34,6 +34,18 @@
 
   export interface ArrangePreviewState {
     arrangeResult: ArrangeResult;
+    /**
+     * Feature id of the Cut this Arrange is paired with. Used to
+     * bucket volumes by the correct generation of slice provenance —
+     * a volume carries slice ids from every Cut in its history
+     * (e.g. `cut-0-slice-2`, `cut-1-slice-0`), and we need to group
+     * by THIS arrange's paired cut, not the first cut ever.
+     *
+     * When undefined (e.g. an orphan Arrange with no upstream Cut),
+     * no volumes are grouped and the preview renders as a non-
+     * interactive flat panel.
+     */
+    cutId: string | undefined;
     /** Spacers attached to this arrange — used only to identify
      *  which volumes need the hatch overlay. */
     spacers: SpacerInsert[];
@@ -55,7 +67,6 @@
     toPos: number;
   }
 
-  const SLICE_ID_RE = /-slice-(\d+)$/;
 </script>
 
 <script lang="ts">
@@ -77,12 +88,28 @@
 
   let { value, anchor, onSelectionChange, onReorder }: Props = $props();
 
-  /** Derived — slice id from contributing ids. Pipeline-driven; no recompute. */
+  /**
+   * Return the slice index this volume belongs to according to
+   * THIS arrange's paired cut (`value.cutId`), or null if the volume
+   * has no provenance from that cut (e.g. a spacer, or a volume
+   * descending only from an earlier-generation cut).
+   *
+   * Matches on the `${cutId}-slice-N` prefix rather than picking
+   * `contributingSliceIds[0]`, because multi-generation cuts
+   * accumulate slice ids from every cut in their history and the
+   * earliest is always at index 0.
+   */
   function sliceIdxFor(vol: Volume): number | null {
-    const sid = vol.contributingSliceIds[0];
-    if (!sid) return null;
-    const m = sid.match(SLICE_ID_RE);
-    return m ? Number(m[1]) : null;
+    const cutId = value.cutId;
+    if (!cutId) return null;
+    const prefix = `${cutId}-slice-`;
+    for (const sid of vol.contributingSliceIds) {
+      if (sid.startsWith(prefix)) {
+        const n = Number(sid.slice(prefix.length));
+        return Number.isFinite(n) ? n : null;
+      }
+    }
+    return null;
   }
 
   const spacerIds = $derived(new Set(value.spacers.map((s) => s.id)));

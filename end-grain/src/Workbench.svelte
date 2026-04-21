@@ -1044,10 +1044,12 @@
                   {:else if feature.kind === 'arrange'}
                     {@const ar = output?.results[feature.id] as ArrangeResult | undefined}
                     {@const aSel = getArrangeSelection(feature.id)}
+                    {@const pairedCutId = upstreamFeatureIdFor(feature.id, 'slices')}
                     {#if ar}
                       <ArrangePreview
                         value={{
                           arrangeResult: ar,
+                          cutId: pairedCutId,
                           spacers: spacersFor(feature.id),
                           selection: aSel.selection,
                         }}
