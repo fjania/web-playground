@@ -21,7 +21,14 @@ When an operation's math, rendering, and authoring UI are locked in, the work fo
 | `3d-trim.html` | TrimPanel | [#37](https://github.com/fjania/web-playground/issues/37) | `src/main-trim.ts` |
 | `3d-compose.html` | ComposeStrips | [#23](https://github.com/fjania/web-playground/issues/23) | `src/main-compose.ts` |
 
-ComposeStrips is the first harness with **interactive** Input and Operation tiles (add/remove/edit strips, drag-to-reorder) — the other harnesses are URL-only. The reusable DOM modules live under `src/ui/` so a future app can `mount()` them into Svelte containers.
+Every harness composes shared control components from `src/ui/` so the authoring surface stays in sync with the workbench. Concretely:
+
+- **ComposeStrips** — `StripInventory` (add/remove/edit strips) + `StripReorder` (drag-to-reorder).
+- **Cut** — `CutControls` (orientation / rip / bevel / spacing / slice count / showOffcuts).
+- **Arrange** — `ArrangeControls` (selection toolbar + action toolbar + `SliceList`) alongside `ArrangePreview` (drag-to-reorder + click-to-select on the preview). Shared keyboard handler lives in `src/state/arrangeActions.ts`.
+- **TrimPanel** — `TrimControls` (mode + bounds).
+
+Every harness still accepts URL params as **seeds** for its initial state; after load, the interactive components take over. URL round-trip back from interactive state is intentionally NOT done (matches the "URL is a seed" convention the ComposeApp established).
 
 More to come — PlaceEdit ([#27](https://github.com/fjania/web-playground/issues/27)/[#28](https://github.com/fjania/web-playground/issues/28)/[#29](https://github.com/fjania/web-playground/issues/29)/[#35](https://github.com/fjania/web-playground/issues/35)), SpacerInsert ([#36](https://github.com/fjania/web-playground/issues/36)). Each of these will land its own `3d-<op>.html` + `main-<op>.ts` pair as the issue comes up.
 

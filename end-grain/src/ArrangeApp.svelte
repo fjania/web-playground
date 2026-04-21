@@ -20,7 +20,16 @@
   import { buildPanelGroup } from './scene/meshBuilder';
   import { setupViewport, type ViewportHandle } from './scene/viewport';
   import { summarizeSlices } from './render/summary';
-  import { renderArrangeOperation } from './render/operations';
+  import ArrangeControls from './ui/ArrangeControls.svelte';
+  import ArrangePreview from './ui/ArrangePreview.svelte';
+  // NB: renderArrangeOperation (string SVG) was the previous Operation
+  // tile renderer; the harness now uses interactive ArrangeControls +
+  // ArrangePreview components, matching workbench parity.
+  import {
+    handleArrangeKey as sharedHandleArrangeKey,
+    reorderSlice as sharedReorderSlice,
+    type ArrangeActionContext,
+  } from './state/arrangeActions';
   import type { Panel } from './domain/Panel';
   import type {
     Arrange,
@@ -45,7 +54,10 @@
   const params = new URLSearchParams(window.location.search);
 
   const scenarioName = params.get('scenario');
-  const timeline = buildScenarioTimeline(scenarioName, counter);
+  // `timeline` is reactive so interactive edits from ArrangeControls /
+  // ArrangePreview rerun the pipeline automatically. URL params are
+  // seeds: they mutate the initial list, then the live UI takes over.
+  let timeline = $state<Feature[]>(buildScenarioTimeline(scenarioName, counter));
 
   // The harness iterates the LAST arrange in the timeline. Upstream
   // features (Compose, Cut, and any earlier Arranges in a scenario
@@ -377,15 +389,72 @@
     return [compose, cut0, arrange0, ...arrange0Edits, cut1, arrange1];
   }
 
-  // ---- Single-pass pipeline run (guarded by manifold init) ----
+  // ---- Reactive pipeline run (guarded by manifold init) ----
 
   let output = $state<PipelineOutput | null>(null);
+  let manifoldReady = $state(false);
+  /** Selection shared between ArrangeControls and ArrangePreview. */
+  let selection = $state<{ set: Set<number>; anchor: number | null }>({
+    set: new Set(),
+    anchor: null,
+  });
 
   onMount(() => {
     initManifold().then(() => {
-      output = runPipeline(timeline, { preserveLive: true });
+      manifoldReady = true;
     });
   });
+
+  $effect(() => {
+    void timeline;
+    if (!manifoldReady) return;
+    output = runPipeline(timeline, { preserveLive: true });
+  });
+
+  // ---- Helpers used by the interactive controls ----
+
+  function editsFor(aId: string): PlaceEdit[] {
+    return timeline.filter(
+      (f): f is PlaceEdit => f.kind === 'placeEdit' && f.target.arrangeId === aId,
+    );
+  }
+
+  function spacersFor(aId: string): SpacerInsert[] {
+    return timeline.filter(
+      (f): f is SpacerInsert => f.kind === 'spacerInsert' && f.arrangeId === aId,
+    );
+  }
+
+  function applyArrangeEdits(aId: string, nextEdits: PlaceEdit[]): void {
+    const filtered = timeline.filter(
+      (f) => !(f.kind === 'placeEdit' && f.target.arrangeId === aId),
+    );
+    timeline = [...filtered, ...nextEdits];
+  }
+
+  function buildActionContext(): ArrangeActionContext {
+    return {
+      arrangeId,
+      sliceCount: cutResult?.slices.length ?? 0,
+      selection,
+      edits: editsFor(arrangeId),
+      setSelection: (set, anchor) => {
+        selection = { set, anchor };
+      },
+      setEdits: (next) => applyArrangeEdits(arrangeId, next),
+      allocateEditId: () => allocateId(counter, 'edit'),
+    };
+  }
+
+  function handleArrangeKey(e: KeyboardEvent): void {
+    if (sharedHandleArrangeKey(buildActionContext(), e)) {
+      e.preventDefault();
+    }
+  }
+
+  function reorderArrangeSlice(fromPos: number, toPos: number): void {
+    sharedReorderSlice(buildActionContext(), fromPos, toPos);
+  }
 
   // ---- Derived rendering ----
 
@@ -452,16 +521,6 @@
       edits: [...timelineEdits, ...presetEdits],
       spacers: [...timelineSpacers, ...presetSpacers],
     };
-  });
-
-  const opSvg = $derived.by(() => {
-    if (!cutResult || !arrangeResult) return '';
-    return renderArrangeOperation(
-      cutResult,
-      arrangeResult,
-      expandedEditsSpacers.edits,
-      expandedEditsSpacers.spacers,
-    );
   });
 
   const opSubtitle = $derived.by(() => {
@@ -534,16 +593,51 @@
     <div class="meta" data-slot="meta">{inputMeta}</div>
   </article>
 
-  <article class="tile tile--2d" data-stage={`${arrangeId}-op`} data-role="operation">
+  <article
+    class="tile tile--op"
+    data-stage={`${arrangeId}-op`}
+    data-role="operation"
+    tabindex="0"
+    onkeydown={handleArrangeKey}
+  >
     <header>
       <h2>Operation: Arrange</h2>
       <p class="subtitle">{opSubtitle}</p>
     </header>
-    <div class="render" data-slot="render">
-      {#if opSvg}
-        {@html opSvg}
+    <div class="render op-body">
+      {#if cutResult && arrangeResult}
+        <div class="op-controls">
+          <ArrangeControls
+            value={{
+              arrangeId,
+              upstreamSlices: cutResult.slices,
+              edits: editsFor(arrangeId),
+              selection,
+            }}
+            onSelectionChange={(ev) => {
+              selection = { set: ev.set, anchor: ev.anchor };
+            }}
+            onEditsChange={(next) => applyArrangeEdits(arrangeId, next)}
+            allocateEditId={() => allocateId(counter, 'edit')}
+          />
+        </div>
+        <div class="op-preview">
+          <ArrangePreview
+            value={{
+              arrangeResult,
+              cutId,
+              spacers: spacersFor(arrangeId),
+              selection: selection.set,
+            }}
+            anchor={selection.anchor}
+            onSelectionChange={(ev) => {
+              selection = { set: ev.selection, anchor: ev.anchor };
+            }}
+            onReorder={(ev) => reorderArrangeSlice(ev.fromPos, ev.toPos)}
+          />
+        </div>
       {:else}
-        <div class="placeholder">operation diagram pending</div>
+        <div class="placeholder">operation pending</div>
       {/if}
     </div>
     <div class="meta" data-slot="meta">{opMeta}</div>
@@ -640,5 +734,54 @@ Example
     width: 100%;
     height: 100%;
     display: block;
+  }
+  /* Operation tile — hosts ArrangeControls + ArrangePreview side by
+     side so the harness mirrors the workbench's two-panel Arrange
+     stage (controls + preview). Keyboard-focusable so shortcuts
+     (F/R/A/I/E/O/Esc/Delete/arrows) work without needing to click a
+     toolbar button first. */
+  .tile.tile--op {
+    flex: 0 0 560px;
+    background: #fff;
+    border: 1px solid #e4e4e0;
+    border-radius: 8px;
+    padding: 0.75rem 0.75rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    min-width: 0;
+  }
+  .tile.tile--op:focus {
+    outline: none;
+  }
+  .tile.tile--op:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+  .op-body {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: stretch;
+    padding: 0;
+    background: transparent;
+  }
+  .op-controls {
+    flex: 0 0 260px;
+    min-width: 0;
+    background: #f6f5f1;
+    border-radius: 4px;
+    overflow: auto;
+  }
+  .op-preview {
+    flex: 1 1 0;
+    min-width: 0;
+    background: #f6f5f1;
+    border-radius: 4px;
+    padding: 0.45rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 </style>
