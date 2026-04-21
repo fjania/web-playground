@@ -23,8 +23,11 @@
   import { renderArrangeOperation } from './render/operations';
   import type { Panel } from './domain/Panel';
   import type {
+    Arrange,
     ArrangeResult,
+    ComposeStrips,
     ComposeStripsResult,
+    Cut,
     CutResult,
     Feature,
     FeatureResult,
@@ -32,22 +35,33 @@
     Preset,
     SpacerInsert,
     Species,
+    StripDef,
   } from './state/types';
+  import type { IdCounter } from './state/ids';
 
   // ---- Timeline assembly (runs once at module eval) ----
 
   const counter = createIdCounter();
-  const timeline = defaultTimeline(counter);
+  const params = new URLSearchParams(window.location.search);
 
-  const cut = timeline.find((f): f is Feature & { kind: 'cut' } => f.kind === 'cut');
-  if (cut) {
+  const scenarioName = params.get('scenario');
+  const timeline = buildScenarioTimeline(scenarioName, counter);
+
+  // The harness iterates the LAST arrange in the timeline. Upstream
+  // features (Compose, Cut, and any earlier Arranges in a scenario
+  // preset) are there to produce the input slices — the harness's
+  // "upstream cut" is the Cut immediately before the iterated arrange.
+  const arrangeId = lastArrangeId(timeline);
+  const cut = upstreamCut(timeline, arrangeId);
+  const cutId = cut?.id ?? 'cut-0';
+
+  // For the default scenario, tighten the upstream cut to 4 slices
+  // (legible preview). Scenarios own their own upstream tuning.
+  if (!scenarioName && cut) {
     cut.spacingMode = 'slices';
     cut.slices = 4;
     cut.pitch = 100;
   }
-
-  const arrangeId = timeline.find((f) => f.kind === 'arrange')?.id ?? 'arrange-0';
-  const params = new URLSearchParams(window.location.search);
 
   if (cut) {
     const rip = numberParam('rip');
@@ -212,6 +226,157 @@
     return '';
   }
 
+  // ---- Timeline helpers ----
+
+  function lastArrangeId(t: Feature[]): string {
+    for (let i = t.length - 1; i >= 0; i--) {
+      if (t[i].kind === 'arrange') return t[i].id;
+    }
+    return 'arrange-0';
+  }
+
+  function upstreamCut(t: Feature[], arrId: string): Cut | undefined {
+    const arrIdx = t.findIndex((f) => f.id === arrId);
+    for (let i = arrIdx - 1; i >= 0; i--) {
+      if (t[i].kind === 'cut') return t[i] as Cut;
+    }
+    return undefined;
+  }
+
+  function buildScenarioTimeline(name: string | null, c: IdCounter): Feature[] {
+    if (name === 'arrange1-bug') return buildArrange1BugScenario(c);
+    return defaultTimeline(c);
+  }
+
+  /**
+   * The "arrange1-bug" scenario reproduces the non-rectangular-upstream
+   * condition from the workbench design saved as `untitled` at the time
+   * issue #47 was written. Pipeline:
+   *
+   *   Compose (10 × 50 mm alternating strips, length 400)
+   *     → Cut-0 (rip 4°, 4 slices)                ← produces parallelogram prisms
+   *       → Arrange-0 (2 walnut 5mm spacers after slice 0, + reorder
+   *                    sliceIdx 0→1, reorder 2→0, rotate 2 180°,
+   *                    rotate 3 180°)             ← assembled panel's outline
+   *                                                 is non-rectangular in X
+   *         → Cut-1 (rip 0°, 4 slices)            ← slices inherit X asymmetry
+   *           → Arrange-1 (empty — the harness's iterated target)
+   *
+   * URL reorder/flip/etc. params target Arrange-1 (the last Arrange);
+   * Arrange-0's edits and the upstream Cuts are baked into the scenario
+   * so the bug's preconditions are reproducible and don't need their
+   * own knobs.
+   */
+  function buildArrange1BugScenario(c: IdCounter): Feature[] {
+    const stripSpecies: Species[] = [
+      'maple', 'walnut', 'maple', 'walnut', 'maple',
+      'walnut', 'maple', 'maple', 'walnut', 'walnut',
+    ];
+    const strips: StripDef[] = stripSpecies.map((species) => ({
+      stripId: allocateId(c, 'strip'),
+      species,
+      width: 50,
+    }));
+    const compose: ComposeStrips = {
+      kind: 'composeStrips',
+      id: allocateId(c, 'compose'),
+      strips,
+      stripHeight: 50,
+      stripLength: 400,
+      status: 'ok',
+    };
+    const cut0: Cut = {
+      kind: 'cut',
+      id: allocateId(c, 'cut'),
+      orientation: 0,
+      rip: 4,
+      bevel: 90,
+      spacingMode: 'slices',
+      pitch: 50,
+      slices: 4,
+      showOffcuts: false,
+      status: 'ok',
+    };
+    const arrange0Id = allocateId(c, 'arrange');
+    const arrange0: Arrange = {
+      kind: 'arrange',
+      id: arrange0Id,
+      layout: 'cursor-slide',
+      status: 'ok',
+    };
+    const cut1: Cut = {
+      kind: 'cut',
+      id: allocateId(c, 'cut'),
+      orientation: 0,
+      rip: 0,
+      bevel: 90,
+      spacingMode: 'slices',
+      pitch: 50,
+      slices: 4,
+      showOffcuts: false,
+      status: 'ok',
+    };
+    const arrange1: Arrange = {
+      kind: 'arrange',
+      id: allocateId(c, 'arrange'),
+      layout: 'cursor-slide',
+      status: 'ok',
+    };
+
+    // Arrange-0 edits (baked into the scenario; mirror the workbench
+    // design that exposed the bug).
+    const arrange0Edits: Feature[] = [
+      {
+        kind: 'spacerInsert',
+        id: allocateId(c, 'spacer'),
+        arrangeId: arrange0Id,
+        afterSliceIdx: 0,
+        species: 'walnut',
+        width: 5,
+        status: 'ok',
+      },
+      {
+        kind: 'spacerInsert',
+        id: allocateId(c, 'spacer'),
+        arrangeId: arrange0Id,
+        afterSliceIdx: 0,
+        species: 'walnut',
+        width: 5,
+        status: 'ok',
+      },
+      {
+        kind: 'placeEdit',
+        id: allocateId(c, 'edit'),
+        target: { arrangeId: arrange0Id, sliceIdx: 0 },
+        op: { kind: 'reorder', newIdx: 1 },
+        status: 'ok',
+      },
+      {
+        kind: 'placeEdit',
+        id: allocateId(c, 'edit'),
+        target: { arrangeId: arrange0Id, sliceIdx: 2 },
+        op: { kind: 'reorder', newIdx: 0 },
+        status: 'ok',
+      },
+      {
+        kind: 'placeEdit',
+        id: allocateId(c, 'edit'),
+        target: { arrangeId: arrange0Id, sliceIdx: 2 },
+        op: { kind: 'rotate', degrees: 180 },
+        status: 'ok',
+      },
+      {
+        kind: 'placeEdit',
+        id: allocateId(c, 'edit'),
+        target: { arrangeId: arrange0Id, sliceIdx: 3 },
+        op: { kind: 'rotate', degrees: 180 },
+        status: 'ok',
+      },
+    ];
+
+    return [compose, cut0, arrange0, ...arrange0Edits, cut1, arrange1];
+  }
+
   // ---- Single-pass pipeline run (guarded by manifold init) ----
 
   let output = $state<PipelineOutput | null>(null);
@@ -225,7 +390,7 @@
   // ---- Derived rendering ----
 
   const cutResult = $derived<CutResult | undefined>(
-    output?.results['cut-0'] as CutResult | undefined,
+    output?.results[cutId] as CutResult | undefined,
   );
   const arrangeResult = $derived<ArrangeResult | undefined>(
     output?.results[arrangeId] as ArrangeResult | undefined,
@@ -255,22 +420,29 @@
   });
 
   const inputSubtitle = $derived(
-    `cut-0 · ${cut ? `rip ${cut.rip}° · bevel ${cut.bevel}° · ${cut.slices} slices` : ''}`,
+    `${cutId} · ${cut ? `rip ${cut.rip}° · bevel ${cut.bevel}° · ${cut.slices} slices` : ''}`,
   );
   const inputMeta = $derived(
     cutResult ? `${cutResult.slices.length} slices feeding arrange` : '',
   );
 
-  /** Edits and spacers actually applied to the arrange, including
-   * preset expansions picked up from pipeline results. */
+  /** Edits and spacers actually applied to the ITERATED arrange, including
+   * preset expansions picked up from pipeline results. In a scenario
+   * preset that contains multiple arranges, we only surface the last
+   * arrange's edits here — the upstream arrange's edits are implementation
+   * detail of the scenario, not the thing being iterated. */
   const expandedEditsSpacers = $derived.by(() => {
     if (!output) return { edits: [], spacers: [] };
-    const timelineEdits = timeline.filter((f): f is PlaceEdit => f.kind === 'placeEdit');
-    const timelineSpacers = timeline.filter((f): f is SpacerInsert => f.kind === 'spacerInsert');
+    const timelineEdits = timeline
+      .filter((f): f is PlaceEdit => f.kind === 'placeEdit')
+      .filter((e) => e.target.arrangeId === arrangeId);
+    const timelineSpacers = timeline
+      .filter((f): f is SpacerInsert => f.kind === 'spacerInsert')
+      .filter((s) => s.arrangeId === arrangeId);
     const presetEdits: PlaceEdit[] = [];
     const presetSpacers: SpacerInsert[] = [];
     for (const f of timeline) {
-      if (f.kind !== 'preset') continue;
+      if (f.kind !== 'preset' || f.arrangeId !== arrangeId) continue;
       const r = output.results[f.id];
       if (!r) continue;
       if ('expandedPlaceEdits' in r) presetEdits.push(...r.expandedPlaceEdits);
@@ -345,7 +517,7 @@
 </script>
 
 <main id="tiles">
-  <article class="tile tile--2d" data-stage="cut-0" data-role="input">
+  <article class="tile tile--2d" data-stage={cutId} data-role="input">
     <header>
       <h2>Input</h2>
       <p class="subtitle">{inputSubtitle}</p>
@@ -362,7 +534,7 @@
     <div class="meta" data-slot="meta">{inputMeta}</div>
   </article>
 
-  <article class="tile tile--2d" data-stage="arrange-0-op" data-role="operation">
+  <article class="tile tile--2d" data-stage={`${arrangeId}-op`} data-role="operation">
     <header>
       <h2>Operation: Arrange</h2>
       <p class="subtitle">{opSubtitle}</p>
@@ -402,7 +574,17 @@
   <div class="inspector-body">
     <section>
       <h3>URL parameters</h3>
-      <div class="hint">Upstream Cut
+      <div class="hint">Scenario (full upstream preset)
+  <code>?scenario=arrange1-bug</code>
+                 Reproduces #47's motivating example:
+                 Compose(10×50mm) → Cut(rip=4°,4) →
+                 Arrange(spacers + 2 reorders + 2 rotates)
+                 → Cut(rip=0°,4) → Arrange (iterated).
+                 Upstream is non-rectangular, so the iterated
+                 Arrange's input slices have X-asymmetric bboxes.
+
+Upstream Cut (applies to the cut feeding the last Arrange;
+ in a scenario these defaults are baked in)
   <code>?slices=4</code>   how many slices to feed in (default 4)
   <code>?rip=30</code>     rip angle in degrees (default 0)
   <code>?bevel=60</code>   bevel angle 45..90 (default 90)
