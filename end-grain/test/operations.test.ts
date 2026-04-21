@@ -38,10 +38,8 @@ describe('renderCutOperation', () => {
   it('emits TOP and SIDE projections stacked in a flex row', () => {
     const timeline = defaultTimeline(createIdCounter());
     const out = runPipeline(timeline);
-    const compose = out.results['compose-0'];
     const cut = out.results['cut-0'] as CutResult;
-    if (compose.status !== 'ok' || !('panel' in compose)) throw new Error('bad compose');
-    const html = renderCutOperation(compose.panel, cut);
+    const html = renderCutOperation(cut);
     expect(html).toMatch(/TOP/);
     expect(html).toMatch(/SIDE/);
     expect(html).toMatch(/<svg/);
@@ -58,10 +56,8 @@ describe('renderCutOperation', () => {
     // rip > 0 so offcuts exist (pipeline filters empty ones).
     cut.rip = 30;
     const out = runPipeline(timeline);
-    const compose = out.results['compose-0'];
     const cutResult = out.results['cut-0'] as CutResult;
-    if (compose.status !== 'ok' || !('panel' in compose)) throw new Error('bad compose');
-    const html = renderCutOperation(compose.panel, cutResult);
+    const html = renderCutOperation(cutResult);
     // 4 slices + 2 offcuts = 5 adjacent-piece pairs = 5 cut lines per view,
     // × 2 views = 10 lines total in the emitted markup.
     const lineCount = (html.match(/<line /g) ?? []).length;

@@ -121,6 +121,7 @@ describe('JSON round-trip', () => {
       {
         kind: 'cut',
         id: 'cut-0',
+        orientation: 0,
         rip: 0,
         bevel: 90,
         spacingMode: 'pitch',

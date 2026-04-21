@@ -57,16 +57,22 @@
     Arrange,
     ArrangeResult,
     ComposeStrips,
-    ComposeStripsResult,
     Cut,
     CutResult,
     Feature,
+    PanelSnapshot,
     PlaceEdit,
     SpacerInsert,
     StripDef,
     TrimPanel,
     TrimPanelResult,
   } from './state/types';
+  import {
+    OP_SIGNATURES,
+    extractPanel,
+    extractSlices,
+    type IOKind,
+  } from './state/opSignatures';
 
   // ---- Persistence constants + URL ----
   const SAVE_PREFIX = 'end-grain:workbench:';
@@ -118,6 +124,7 @@
     const cut: Cut = {
       kind: 'cut',
       id: allocateId(counter, 'cut'),
+      orientation: 0,
       rip: 0,
       bevel: 90,
       spacingMode: 'slices',
@@ -181,12 +188,33 @@
   let designName = $state(initialDesignName);
   let timeline = $state<Feature[]>(initialTimeline);
   let focusedStageId = $state<string | null>(null);
-  /** Arrange slice selection — shared between SliceList (Controls
-   *  pane) and, from step 4 on, the interactive preview. Cleared
-   *  when focus moves off the arrange stage. */
-  let arrangeSelection = $state<Set<number>>(new Set());
-  /** Last-clicked slice index; anchor for shift+click range select. */
-  let arrangeAnchor = $state<number | null>(null);
+  /**
+   * Arrange slice selection — scoped per Arrange stage so that two
+   * Arranges in the timeline don't share state. Each entry carries
+   * the selection Set and the shift-click anchor. Reassign the Map
+   * (not mutate) when writing, so Svelte 5 reactivity fires.
+   */
+  interface ArrangeSelectionEntry {
+    selection: Set<number>;
+    anchor: number | null;
+  }
+  let selectionByArrange = $state<Map<string, ArrangeSelectionEntry>>(new Map());
+
+  function getArrangeSelection(arrangeId: string): ArrangeSelectionEntry {
+    return (
+      selectionByArrange.get(arrangeId) ?? { selection: new Set(), anchor: null }
+    );
+  }
+
+  function setArrangeSelection(
+    arrangeId: string,
+    selection: Set<number>,
+    anchor: number | null,
+  ): void {
+    const next = new Map(selectionByArrange);
+    next.set(arrangeId, { selection, anchor });
+    selectionByArrange = next;
+  }
   /** DOM refs to each stage <article> so we can programmatically
    *  focus the Arrange stage when it becomes focused — keyboard
    *  actions (F, R, E, O, ...) listen on the article. */
@@ -414,6 +442,7 @@
   }
 
   function applyCutControls(feature: Cut, next: CutControlsState): void {
+    feature.orientation = next.orientation;
     feature.rip = next.rip;
     feature.bevel = next.bevel;
     feature.spacingMode = next.spacingMode;
@@ -427,6 +456,50 @@
     feature.mode = next.mode;
     if (next.bounds === undefined) delete feature.bounds;
     else feature.bounds = { ...next.bounds };
+    rerun();
+  }
+
+  /**
+   * Append a Cut + Arrange pair to the timeline, inserted before the
+   * terminal Trim (or at the end if no Trim exists). Every Cut needs a
+   * following Arrange to make its slices into a panel again, so the
+   * pair is the atomic unit the timeline UI adds.
+   *
+   * The new Cut inherits orientation=0 and the same default knobs as
+   * the seeded first Cut; the user toggles orientation=90 to get the
+   * perpendicular re-cut behaviour.
+   */
+  function addCutAndArrange(): void {
+    const newCut: Cut = {
+      kind: 'cut',
+      id: allocateId(idCounter, 'cut'),
+      orientation: 0,
+      rip: 0,
+      bevel: 90,
+      spacingMode: 'slices',
+      pitch: 50,
+      slices: 4,
+      showOffcuts: false,
+      status: 'ok',
+    };
+    const newArrange: Arrange = {
+      kind: 'arrange',
+      id: allocateId(idCounter, 'arrange'),
+      layout: 'cursor-slide',
+      status: 'ok',
+    };
+    const trimIdx = timeline.findIndex((f) => f.kind === 'trimPanel');
+    if (trimIdx === -1) {
+      timeline = [...timeline, newCut, newArrange];
+    } else {
+      timeline = [
+        ...timeline.slice(0, trimIdx),
+        newCut,
+        newArrange,
+        ...timeline.slice(trimIdx),
+      ];
+    }
+    focusedStageId = newCut.id;
     rerun();
   }
 
@@ -454,7 +527,7 @@
       return;
     }
 
-    const sliceCount = firstCutResult(output)?.slices.length ?? 0;
+    const sliceCount = upstreamOutputFor(feature.id, 'slices')?.length ?? 0;
     if (sliceCount === 0) return;
 
     const ctx: EditContext = {
@@ -464,6 +537,7 @@
 
     const key = e.key;
     const cmdLike = e.metaKey || e.ctrlKey;
+    const sel = getArrangeSelection(feature.id);
 
     switch (key) {
       case 'f':
@@ -479,8 +553,7 @@
         break;
       }
       case 'Escape': {
-        selectNone();
-        arrangeAnchor = null;
+        selectNone(feature.id);
         e.preventDefault();
         break;
       }
@@ -488,25 +561,25 @@
       case 'A': {
         // Leave cmd/ctrl+A alone (browser select-all).
         if (cmdLike) return;
-        selectAll(sliceCount);
+        selectAll(feature.id, sliceCount);
         e.preventDefault();
         break;
       }
       case 'i':
       case 'I': {
-        invertSelection(sliceCount);
+        invertSelection(feature.id, sliceCount);
         e.preventDefault();
         break;
       }
       case 'e':
       case 'E': {
-        selectEvery(sliceCount, 0);
+        selectEvery(feature.id, sliceCount, 0);
         e.preventDefault();
         break;
       }
       case 'o':
       case 'O': {
-        selectEvery(sliceCount, 1);
+        selectEvery(feature.id, sliceCount, 1);
         e.preventDefault();
         break;
       }
@@ -520,7 +593,7 @@
       // world axis; see revamp plan note) --------------------------
       case 'ArrowLeft':
       case 'ArrowRight': {
-        if (arrangeSelection.size === 0) return;
+        if (sel.selection.size === 0) return;
         const step = e.shiftKey ? 5 : 1;
         const dir = key === 'ArrowLeft' ? -1 : 1;
         applyShiftDelta(feature, ctx, dir * step);
@@ -528,8 +601,8 @@
         break;
       }
       case '0': {
-        if (arrangeSelection.size === 0) return;
-        const next = editsSetShift(editsFor(feature.id), arrangeSelection, 0, ctx);
+        if (sel.selection.size === 0) return;
+        const next = editsSetShift(editsFor(feature.id), sel.selection, 0, ctx);
         applyArrangeEdits(feature, next);
         e.preventDefault();
         break;
@@ -538,62 +611,63 @@
   }
 
   /** Selection-mutation helpers. Shared between the keyboard handler
-   *  and the selection toolbar (step 7). Each sets both the
-   *  selection set and an appropriate anchor for future shift+click
-   *  range-extension. */
-  function selectAll(n: number): void {
+   *  and the selection toolbar. Each sets both the selection set and
+   *  an appropriate anchor for future shift+click range-extension. */
+  function selectAll(arrangeId: string, n: number): void {
     const s = new Set<number>();
     for (let i = 0; i < n; i++) s.add(i);
-    arrangeSelection = s;
-    arrangeAnchor = n > 0 ? n - 1 : null;
+    setArrangeSelection(arrangeId, s, n > 0 ? n - 1 : null);
   }
-  function selectNone(): void {
-    arrangeSelection = new Set();
+  function selectNone(arrangeId: string): void {
     // Leave anchor in place so shift+click still makes sense.
+    const anchor = getArrangeSelection(arrangeId).anchor;
+    setArrangeSelection(arrangeId, new Set(), anchor);
   }
-  function invertSelection(n: number): void {
+  function invertSelection(arrangeId: string, n: number): void {
+    const current = getArrangeSelection(arrangeId);
     const s = new Set<number>();
-    for (let i = 0; i < n; i++) if (!arrangeSelection.has(i)) s.add(i);
-    arrangeSelection = s;
+    for (let i = 0; i < n; i++) if (!current.selection.has(i)) s.add(i);
+    setArrangeSelection(arrangeId, s, current.anchor);
   }
-  function selectEvery(n: number, offset: 0 | 1): void {
+  function selectEvery(arrangeId: string, n: number, offset: 0 | 1): void {
     const s = new Set<number>();
     for (let i = offset; i < n; i += 2) s.add(i);
-    arrangeSelection = s;
-    arrangeAnchor = s.size > 0 ? Math.max(...s) : null;
+    setArrangeSelection(arrangeId, s, s.size > 0 ? Math.max(...s) : null);
   }
 
   /** Action helpers — shared between the keyboard handler (F / R /
-   *  Delete) and the action toolbar buttons (step 8). Each one's a
-   *  no-op when the selection is empty, so callers don't need to
-   *  guard. */
+   *  Delete) and the action toolbar buttons. Each is a no-op when
+   *  the selection is empty, so callers don't need to guard. */
   function flipSelection(feature: Arrange): void {
-    if (arrangeSelection.size === 0) return;
+    const sel = getArrangeSelection(feature.id).selection;
+    if (sel.size === 0) return;
     const ctx: EditContext = {
       arrangeId: feature.id,
       allocateId: () => allocateId(idCounter, 'edit'),
     };
     applyArrangeEdits(
       feature,
-      editsToggleFlip(editsFor(feature.id), arrangeSelection, ctx),
+      editsToggleFlip(editsFor(feature.id), sel, ctx),
     );
   }
   function rotate90Selection(feature: Arrange): void {
-    if (arrangeSelection.size === 0) return;
+    const sel = getArrangeSelection(feature.id).selection;
+    if (sel.size === 0) return;
     const ctx: EditContext = {
       arrangeId: feature.id,
       allocateId: () => allocateId(idCounter, 'edit'),
     };
     applyArrangeEdits(
       feature,
-      editsRotate90(editsFor(feature.id), arrangeSelection, ctx),
+      editsRotate90(editsFor(feature.id), sel, ctx),
     );
   }
   function clearSelectionEdits(feature: Arrange): void {
-    if (arrangeSelection.size === 0) return;
+    const sel = getArrangeSelection(feature.id).selection;
+    if (sel.size === 0) return;
     applyArrangeEdits(
       feature,
-      editsClearOnSlices(editsFor(feature.id), arrangeSelection),
+      editsClearOnSlices(editsFor(feature.id), sel),
     );
   }
 
@@ -624,7 +698,8 @@
     delta: number,
   ): void {
     let next = editsFor(feature.id);
-    for (const idx of arrangeSelection) {
+    const sel = getArrangeSelection(feature.id).selection;
+    for (const idx of sel) {
       const current = editsShiftForSlice(next, idx);
       next = editsSetShift(next, [idx], current + delta, ctx);
     }
@@ -639,29 +714,47 @@
     return allocateId(idCounter, 'strip');
   }
 
-  // ---- Stage content helpers ----
-  const composeResult = $derived<ComposeStripsResult | undefined>(
-    output?.results['compose-0'] as ComposeStripsResult | undefined,
-  );
-
-  function firstCutResult(out: PipelineOutput | null): CutResult | null {
-    if (!out) return null;
-    for (const id of out.trace) {
-      const r = out.results[id];
-      if (r && 'slices' in r && Array.isArray((r as CutResult).slices)) {
-        return r as CutResult;
-      }
+  // ---- Upstream lookup — typed by I/O kind ----
+  /**
+   * Walk the mainOps backward from `featureId`, returning the
+   * extracted payload of the most recent upstream producer whose
+   * output matches `want`. See state/opSignatures.ts for the
+   * registry that drives the search.
+   *
+   * Call sites read this instead of hardcoding stage ids, so the
+   * renderer naturally follows the pipeline's topology — a Cut
+   * after a Trim resolves Trim's panel the same way a Cut after
+   * Compose resolves Compose's panel, no code change needed.
+   */
+  function upstreamOutputFor(featureId: string, want: 'panel'): PanelSnapshot | undefined;
+  function upstreamOutputFor(featureId: string, want: 'slices'): PanelSnapshot[] | undefined;
+  function upstreamOutputFor(featureId: string, want: IOKind) {
+    const idx = mainOps.findIndex((f) => f.id === featureId);
+    for (let i = idx - 1; i >= 0; i--) {
+      const up = mainOps[i];
+      const sig = OP_SIGNATURES[up.kind];
+      if (sig?.output !== want) continue;
+      const r = output?.results[up.id];
+      if (!r) continue;
+      return want === 'panel' ? extractPanel(r) : extractSlices(r);
     }
-    return null;
+    return undefined;
   }
 
-  function lastArrangeResult(out: PipelineOutput | null): ArrangeResult | null {
-    if (!out) return null;
-    for (let i = out.trace.length - 1; i >= 0; i--) {
-      const r = out.results[out.trace[i]];
-      if (r && 'appliedEditCount' in r) return r as ArrangeResult;
+  /**
+   * Sibling helper — returns the upstream producer's feature id
+   * rather than its payload. Used by ArrangePreview to match slice
+   * provenance ids to the paired Cut.
+   */
+  function upstreamFeatureIdFor(
+    featureId: string,
+    want: IOKind,
+  ): string | undefined {
+    const idx = mainOps.findIndex((f) => f.id === featureId);
+    for (let i = idx - 1; i >= 0; i--) {
+      if (OP_SIGNATURES[mainOps[i].kind]?.output === want) return mainOps[i].id;
     }
-    return null;
+    return undefined;
   }
 
   function editsFor(arrangeId: string): PlaceEdit[] {
@@ -679,9 +772,9 @@
   // of body-side interactions.
   function toggleFocus(id: string): void {
     focusedStageId = focusedStageId === id ? null : id;
-    // Selection is per-arrange — drop it whenever focus moves.
-    arrangeSelection = new Set();
-    arrangeAnchor = null;
+    // Selection lives in `selectionByArrange`, keyed per Arrange id,
+    // so it persists naturally when focus moves and doesn't bleed
+    // across stages.
     // Move DOM keyboard focus into the focused stage's <article>
     // so keydown handlers (Arrange) receive events right away.
     if (focusedStageId) {
@@ -750,6 +843,13 @@
           <span class="sub">{subForFeature(f, output)}</span>
         </div>
       {/each}
+      <div class="t-connector"></div>
+      <button
+        type="button"
+        class="t-add"
+        onclick={addCutAndArrange}
+        title="Insert a new Cut + Arrange pair before the Trim"
+      >+ Cut</button>
     </div>
   </aside>
 
@@ -815,6 +915,7 @@
                   {:else if feature.kind === 'cut'}
                     <CutControls
                       state={{
+                        orientation: feature.orientation,
                         rip: feature.rip,
                         bevel: feature.bevel,
                         spacingMode: feature.spacingMode,
@@ -825,9 +926,10 @@
                       onChange={(next) => applyCutControls(feature, next)}
                     />
                   {:else if feature.kind === 'arrange'}
-                    {@const fcr = firstCutResult(output)}
-                    {@const sliceCount = fcr?.slices.length ?? 0}
-                    {@const selectionEmpty = arrangeSelection.size === 0}
+                    {@const upSlices = upstreamOutputFor(feature.id, 'slices') ?? []}
+                    {@const sliceCount = upSlices.length}
+                    {@const sel = getArrangeSelection(feature.id)}
+                    {@const selectionEmpty = sel.selection.size === 0}
                     <div class="arrange-ctrl-stack">
                       <!-- Selection toolbar. Each button mirrors a
                            keyboard shortcut (shown in the title). -->
@@ -836,27 +938,27 @@
                         <button
                           type="button"
                           title="All (A)"
-                          onclick={() => selectAll(sliceCount)}
+                          onclick={() => selectAll(feature.id, sliceCount)}
                         >All</button>
                         <button
                           type="button"
                           title="None (Esc)"
-                          onclick={() => selectNone()}
+                          onclick={() => selectNone(feature.id)}
                         >None</button>
                         <button
                           type="button"
                           title="Invert (I)"
-                          onclick={() => invertSelection(sliceCount)}
+                          onclick={() => invertSelection(feature.id, sliceCount)}
                         >Invert</button>
                         <button
                           type="button"
                           title="Every other (E)"
-                          onclick={() => selectEvery(sliceCount, 0)}
+                          onclick={() => selectEvery(feature.id, sliceCount, 0)}
                         >Every other</button>
                         <button
                           type="button"
                           title="Odd indices (O)"
-                          onclick={() => selectEvery(sliceCount, 1)}
+                          onclick={() => selectEvery(feature.id, sliceCount, 1)}
                         >Odd</button>
                       </div>
                       <!-- Action toolbar. Acts on the current
@@ -886,14 +988,13 @@
                       <SliceList
                         value={{
                           arrangeId: feature.id,
-                          slices: fcr?.slices ?? [],
+                          slices: upSlices,
                           edits: editsFor(feature.id),
-                          selection: arrangeSelection,
+                          selection: sel.selection,
                         }}
-                        anchor={arrangeAnchor}
+                        anchor={sel.anchor}
                         onSelectionChange={(ev) => {
-                          arrangeSelection = ev.selection;
-                          arrangeAnchor = ev.anchor;
+                          setArrangeSelection(feature.id, ev.selection, ev.anchor);
                         }}
                         onShiftCommit={(sliceIdx, delta) => {
                           const ctx: EditContext = {
@@ -936,22 +1037,24 @@
                     />
                   {:else if feature.kind === 'cut'}
                     {@const cr = output?.results[feature.id] as CutResult | undefined}
-                    {#if composeResult && cr}
-                      {@html renderCutOperation(composeResult.panel, cr)}
+                    {#if cr}
+                      {@html renderCutOperation(cr)}
                     {/if}
                   {:else if feature.kind === 'arrange'}
                     {@const ar = output?.results[feature.id] as ArrangeResult | undefined}
+                    {@const aSel = getArrangeSelection(feature.id)}
+                    {@const pairedCutId = upstreamFeatureIdFor(feature.id, 'slices')}
                     {#if ar}
                       <ArrangePreview
                         value={{
                           arrangeResult: ar,
+                          cutId: pairedCutId,
                           spacers: spacersFor(feature.id),
-                          selection: arrangeSelection,
+                          selection: aSel.selection,
                         }}
-                        anchor={arrangeAnchor}
+                        anchor={aSel.anchor}
                         onSelectionChange={(ev) => {
-                          arrangeSelection = ev.selection;
-                          arrangeAnchor = ev.anchor;
+                          setArrangeSelection(feature.id, ev.selection, ev.anchor);
                         }}
                         onReorder={(ev) =>
                           reorderArrangeSlice(feature, ev.fromPos, ev.toPos)
@@ -960,9 +1063,9 @@
                     {/if}
                   {:else if feature.kind === 'trimPanel'}
                     {@const tr = output?.results[feature.id] as TrimPanelResult | undefined}
-                    {@const ar = lastArrangeResult(output)}
-                    {#if ar && tr}
-                      {@html renderTrimOperation(ar.panel, tr)}
+                    {@const inp = upstreamOutputFor(feature.id, 'panel')}
+                    {#if inp && tr}
+                      {@html renderTrimOperation(inp, tr)}
                     {/if}
                   {/if}
                 </div>
@@ -1092,6 +1195,23 @@
     width: 1px;
     height: 8px;
     background: #d6d4cf;
+  }
+  .t-add {
+    padding: 0.35rem 0.55rem;
+    border: 1px dashed #c4c0b8;
+    border-radius: 5px;
+    background: transparent;
+    color: #8a7f6d;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-family: inherit;
+    font-weight: 500;
+    text-align: left;
+  }
+  .t-add:hover {
+    border-color: #6a80b4;
+    color: #2f4f8a;
+    background: #f4f6fb;
   }
   .main {
     display: flex;

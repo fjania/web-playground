@@ -271,65 +271,75 @@ function executeComposeStrips(
 // ---------------------------------------------------------------------------
 
 function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
-  const input = ctx.lastPanel;
-  if (!input) {
+  const rawInput = ctx.lastPanel;
+  if (!rawInput) {
     return {
       featureId: f.id,
       status: 'error',
       statusReason: 'cut without upstream panel',
+      inputPanel: emptySnapshot(),
       slices: [],
       offcuts: [],
       sliceProvenance: [],
     };
   }
 
+  // orientation=90 is modelled as a 90° panel rotation about Y
+  // APPLIED BEFORE the cut runs. The rest of the executor (and
+  // every downstream stage) sees a panel whose long axis is +Z and
+  // cuts across its length — no mate-axis or chord-extent branching
+  // anywhere downstream. Physically: the woodworker turns the panel
+  // 90° on the bench, then makes a crosscut.
+  //
+  // Rotate about the panel's bbox centre so the rotated panel stays
+  // centred at the same point (downstream stages that assume a
+  // centre-near-origin snapshot keep working).
+  const rawBbox = rawInput.boundingBox();
+  const rotationAngle = f.orientation === 90 ? -Math.PI / 2 : 0;
+  const input =
+    rotationAngle !== 0
+      ? rawInput.rotateAbout(
+          new Vector3(0, 1, 0),
+          rotationAngle,
+          new Vector3(
+            (rawBbox.min.x + rawBbox.max.x) / 2,
+            0,
+            (rawBbox.min.z + rawBbox.max.z) / 2,
+          ),
+        )
+      : rawInput;
+  const rotationArtifact = input !== rawInput ? input : null;
+
   // Cut normal: rip is rotation of the cut plane about Y (in XZ), and
   // bevel is tilt of the plane from vertical about the in-plane chord
-  // axis. Writing α = 90° − bevel (so α is the tilt MAGNITUDE, zero
-  // when the cut is vertical), the normal is constructed by first
-  // taking the rip-only normal (sin θ, 0, cos θ), then rotating it
-  // by α about the cut-chord axis (cos θ, 0, −sin θ). The result:
-  //   n = (sin θ·cos α, −sin α, cos θ·cos α)
-  // α=0   → n = (sin θ, 0, cos θ)    (vertical cut, today's behaviour)
-  // α=45° → n leans 45° down in Y    (classic 45° bevel)
+  // axis. Writing α = 90° − bevel (tilt MAGNITUDE, zero when cut is
+  // vertical), the normal is the rip-only normal (sin θ, 0, cos θ)
+  // tilted by α about the cut-chord axis (cos θ, 0, −sin θ):
+  //   n = (sin rip·cos α, −sin α, cos rip·cos α)
   const ripRad = (f.rip * Math.PI) / 180;
   const alphaRad = ((90 - f.bevel) * Math.PI) / 180;
-  const sinR = Math.sin(ripRad);
-  const cosR = Math.cos(ripRad);
+  const sinRip = Math.sin(ripRad);
+  const cosRip = Math.cos(ripRad);
   const sinA = Math.sin(alphaRad);
   const cosA = Math.cos(alphaRad);
   const normal: [number, number, number] = [
-    sinR * cosA,
+    sinRip * cosA,
     -sinA,
-    cosR * cosA,
+    cosRip * cosA,
   ];
 
-  // Safe extent — range of plane offsets (measured along the normal,
-  // in 3D) that produce a full-chord slice.
-  //
-  // At bevel=90° (α=0) the problem reduces to a 2D one in XZ:
-  //   safe = Lz·|cos θ| − Lx·|sin θ|
-  //
-  // With bevel<90° two additional things happen:
-  // 1. The rip-based XZ margin (Lz·|cos θ| − Lx·|sin θ|) needs to be
-  //    measured along the 3D normal, not along the XZ projection, so
-  //    it scales by cos α.
-  // 2. The plane now tilts in Y too, sweeping Ly·|sin α| of extra
-  //    offset to get across the Y dimension of the panel. That
-  //    subtracts from the usable range.
-  //
-  // Combined:
-  //   safe = cos α · (Lz·|cos θ| − Lx·|sin θ|) − Ly·|sin α|
-  //
-  // Validated against the bevel=90° base case (α=0 → cos α=1, sin α=0
-  // → matches the original formula exactly).
+  // Safe extent — range of plane offsets (along the normal) that
+  // produce a full-chord slice. At bevel=90° (α=0) this reduces to
+  // the 2D XZ problem: safe = Lz·|cos rip| − Lx·|sin rip|. Bevel<90°
+  // adds a cos α factor and subtracts the Ly·|sin α| the plane
+  // sweeps across the panel's Y.
   const inputBbox = input.boundingBox();
   const panelX = inputBbox.max.x - inputBbox.min.x;
   const panelY = inputBbox.max.y - inputBbox.min.y;
   const panelZ = inputBbox.max.z - inputBbox.min.z;
   const safeExtent = Math.max(
     0,
-    cosA * (panelZ * Math.abs(cosR) - panelX * Math.abs(sinR)) -
+    cosA * (panelZ * Math.abs(cosRip) - panelX * Math.abs(sinRip)) -
       panelY * Math.abs(sinA),
   );
 
@@ -386,6 +396,7 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   }
 
   // Take snapshots before we move the live geometry into ctx / dispose.
+  const inputSnapshot: PanelSnapshot = input.toSnapshot();
   const sliceSnapshots: PanelSnapshot[] = slices.map((s) => s.toSnapshot());
   const offcutSnapshots: PanelSnapshot[] = offcuts.map((p) => p.toSnapshot());
   const sliceProvenance = slices.map((s, sliceIdx) => ({
@@ -402,10 +413,16 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   }
 
   // Stash live slices for the downstream Arrange. Offcuts always
-  // dispose (we don't surface them). The input panel disposes only
-  // when preserveLive is false — under preserveLive it stays alive
-  // inside livePanelsByFeature for the caller's viewport access.
-  if (!ctx.preserveLive) input.dispose();
+  // dispose (we don't surface them).
+  //
+  // Two cleanup concerns:
+  //   1. The rotation artifact (if we built one for orientation=90)
+  //      was a scratch Panel owned by this executor — always dispose.
+  //   2. The raw input panel: dispose when !preserveLive; when
+  //      preserveLive is on it stays alive inside livePanelsByFeature
+  //      for the caller's viewport access.
+  if (rotationArtifact) rotationArtifact.dispose();
+  if (!ctx.preserveLive) rawInput.dispose();
   ctx.lastPanel = null;
   for (const o of offcuts) o.dispose();
   ctx.lastSlices = slices;
@@ -415,6 +432,7 @@ function executeCut(f: Cut, ctx: ExecutionContext): CutResult {
   return {
     featureId: f.id,
     status: 'ok',
+    inputPanel: inputSnapshot,
     slices: sliceSnapshots,
     offcuts: offcutSnapshots,
     sliceProvenance,
@@ -618,6 +636,11 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   // (normal in XY plane, rip very close to ±90° or extreme bevel)
   // to avoid division blow-up; in that regime the panel's geometry
   // degenerates anyway and the user would see the cut go sideways.
+  //
+  // Arrange always mates along +Z — slices from an "across-width"
+  // cut come from the Cut executor already pre-rotated, so their
+  // cut normal is in the same +Z family as any other cut's. No
+  // mate-axis branching needed.
   const nZ = Math.abs(normalAxis[2]);
   const zFactor = nZ > 1e-6 ? nZ : 1;
 
@@ -1071,6 +1094,9 @@ function emptyPanel(): Panel {
  *   n = (sin θ·cos α,  −sin α,  cos θ·cos α).
  */
 function computeCutNormalForArrange(cut: Cut): [number, number, number] {
+  // Orientation is handled by pre-rotating the panel in executeCut;
+  // the slices Arrange consumes are already in that rotated frame,
+  // so the normal here is rip+bevel only.
   const ripRad = (cut.rip * Math.PI) / 180;
   const alphaRad = ((90 - cut.bevel) * Math.PI) / 180;
   return [

@@ -121,7 +121,19 @@ export interface Cut {
   kind: 'cut';
   /** 'cut-0', 'cut-1', ... */
   id: string;
-  /** -90..90 degrees. Rotation of cut-plane about Y (rip angle). */
+  /**
+   * Which principal axis of the upstream panel the cut sweeps across.
+   *   0  — default. Cuts stack along the panel's +Z (length) axis;
+   *         at rip=0 this produces classic crosscuts.
+   *   90 — cuts stack along the panel's +X (width) axis. Equivalent
+   *         to rotating the cut plane 90° about Y before applying rip.
+   *         Needed to express "rip a panel that was just arranged from
+   *         crosscut slices" — the perpendicular second-cut case.
+   * Combined with `rip` ∈ [0, 45], this covers every practical cut
+   * direction with a discrete toggle + a single acute skew.
+   */
+  orientation: 0 | 90;
+  /** 0..45 degrees. Skew of the cut plane about Y, on top of `orientation`. */
   rip: number;
   /** 45..90 degrees. Tilt of cut-plane from vertical (bevel angle). */
   bevel: number;
@@ -346,6 +358,16 @@ export interface CutResult {
   featureId: string;
   status: Status;
   statusReason?: string;
+  /**
+   * The panel the cut actually operated on, AS operated on. For
+   * orientation=0 this is identical to the upstream panel. For
+   * orientation=90 the Cut pre-rotates its input 90° about Y so the
+   * downstream cut/arrange math can assume "across length" — this
+   * field carries the post-rotation snapshot so the Cut's own
+   * preview renderer can draw the panel outline in the same frame
+   * as the produced slices.
+   */
+  inputPanel: PanelSnapshot;
   slices: PanelSnapshot[];
   offcuts: PanelSnapshot[];
   sliceProvenance: Array<{ sliceIdx: number; contributingStripIds: string[] }>;

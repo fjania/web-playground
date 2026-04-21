@@ -53,6 +53,7 @@
   // ---- Reactive state ----
 
   let controlsState = $state<CutControlsState>({
+    orientation: cut.orientation,
     rip: cut.rip,
     bevel: cut.bevel,
     spacingMode: cut.spacingMode,
@@ -70,6 +71,7 @@
 
   function onControlsChange(next: CutControlsState): void {
     controlsState = next;
+    cut.orientation = next.orientation;
     cut.rip = next.rip;
     cut.bevel = next.bevel;
     cut.spacingMode = next.spacingMode;
@@ -113,9 +115,7 @@
   const liveCutSlices = $derived(output?.liveCutSlices?.['cut-0'] ?? []);
 
   const inputSvg = $derived(composeResult ? summarize(composeResult.panel) : '');
-  const opSvg = $derived(
-    composeResult && cutResult ? renderCutOperation(composeResult.panel, cutResult) : '',
-  );
+  const opSvg = $derived(cutResult ? renderCutOperation(cutResult) : '');
 
   const inputMeta = $derived.by(() => {
     if (!composeResult) return '';
@@ -274,6 +274,11 @@
 
   function applyCutUrlSeeds(c: Cut): void {
     const params = new URLSearchParams(window.location.search);
+    const orient = params.get('orientation') ?? params.get('orient');
+    if (orient !== null) {
+      const v = Number(orient);
+      if (v === 0 || v === 90) c.orientation = v;
+    }
     const rip = params.get('rip');
     if (rip !== null) {
       const v = Number(rip);

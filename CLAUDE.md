@@ -54,10 +54,22 @@ Main context is a finite resource. Protect it:
   - Reading unfamiliar code in a module you won't modify → subagent.
   - Researching library options / API alternatives → subagent.
   - Multi-step verification across many URLs → subagent.
+  - **Verification sweeps** — after a type or API change, "does every consumer handle this?" across many files → subagent.
+  - **Bulk tool-output processing** — DOM dumps, test logs, CI output where the raw result is large and only a conclusion matters → subagent.
+- **Narrow tool-result returns.** When `evaluate_script` / `curl` / similar returns data, ask for the boolean or string you actually need — not the whole payload. `{ hasX: true }` beats a 10 KB DOM dump. If you need to inspect a large result, do it in a subagent.
+- **Screenshot dimension discipline.** Before `take_screenshot`, resize the viewport to ≤1200×800 so the image can't exceed the 2000-px many-image-request limit. Prefer `take_snapshot` (DOM / a11y tree) for verifying state; reserve screenshots for visual-feel checks. Never `fullPage: true` without checking the page is short — a single oversized screenshot has nuked entire conversations.
 - **Spawn tasks** (via session spawn tools) for out-of-scope items noticed mid-flight, rather than expanding the current conversation to cover them.
 - **Mark chapters** at natural boundaries (concept → concept, implementation → verification) so the transcript has navigable structure and future compaction has clean break points.
 
 If the user says "context is getting full" — that's a process bug. A subagent should have been dispatched earlier.
+
+## Session continuity
+
+Compaction is lossy — when the runtime compacts the conversation to fit, subtle reasoning and specific code references get flattened into a summary. Design the session so compaction hurts less:
+
+- **GitHub issues as checkpoints.** At phase boundaries (a branch merges, a design decision lands, a line of investigation closes), post a short session-digest issue: what was decided, what shipped, what's still in flight, what's next. Future-you (or a colleague cold-opening the project) reads the issue, not the conversation. See #38 and #43 for the pattern. Principles durable enough to outlast the current phase belong in #45 (Core Principles) instead.
+- **Prefer `/clear` over drifting into compaction.** When a phase is done, committed, and digested to an issue, start fresh. Durable state — code, issues, memory, plans — carries forward intact. Compaction, by contrast, interprets everything through a lossy summary.
+- **Commit messages as session history.** Tight `Prompt:` trailers make `git log` a readable transcript. Post-compaction you can rebuild "what we decided and why" from the log without rereading the conversation.
 
 ## Deferred rough edges
 
