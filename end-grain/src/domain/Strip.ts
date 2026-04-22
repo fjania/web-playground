@@ -250,6 +250,87 @@ export class Strip {
     return box;
   }
 
+  /**
+   * World-space area-weighted centroid of the face polygon identified
+   * by `faceId`. The face may span multiple parts; we sum triangle
+   * centroids from every part, weighting each by triangle area, and
+   * divide by total area to get the true polygon centroid.
+   *
+   * Used as the alignment anchor when joining two strips face-to-face:
+   * the join transform places the moving face's centroid on top of
+   * the keeping face's centroid while flipping the normal to oppose.
+   *
+   * Returns `null` if the face has no triangles (e.g., a degenerate
+   * face on the wedge apex) or if the face id is unknown.
+   */
+  faceCenter(faceId: number): Vector3 | null {
+    const face = this.faces.find((f) => f.id === faceId);
+    if (!face) return null;
+
+    let wx = 0;
+    let wy = 0;
+    let wz = 0;
+    let totalArea = 0;
+
+    for (const part of this.parts) {
+      const mfMesh = part.manifold.getMesh();
+      const verts = mfMesh.vertProperties as Float32Array;
+      const triVerts = mfMesh.triVerts as Uint32Array;
+      const numProp = mfMesh.numProp as number;
+      const numTri = triVerts.length / 3;
+
+      for (let t = 0; t < numTri; t++) {
+        const i0 = triVerts[t * 3];
+        const i1 = triVerts[t * 3 + 1];
+        const i2 = triVerts[t * 3 + 2];
+        const ax = verts[i0 * numProp];
+        const ay = verts[i0 * numProp + 1];
+        const az = verts[i0 * numProp + 2];
+        const bx = verts[i1 * numProp];
+        const by = verts[i1 * numProp + 1];
+        const bz = verts[i1 * numProp + 2];
+        const cx = verts[i2 * numProp];
+        const cy = verts[i2 * numProp + 1];
+        const cz = verts[i2 * numProp + 2];
+
+        const abx = bx - ax;
+        const aby = by - ay;
+        const abz = bz - az;
+        const acx = cx - ax;
+        const acy = cy - ay;
+        const acz = cz - az;
+        const nx = aby * acz - abz * acy;
+        const ny = abz * acx - abx * acz;
+        const nz = abx * acy - aby * acx;
+        const len = Math.hypot(nx, ny, nz);
+        if (len < 1e-12) continue;
+        const nnx = nx / len;
+        const nny = ny / len;
+        const nnz = nz / len;
+        const d = nnx * ax + nny * ay + nnz * az;
+
+        const dot =
+          face.plane.normal[0] * nnx +
+          face.plane.normal[1] * nny +
+          face.plane.normal[2] * nnz;
+        if (1 - dot > PLANE_NORMAL_TOL) continue;
+        if (Math.abs(face.plane.offset - d) > PLANE_OFFSET_TOL) continue;
+
+        const cxC = (ax + bx + cx) / 3;
+        const cyC = (ay + by + cy) / 3;
+        const czC = (az + bz + cz) / 3;
+        const area = 0.5 * len;
+        wx += cxC * area;
+        wy += cyC * area;
+        wz += czC * area;
+        totalArea += area;
+      }
+    }
+
+    if (totalArea < 1e-12) return null;
+    return new Vector3(wx / totalArea, wy / totalArea, wz / totalArea);
+  }
+
   dispose(): void {
     for (const p of this.parts) p.manifold.delete();
     this.parts = [];

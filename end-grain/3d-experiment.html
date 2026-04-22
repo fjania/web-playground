@@ -68,6 +68,30 @@
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
       flex: 1 1 0;
       min-width: 0;
+      position: relative;
+    }
+    .join-btn {
+      position: absolute;
+      bottom: 1.25rem;
+      right: 1.25rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      padding: 0.5rem 1rem;
+      border: 1px solid #d4d4d0;
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #333;
+      z-index: 2;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: opacity 120ms ease, background 120ms ease;
+    }
+    .join-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .join-btn:not(:disabled):hover {
+      background: #f0f0ea;
     }
     .tile .render {
       flex: 1;
@@ -101,6 +125,7 @@
   <main>
     <section class="tile" data-tile="scene">
       <div class="render" data-slot="render"></div>
+      <button type="button" class="join-btn" data-slot="join" disabled>join faces</button>
     </section>
   </main>
   <div class="status" data-slot="status">initializing…</div>

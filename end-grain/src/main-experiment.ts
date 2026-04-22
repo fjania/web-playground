@@ -252,42 +252,40 @@ function partToMesh(part: Part): Mesh {
 }
 
 /** Build a single scatter attempt. Returns null if any piece fails to place. */
-function tryBuildScene(): {
-  root: Group;
-  placedStrips: Strip[];
-} | null {
-  const root = new Group();
+function tryScatterStrips(): Strip[] | null {
   const existing: Box3[] = [];
-  const placedStrips: Strip[] = [];
+  const placed: Strip[] = [];
   for (const piece of PIECES) {
     const built = piece.build(piece.name, piece.pair);
     const result = placeStrip(built, existing);
     built.dispose();
     if (!result) {
-      placedStrips.forEach((s) => s.dispose());
+      placed.forEach((s) => s.dispose());
       return null;
     }
     existing.push(result.box);
-    root.add(buildStripGroup(result.placed));
-    placedStrips.push(result.placed);
+    placed.push(result.placed);
   }
-  return { root, placedStrips };
+  return placed;
 }
 
 const MAX_SCENE_ATTEMPTS = 6;
-function buildScene(): { root: Group; strips: Strip[]; placedCount: number } {
+function scatterStrips(): Strip[] {
   for (let i = 0; i < MAX_SCENE_ATTEMPTS; i++) {
-    const scene = tryBuildScene();
-    if (scene) {
-      return {
-        root: scene.root,
-        strips: scene.placedStrips,
-        placedCount: scene.placedStrips.length,
-      };
-    }
+    const strips = tryScatterStrips();
+    if (strips) return strips;
   }
   console.warn('[3d-experiment] scene placement never fit all pieces');
-  return { root: new Group(), strips: [], placedCount: 0 };
+  return [];
+}
+
+/** Build a Three.js root Group from the given strips, no placement. */
+function buildRoot(strips: Iterable<Strip>): Group {
+  const root = new Group();
+  for (const strip of strips) {
+    root.add(buildStripGroup(strip));
+  }
+  return root;
 }
 
 const ISO_VIEW = {
@@ -451,6 +449,153 @@ function wireSelection(
 }
 
 // ---------------------------------------------------------------------------
+// Join — the table-saw-style mate algorithm
+// ---------------------------------------------------------------------------
+
+/**
+ * Group membership for rigidly-joined strips. Every strip starts in
+ * its own group; joining two strips merges their groups. The group
+ * value is the set of stripIds that move together as one rigid body.
+ */
+type JoinGroups = Map<string, Set<string>>;
+
+function makeInitialGroups(stripIds: Iterable<string>): JoinGroups {
+  const groups: JoinGroups = new Map();
+  for (const id of stripIds) groups.set(id, new Set([id]));
+  return groups;
+}
+
+function groupIdOf(groups: JoinGroups, stripId: string): string | null {
+  for (const [gid, members] of groups.entries()) {
+    if (members.has(stripId)) return gid;
+  }
+  return null;
+}
+
+function mergeGroups(
+  groups: JoinGroups,
+  keepGid: string,
+  absorbGid: string,
+): void {
+  if (keepGid === absorbGid) return;
+  const keep = groups.get(keepGid);
+  const absorb = groups.get(absorbGid);
+  if (!keep || !absorb) return;
+  for (const id of absorb) keep.add(id);
+  groups.delete(absorbGid);
+}
+
+/**
+ * Compute the transform that brings `move` face flush against `keep`
+ * face, and return both the transform and the moving stripIds.
+ *
+ * Geometry:
+ *   1. Rotation that sends the moving face's outward normal onto the
+ *      negative of the keeping face's outward normal (so the two
+ *      faces sit back-to-back on the same plane).
+ *   2. Rotation is applied about the moving face's centroid, then the
+ *      whole moving group translates so that centroid lands on the
+ *      keeping face's centroid.
+ *
+ * Selection of who moves:
+ *   - If one side is solo (group size 1) and the other side is a
+ *     group of ≥ 2, the solo moves — the mated assembly stays put.
+ *   - Otherwise (both solo or both groups), the strip selected SECOND
+ *     is the moving side. Matches the typical user mental model: "I'm
+ *     bringing this one onto that one."
+ */
+interface JoinPlan {
+  matrix: Matrix4;
+  movingGroupId: string;
+  movingStripIds: string[];
+}
+
+function planJoin(
+  selA: Selection,
+  selB: Selection,
+  stripsById: Map<string, Strip>,
+  groups: JoinGroups,
+): JoinPlan | null {
+  if (selA.stripId === selB.stripId) return null;
+  const stripA = stripsById.get(selA.stripId);
+  const stripB = stripsById.get(selB.stripId);
+  if (!stripA || !stripB) return null;
+  const gidA = groupIdOf(groups, selA.stripId);
+  const gidB = groupIdOf(groups, selB.stripId);
+  if (!gidA || !gidB) return null;
+  if (gidA === gidB) return null;
+
+  const sizeA = groups.get(gidA)!.size;
+  const sizeB = groups.get(gidB)!.size;
+
+  // Decide who moves. "Second-selected moves" is the default; the
+  // solo-into-group case overrides it.
+  let movingGid: string;
+  let moveStrip: Strip;
+  let moveFaceId: number;
+  let keepStrip: Strip;
+  let keepFaceId: number;
+  if (sizeA === 1 && sizeB > 1) {
+    movingGid = gidA;
+    moveStrip = stripA;
+    moveFaceId = selA.faceId;
+    keepStrip = stripB;
+    keepFaceId = selB.faceId;
+  } else if (sizeB === 1 && sizeA > 1) {
+    movingGid = gidB;
+    moveStrip = stripB;
+    moveFaceId = selB.faceId;
+    keepStrip = stripA;
+    keepFaceId = selA.faceId;
+  } else {
+    movingGid = gidB;
+    moveStrip = stripB;
+    moveFaceId = selB.faceId;
+    keepStrip = stripA;
+    keepFaceId = selA.faceId;
+  }
+
+  const moveCenter = moveStrip.faceCenter(moveFaceId);
+  const keepCenter = keepStrip.faceCenter(keepFaceId);
+  if (!moveCenter || !keepCenter) return null;
+
+  const moveFace = moveStrip.faces.find((f) => f.id === moveFaceId);
+  const keepFace = keepStrip.faces.find((f) => f.id === keepFaceId);
+  if (!moveFace || !keepFace) return null;
+
+  const moveNormal = new Vector3(
+    moveFace.plane.normal[0],
+    moveFace.plane.normal[1],
+    moveFace.plane.normal[2],
+  );
+  const targetNormal = new Vector3(
+    -keepFace.plane.normal[0],
+    -keepFace.plane.normal[1],
+    -keepFace.plane.normal[2],
+  );
+
+  const q = new Quaternion().setFromUnitVectors(moveNormal, targetNormal);
+  const T1 = new Matrix4().makeTranslation(
+    -moveCenter.x,
+    -moveCenter.y,
+    -moveCenter.z,
+  );
+  const R = new Matrix4().makeRotationFromQuaternion(q);
+  const T2 = new Matrix4().makeTranslation(
+    keepCenter.x,
+    keepCenter.y,
+    keepCenter.z,
+  );
+  const matrix = new Matrix4().multiplyMatrices(T2, R).multiply(T1);
+
+  return {
+    matrix,
+    movingGroupId: movingGid,
+    movingStripIds: [...groups.get(movingGid)!],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -459,6 +604,9 @@ async function boot(): Promise<void> {
   const tileEl = document.querySelector<HTMLElement>('[data-tile="scene"]');
   const reshuffleBtn = document.querySelector<HTMLButtonElement>(
     '[data-slot="reshuffle"]',
+  );
+  const joinBtn = document.querySelector<HTMLButtonElement>(
+    '[data-slot="join"]',
   );
   const setStatus = (msg: string) => {
     if (statusEl) statusEl.textContent = msg;
@@ -471,10 +619,29 @@ async function boot(): Promise<void> {
 
     let handle: ViewportHandle | null = null;
     let teardownSelection: (() => void) | null = null;
-    let currentStrips: Strip[] = [];
-    let currentPlacedCount = 0;
+    let currentRoot: Group | null = null;
+    let currentHighlights: Group | null = null;
+    let currentSelections: Selection[] = [];
+    const stripsById = new Map<string, Strip>();
+    let joinGroups: JoinGroups = new Map();
+
+    const updateJoinButton = (selections: Selection[]): void => {
+      if (!joinBtn) return;
+      const canJoin =
+        selections.length === 2 &&
+        selections[0].stripId !== selections[1].stripId;
+      joinBtn.disabled = !canJoin;
+    };
 
     const renderStatus = (selections: Selection[]): void => {
+      currentSelections = selections;
+      updateJoinButton(selections);
+      const placed = stripsById.size;
+      const groupCount = joinGroups.size;
+      const groupNote =
+        groupCount < placed
+          ? ` · ${placed - groupCount + 1} strips joined`
+          : '';
       const selDesc =
         selections.length === 0
           ? 'click any face to select'
@@ -482,25 +649,44 @@ async function boot(): Promise<void> {
               .map((s) => `${s.stripId}#${s.faceId}`)
               .join(' + ')}`;
       setStatus(
-        `${currentPlacedCount}/${PIECES.length} pieces · drag to orbit · scroll to zoom · ${selDesc} · reshuffle for a new layout`,
+        `${placed}/${PIECES.length} pieces${groupNote} · drag to orbit · scroll to zoom · ${selDesc} · reshuffle for a new layout`,
       );
     };
 
-    const render = () => {
+    /**
+     * Build the viewport for the current `stripsById`. `mode === 'fresh'`
+     * discards existing strips and scatters new ones; `'update'` keeps
+     * the existing strips as-is and just rebuilds the viewport (used
+     * after a join so the camera orientation persists).
+     */
+    const render = (mode: 'fresh' | 'update'): void => {
+      const previousCamera = handle?.getCameraState() ?? null;
       teardownSelection?.();
       teardownSelection = null;
       handle?.dispose();
-      currentStrips.forEach((s) => s.dispose());
+      handle = null;
+      currentRoot = null;
+      currentHighlights = null;
 
-      const { root, strips, placedCount } = buildScene();
-      currentStrips = strips;
-      currentPlacedCount = placedCount;
+      if (mode === 'fresh') {
+        for (const s of stripsById.values()) s.dispose();
+        stripsById.clear();
+        const scattered = scatterStrips();
+        for (const s of scattered) stripsById.set(s.id, s);
+        joinGroups = makeInitialGroups(stripsById.keys());
+      }
 
+      const root = buildRoot(stripsById.values());
       const highlightsGroup = new Group();
       highlightsGroup.userData.role = 'face-highlights';
       root.add(highlightsGroup);
+      currentRoot = root;
+      currentHighlights = highlightsGroup;
 
-      handle = setupViewport(tileEl, root, { initialCameraState: ISO_VIEW });
+      const initialCameraState =
+        mode === 'update' && previousCamera ? previousCamera : ISO_VIEW;
+      handle = setupViewport(tileEl, root, { initialCameraState });
+
       teardownSelection = wireSelection(
         handle,
         root,
@@ -509,19 +695,49 @@ async function boot(): Promise<void> {
       );
       renderStatus([]);
 
-      // Expose live references for debug / automated verification.
       (window as any).__experiment = {
         camera: handle.camera,
         canvas: handle.canvas,
         root,
         highlightsGroup,
-        strips,
+        stripsById,
+        joinGroups,
         THREE: { Vector3, Raycaster, Vector2 },
       };
     };
 
-    render();
-    reshuffleBtn?.addEventListener('click', render);
+    const performJoin = (): void => {
+      if (currentSelections.length !== 2) return;
+      const [selA, selB] = currentSelections;
+      if (selA.stripId === selB.stripId) return;
+      const plan = planJoin(selA, selB, stripsById, joinGroups);
+      if (!plan) {
+        console.warn('[join] could not plan join', selA, selB);
+        return;
+      }
+      // Apply the transform to every strip in the moving group.
+      for (const stripId of plan.movingStripIds) {
+        const strip = stripsById.get(stripId);
+        if (!strip) continue;
+        const moved = strip.transform(plan.matrix);
+        strip.dispose();
+        stripsById.set(stripId, moved);
+      }
+      // Merge groups so future joins know they're rigidly linked.
+      const keepGid =
+        groupIdOf(joinGroups, selA.stripId) ??
+        groupIdOf(joinGroups, selB.stripId);
+      const absorbGid = plan.movingGroupId;
+      if (keepGid && keepGid !== absorbGid) {
+        mergeGroups(joinGroups, keepGid, absorbGid);
+      }
+      // Rebuild scene preserving camera; selection state is reset.
+      render('update');
+    };
+
+    render('fresh');
+    reshuffleBtn?.addEventListener('click', () => render('fresh'));
+    joinBtn?.addEventListener('click', performJoin);
   } catch (err) {
     console.error('[3d-experiment] boot failed', err);
     setStatus(
