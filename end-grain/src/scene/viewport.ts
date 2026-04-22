@@ -75,6 +75,14 @@ export interface ViewportHandle {
    * tumbles / pans / zooms. Returns an unsubscribe function.
    */
   onCameraChange: (cb: (state: CameraState) => void) => () => void;
+  /**
+   * Live camera handle — exposed so harness code can run its own
+   * raycasting against the scene without rebuilding viewport
+   * scaffolding. Treat as read-only; use setCameraState to move it.
+   */
+  camera: PerspectiveCamera;
+  /** Renderer canvas — DOM target for harness-level pointer events. */
+  canvas: HTMLCanvasElement;
 }
 
 export interface ViewportOptions {
@@ -422,6 +430,8 @@ export function setupViewport(
         changeSubs.delete(cb);
       };
     },
+    camera,
+    canvas: renderer.domElement,
   };
 }
 

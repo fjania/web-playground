@@ -6,7 +6,19 @@
  * cut via the main pipeline's Manifold plane-clipping path.
  */
 
-import { Box3, Group, Matrix4, Quaternion, Vector3 } from 'three';
+import {
+  Box3,
+  BufferAttribute,
+  BufferGeometry,
+  Group,
+  Matrix4,
+  Mesh,
+  MeshBasicMaterial,
+  Quaternion,
+  Raycaster,
+  Vector2,
+  Vector3,
+} from 'three';
 
 import { initManifold } from './domain/manifold';
 import { Panel } from './domain/Panel';
@@ -203,10 +215,118 @@ function tryBuildScene(): { root: Group; placedPanels: Panel[] } | null {
       return null;
     }
     existing.push(result.box);
-    root.add(buildPanelGroup(result.placed));
+    const panelGroup = buildPanelGroup(result.placed);
+    annotateFaceIDs(panelGroup, result.placed);
+    root.add(panelGroup);
     placedPanels.push(result.placed);
   }
   return { root, placedPanels };
+}
+
+/**
+ * Tolerances for coplanar-face grouping. Chosen conservatively for
+ * our scale (pieces ~500 mm, strips ~50 mm):
+ *   - NORMAL_DOT_TOL = 1e-4  →  angular tolerance ≈ 0.8°, well below
+ *     the smallest meaningful angle in our geometry (45° cuts).
+ *   - PLANE_D_TOL = 0.01 mm  →  10 µm, orders of magnitude tighter
+ *     than the 50 mm smallest feature size.
+ * FP noise accumulated through a rotation matrix + translation is
+ * well under both — rotations preserve norms exactly for unit
+ * normals up to the last FP bit.
+ */
+const NORMAL_DOT_TOL = 1e-4;
+const PLANE_D_TOL = 0.01;
+
+/**
+ * Compute per-triangle face IDs by scanning the mesh's triangles and
+ * grouping any that share the same supporting plane (normal + offset).
+ *
+ * We roll our own grouping rather than use manifold's `mesh.faceID`
+ * because the latter gets unreliable after our cut pipeline: manifold's
+ * ID pool reuses IDs across "above"/"below" splits, and we've seen
+ * single IDs end up covering triangles on two non-coplanar planes on
+ * every wedge and doorstop strip. A direct coplanarity scan sidesteps
+ * the kernel's bookkeeping entirely.
+ *
+ * This is O(T·F) per mesh (T triangles, F distinct faces) — fine for
+ * our strip segments which have at most ~12 triangles and ~6 faces.
+ *
+ * Safety: each of our strip segments is CONVEX, so a face is always
+ * a single connected region. Two coplanar-but-disjoint polygons
+ * cannot both belong to one segment's mesh, which means lumping by
+ * plane-match is equivalent to lumping by face.
+ */
+function computeFaceIDs(mesh: Mesh): Uint32Array | null {
+  const posAttr = mesh.geometry.getAttribute('position') as
+    | BufferAttribute
+    | undefined;
+  const indexAttr = mesh.geometry.getIndex();
+  if (!posAttr || !indexAttr) return null;
+  const numTri = indexAttr.count / 3;
+  const faceIDs = new Uint32Array(numTri);
+
+  const faceNormals: Vector3[] = [];
+  const faceDs: number[] = [];
+
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  const ab = new Vector3();
+  const ac = new Vector3();
+  const n = new Vector3();
+
+  for (let t = 0; t < numTri; t++) {
+    a.fromBufferAttribute(posAttr, indexAttr.getX(t * 3));
+    b.fromBufferAttribute(posAttr, indexAttr.getX(t * 3 + 1));
+    c.fromBufferAttribute(posAttr, indexAttr.getX(t * 3 + 2));
+    ab.subVectors(b, a);
+    ac.subVectors(c, a);
+    n.crossVectors(ab, ac);
+    const len = n.length();
+    if (len < 1e-12) {
+      // Degenerate triangle (collinear or zero-area). Manifold
+      // shouldn't produce these, but be defensive: park it in its
+      // own face so highlight logic can still handle it.
+      faceIDs[t] = faceNormals.length;
+      faceNormals.push(new Vector3(0, 0, 0));
+      faceDs.push(0);
+      continue;
+    }
+    n.divideScalar(len);
+    const d = n.dot(a);
+
+    let matched = -1;
+    for (let f = 0; f < faceNormals.length; f++) {
+      // 1 - dot < tol is equivalent to angle < sqrt(2·tol) for small
+      // angles; we want near-identical normals, not just parallel.
+      if (1 - faceNormals[f].dot(n) > NORMAL_DOT_TOL) continue;
+      if (Math.abs(faceDs[f] - d) > PLANE_D_TOL) continue;
+      matched = f;
+      break;
+    }
+    if (matched < 0) {
+      matched = faceNormals.length;
+      faceNormals.push(n.clone());
+      faceDs.push(d);
+    }
+    faceIDs[t] = matched;
+  }
+
+  return faceIDs;
+}
+
+/**
+ * Attach a per-triangle face ID array to each segment mesh in a
+ * panel group. See computeFaceIDs for the rationale behind rolling
+ * our own rather than using manifold's built-in labeling.
+ */
+function annotateFaceIDs(panelGroup: Group, _panel: Panel): void {
+  panelGroup.children.forEach((child) => {
+    if (!(child instanceof Mesh)) return;
+    if (typeof child.userData.segIdx !== 'number') return;
+    const ids = computeFaceIDs(child);
+    if (ids) child.userData.faceID = ids;
+  });
 }
 
 /**
@@ -232,6 +352,229 @@ const ISO_VIEW = {
   up: [0, 1, 0] as [number, number, number],
 };
 
+// ---------------------------------------------------------------------------
+// Face selection
+// ---------------------------------------------------------------------------
+
+/**
+ * A picked face on a specific strip of a specific piece. `faceId` is
+ * manifold's per-triangle coplanar-group identifier (a u32 from
+ * mesh.faceID); combined with the mesh it uniquely identifies a face.
+ * `stripId` is carried so the enforce-at-most-2-strips rule can key
+ * on strip identity, not mesh identity (mesh identity is tied to
+ * the current scene instance and churns on reshuffle).
+ */
+interface Selection {
+  stripId: string;
+  mesh: Mesh;
+  faceId: number;
+}
+
+/**
+ * Two highlight colors so the user can tell the two current
+ * selections apart. Index 0 = first-placed, index 1 = second. When a
+ * selection updates in place (same strip, different face), the slot
+ * it occupied is preserved.
+ */
+const SELECTION_COLORS = [0xffc400, 0x26c6da];
+
+/**
+ * Click-vs-drag threshold. TrackballControls consumes mouse moves
+ * for orbit/pan/zoom; a click is "pointer didn't travel far between
+ * down and up". 5 px is generous enough to absorb hand jitter
+ * without eating deliberate small drags.
+ */
+const CLICK_MAX_DRAG_PX = 5;
+
+/** Extract all triangle vertex indices whose faceID matches `faceId`. */
+function collectFaceTriangleIndices(
+  mesh: Mesh,
+  faceId: number,
+): number[] | null {
+  const faceID = mesh.userData.faceID as Uint32Array | undefined;
+  if (!faceID) return null;
+  const origIndex = mesh.geometry.getIndex();
+  if (!origIndex) return null;
+  const out: number[] = [];
+  for (let t = 0; t < faceID.length; t++) {
+    if (faceID[t] === faceId) {
+      out.push(
+        origIndex.getX(t * 3),
+        origIndex.getX(t * 3 + 1),
+        origIndex.getX(t * 3 + 2),
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * Build a subset mesh covering every triangle on `faceId`. The
+ * geometry reuses the source mesh's position attribute (positions
+ * are already in world-space because Panel.transform bakes all rigid
+ * motion into the manifold geometry). The highlight uses
+ * polygonOffset to pull itself toward the camera just enough to
+ * avoid z-fighting with the underlying face.
+ */
+function buildFaceHighlight(
+  mesh: Mesh,
+  faceId: number,
+  color: number,
+): Mesh | null {
+  const indices = collectFaceTriangleIndices(mesh, faceId);
+  if (!indices || indices.length === 0) return null;
+  const geom = new BufferGeometry();
+  // Clone the position attribute rather than share it with the
+  // source mesh — disposing the highlight then doesn't perturb the
+  // underlying face geometry. Cost is a few dozen floats per strip.
+  const posAttr = mesh.geometry.getAttribute('position') as BufferAttribute;
+  geom.setAttribute('position', posAttr.clone());
+  geom.setIndex(indices);
+  const mat = new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.55,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  const highlight = new Mesh(geom, mat);
+  highlight.userData.role = 'face-highlight';
+  highlight.renderOrder = 10;
+  return highlight;
+}
+
+/**
+ * Replace the children of `highlightsGroup` with one overlay mesh
+ * per current selection. Called after every selection mutation.
+ */
+function rebuildHighlights(
+  highlightsGroup: Group,
+  selections: Selection[],
+): void {
+  while (highlightsGroup.children.length > 0) {
+    const child = highlightsGroup.children[0];
+    highlightsGroup.remove(child);
+    if (child instanceof Mesh) {
+      child.geometry.dispose();
+      (child.material as MeshBasicMaterial).dispose();
+    }
+  }
+  selections.forEach((sel, i) => {
+    const color = SELECTION_COLORS[i % SELECTION_COLORS.length];
+    const overlay = buildFaceHighlight(sel.mesh, sel.faceId, color);
+    if (overlay) highlightsGroup.add(overlay);
+  });
+}
+
+/**
+ * Apply the "at most 2 selections on at most 2 different strips" rule.
+ * Clicking a face:
+ *   - On a strip already in the list: same face → deselect;
+ *     different face → update that slot in place.
+ *   - On a new strip: append; if the list was already full, evict
+ *     the oldest (FIFO) first.
+ */
+function updateSelections(
+  selections: Selection[],
+  stripId: string,
+  mesh: Mesh,
+  faceId: number,
+): void {
+  const existingIdx = selections.findIndex((s) => s.stripId === stripId);
+  if (existingIdx >= 0) {
+    const sel = selections[existingIdx];
+    if (sel.faceId === faceId) {
+      selections.splice(existingIdx, 1);
+    } else {
+      sel.faceId = faceId;
+      sel.mesh = mesh;
+    }
+    return;
+  }
+  if (selections.length >= 2) selections.shift();
+  selections.push({ stripId, mesh, faceId });
+}
+
+/**
+ * Wire pointer events on the renderer canvas for face selection.
+ * Listens in bubbling phase so TrackballControls sees events first
+ * (and we don't interfere with orbit). Detects click-vs-drag by
+ * pointer travel distance between down and up.
+ *
+ * Returns a teardown function that removes all listeners.
+ */
+function wireSelection(
+  handle: ViewportHandle,
+  root: Group,
+  highlightsGroup: Group,
+  onChange: (selections: Selection[]) => void,
+): () => void {
+  const selections: Selection[] = [];
+  const raycaster = new Raycaster();
+  const ndc = new Vector2();
+  let downX = 0;
+  let downY = 0;
+
+  const onPointerDown = (e: PointerEvent): void => {
+    downX = e.clientX;
+    downY = e.clientY;
+  };
+
+  const onPointerUp = (e: PointerEvent): void => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_MAX_DRAG_PX) {
+      return;
+    }
+    const rect = handle.canvas.getBoundingClientRect();
+    ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, handle.camera);
+
+    // Only raycast against annotated segment meshes. Skip edge
+    // LineSegments and highlight overlays.
+    const targets: Mesh[] = [];
+    root.traverse((obj) => {
+      if (
+        obj instanceof Mesh &&
+        obj.userData.faceID &&
+        obj.userData.role !== 'face-highlight'
+      ) {
+        targets.push(obj);
+      }
+    });
+
+    const hits = raycaster.intersectObjects(targets, false);
+    if (hits.length === 0) return;
+    const hit = hits[0];
+    const mesh = hit.object as Mesh;
+    const faceID = mesh.userData.faceID as Uint32Array;
+    const faceId = faceID[hit.faceIndex ?? 0];
+    const strips = mesh.userData.contributingStripIds as string[] | undefined;
+    if (!strips || strips.length === 0) return;
+    const stripId = strips[0];
+
+    updateSelections(selections, stripId, mesh, faceId);
+    rebuildHighlights(highlightsGroup, selections);
+    onChange(selections);
+  };
+
+  handle.canvas.addEventListener('pointerdown', onPointerDown);
+  handle.canvas.addEventListener('pointerup', onPointerUp);
+
+  return () => {
+    handle.canvas.removeEventListener('pointerdown', onPointerDown);
+    handle.canvas.removeEventListener('pointerup', onPointerUp);
+    selections.length = 0;
+    rebuildHighlights(highlightsGroup, selections);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
 async function boot(): Promise<void> {
   const statusEl = document.querySelector<HTMLElement>('[data-slot="status"]');
   const tileEl = document.querySelector<HTMLElement>('[data-tile="scene"]');
@@ -248,14 +591,52 @@ async function boot(): Promise<void> {
     await initManifold();
 
     let handle: ViewportHandle | null = null;
+    let teardownSelection: (() => void) | null = null;
+    let currentPlacedCount = 0;
+
+    const renderStatus = (selections: Selection[]): void => {
+      const selDesc =
+        selections.length === 0
+          ? 'click any face to select'
+          : `selected ${selections.length}/2 · ${selections
+              .map((s) => s.stripId)
+              .join(' + ')}`;
+      setStatus(
+        `${currentPlacedCount}/${PIECES.length} pieces · drag to orbit · scroll to zoom · ${selDesc} · reshuffle for a new layout`,
+      );
+    };
 
     const render = () => {
+      teardownSelection?.();
+      teardownSelection = null;
       handle?.dispose();
+
       const { root, placedCount } = buildScene();
+      currentPlacedCount = placedCount;
+
+      const highlightsGroup = new Group();
+      highlightsGroup.userData.role = 'face-highlights';
+      root.add(highlightsGroup);
+
       handle = setupViewport(tileEl, root, { initialCameraState: ISO_VIEW });
-      setStatus(
-        `${placedCount}/${PIECES.length} pieces · drag to orbit · scroll to zoom · reshuffle for a new layout`,
+      teardownSelection = wireSelection(
+        handle,
+        root,
+        highlightsGroup,
+        renderStatus,
       );
+      renderStatus([]);
+
+      // Expose live references for debug / automated verification.
+      // This harness exists to reason about an interaction, so
+      // having the scene pokeable from the console is useful.
+      (window as any).__experiment = {
+        camera: handle.camera,
+        canvas: handle.canvas,
+        root,
+        highlightsGroup,
+        THREE: { Vector3, Raycaster, Vector2 },
+      };
     };
 
     render();
