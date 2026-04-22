@@ -164,15 +164,16 @@ function randomRotationMatrix(): Matrix4 {
 function placeStrip(
   strip: Strip,
   existing: Box3[],
+  volume: { x: number; y: number; z: number } = SCENE_HALF,
 ): { placed: Strip; box: Box3 } | null {
   const rotated = strip.transform(randomRotationMatrix());
   const localBox = rotated.boundingBox();
   const offset = new Vector3();
   for (let i = 0; i < MAX_PLACE_ATTEMPTS; i++) {
     offset.set(
-      (Math.random() - 0.5) * 2 * SCENE_HALF.x,
-      (Math.random() - 0.5) * 2 * SCENE_HALF.y,
-      (Math.random() - 0.5) * 2 * SCENE_HALF.z,
+      (Math.random() - 0.5) * 2 * volume.x,
+      (Math.random() - 0.5) * 2 * volume.y,
+      (Math.random() - 0.5) * 2 * volume.z,
     );
     const candidate = localBox
       .clone()
@@ -980,9 +981,53 @@ async function boot(): Promise<void> {
       render('update');
     };
 
+    const addStripOfType = (pieceName: string): void => {
+      const piece = PIECES.find((p) => p.name === pieceName);
+      if (!piece) {
+        appendLog(`add: unknown piece type '${pieceName}'`);
+        return;
+      }
+      // Pick the next free id — `rect`, then `rect-2`, `rect-3`, etc.
+      let id = piece.name;
+      let n = 1;
+      while (stripsById.has(id)) {
+        n += 1;
+        id = `${piece.name}-${n}`;
+      }
+      const built = piece.build(id, piece.pair);
+      const existing: Box3[] = [];
+      for (const s of stripsById.values()) existing.push(s.boundingBox());
+      // Try progressively larger volumes — the starting scatter packs
+      // SCENE_HALF tightly, so a 5th strip typically needs more room.
+      let result: ReturnType<typeof placeStrip> = null;
+      for (const mult of [1.5, 2.5, 4]) {
+        result = placeStrip(built, existing, {
+          x: SCENE_HALF.x * mult,
+          y: SCENE_HALF.y * mult,
+          z: SCENE_HALF.z * mult,
+        });
+        if (result) break;
+      }
+      built.dispose();
+      if (!result) {
+        appendLog(`add[${id}]: placement failed even at 4× scene volume`);
+        return;
+      }
+      stripsById.set(id, result.placed);
+      joinGroups.set(id, new Set([id]));
+      appendLog(`add: +${id}`);
+      render('update');
+    };
+
     render('fresh');
     reshuffleBtn?.addEventListener('click', () => render('fresh'));
     joinBtn?.addEventListener('click', performJoin);
+    for (const btn of document.querySelectorAll<HTMLButtonElement>(
+      '[data-add]',
+    )) {
+      const pieceName = btn.dataset.add ?? '';
+      btn.addEventListener('click', () => addStripOfType(pieceName));
+    }
   } catch (err) {
     console.error('[3d-experiment] boot failed', err);
     setStatus(

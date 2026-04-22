@@ -79,8 +79,19 @@
       align-items: stretch;
       z-index: 2;
     }
+    .add-controls {
+      position: absolute;
+      top: 1.25rem;
+      /* Leave clearance for the 22px home button (injected inside .render at top:8px; right:8px). */
+      right: 3.25rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: stretch;
+      z-index: 2;
+    }
     .algo-select,
-    .join-btn {
+    .join-btn,
+    .add-btn {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.78rem;
       padding: 0.5rem 0.75rem;
@@ -102,6 +113,13 @@
       cursor: not-allowed;
     }
     .join-btn:not(:disabled):hover {
+      background: #f0f0ea;
+    }
+    .add-btn {
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+    .add-btn:hover {
       background: #f0f0ea;
     }
     .log-panel {
@@ -170,6 +188,12 @@
   <main>
     <section class="tile" data-tile="scene">
       <div class="render" data-slot="render"></div>
+      <div class="add-controls">
+        <button type="button" class="add-btn" data-add="rect">+ rect</button>
+        <button type="button" class="add-btn" data-add="parallelogram">+ parallelogram</button>
+        <button type="button" class="add-btn" data-add="wedge">+ wedge</button>
+        <button type="button" class="add-btn" data-add="doorstop">+ doorstop</button>
+      </div>
       <div class="join-controls">
         <select class="algo-select" data-slot="join-algo" aria-label="Join algorithm"></select>
         <button type="button" class="join-btn" data-slot="join" disabled>join faces</button>
