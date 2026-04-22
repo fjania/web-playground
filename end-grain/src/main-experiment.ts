@@ -625,6 +625,139 @@ function planJoinCentroidFlush(
 }
 
 /**
+ * Principal-axis join — extends centroid-flush with in-plane alignment.
+ *
+ * Same anchor (face centroids) and same anti-parallel normal constraint
+ * as `planJoinCentroidFlush`, but in addition picks the rotation *about*
+ * the shared face normal that aligns the two faces' dominant extent
+ * directions. For elongated shapes (rectangles, parallelograms) this
+ * lands long-edge-to-long-edge and maximizes contact area. For near-
+ * regular shapes (squares, hexagons) principal axes are degenerate but
+ * overlap is rotation-invariant by symmetry, so any choice is fine.
+ *
+ * Construction:
+ *   q1 = shortest-arc rotation taking moveNormal → -keepNormal.
+ *   After q1, the moving face's principal axis lies in the keep plane's
+ *   tangent subspace. Compute signed angle θ about keepNormal that
+ *   takes rotated-movePrincipal onto keepPrincipal; principal axes are
+ *   directionless so we pick whichever sign gives |θ| ≤ π/2.
+ *   q2 = rotation by θ about keepNormal.
+ *   T = T(keepCenter) · q2·q1 · T(-moveCenter).
+ */
+function planJoinPrincipalAxis(
+  selA: Selection,
+  selB: Selection,
+  stripsById: Map<string, Strip>,
+  groups: JoinGroups,
+): JoinPlan | null {
+  if (selA.stripId === selB.stripId) return null;
+  const stripA = stripsById.get(selA.stripId);
+  const stripB = stripsById.get(selB.stripId);
+  if (!stripA || !stripB) return null;
+  const gidA = groupIdOf(groups, selA.stripId);
+  const gidB = groupIdOf(groups, selB.stripId);
+  if (!gidA || !gidB) return null;
+  if (gidA === gidB) return null;
+
+  const sizeA = groups.get(gidA)!.size;
+  const sizeB = groups.get(gidB)!.size;
+
+  let movingGid: string;
+  let moveStrip: Strip;
+  let moveFaceId: number;
+  let moverSel: Selection;
+  let keepStrip: Strip;
+  let keepFaceId: number;
+  let keepSel: Selection;
+  if (sizeA === 1 && sizeB > 1) {
+    movingGid = gidA;
+    moveStrip = stripA;
+    moveFaceId = selA.faceId;
+    moverSel = selA;
+    keepStrip = stripB;
+    keepFaceId = selB.faceId;
+    keepSel = selB;
+  } else if (sizeB === 1 && sizeA > 1) {
+    movingGid = gidB;
+    moveStrip = stripB;
+    moveFaceId = selB.faceId;
+    moverSel = selB;
+    keepStrip = stripA;
+    keepFaceId = selA.faceId;
+    keepSel = selA;
+  } else {
+    movingGid = gidB;
+    moveStrip = stripB;
+    moveFaceId = selB.faceId;
+    moverSel = selB;
+    keepStrip = stripA;
+    keepFaceId = selA.faceId;
+    keepSel = selA;
+  }
+
+  const moveCenter = moveStrip.faceCenter(moveFaceId);
+  const keepCenter = keepStrip.faceCenter(keepFaceId);
+  if (!moveCenter || !keepCenter) return null;
+
+  const moveFace = moveStrip.faces.find((f) => f.id === moveFaceId);
+  const keepFace = keepStrip.faces.find((f) => f.id === keepFaceId);
+  if (!moveFace || !keepFace) return null;
+
+  const moveNormal = new Vector3(
+    moveFace.plane.normal[0],
+    moveFace.plane.normal[1],
+    moveFace.plane.normal[2],
+  ).normalize();
+  const keepNormal = new Vector3(
+    keepFace.plane.normal[0],
+    keepFace.plane.normal[1],
+    keepFace.plane.normal[2],
+  ).normalize();
+  const targetNormal = keepNormal.clone().negate();
+
+  const q1 = new Quaternion().setFromUnitVectors(moveNormal, targetNormal);
+
+  const q2 = new Quaternion();
+  const movePrincipal = moveStrip.facePrincipalAxis(moveFaceId);
+  const keepPrincipal = keepStrip.facePrincipalAxis(keepFaceId);
+  if (movePrincipal && keepPrincipal) {
+    const movePrincipalAfter = movePrincipal.clone().applyQuaternion(q1);
+    let c = movePrincipalAfter.dot(keepPrincipal);
+    const cross = new Vector3().crossVectors(movePrincipalAfter, keepPrincipal);
+    let s = cross.dot(keepNormal);
+    if (c < 0) {
+      c = -c;
+      s = -s;
+    }
+    const theta = Math.atan2(s, c);
+    q2.setFromAxisAngle(keepNormal, theta);
+  }
+
+  const qTotal = q2.multiply(q1);
+
+  const T1 = new Matrix4().makeTranslation(
+    -moveCenter.x,
+    -moveCenter.y,
+    -moveCenter.z,
+  );
+  const R = new Matrix4().makeRotationFromQuaternion(qTotal);
+  const T2 = new Matrix4().makeTranslation(
+    keepCenter.x,
+    keepCenter.y,
+    keepCenter.z,
+  );
+  const matrix = new Matrix4().multiplyMatrices(T2, R).multiply(T1);
+
+  return {
+    matrix,
+    movingGroupId: movingGid,
+    movingStripIds: [...groups.get(movingGid)!],
+    moverSel,
+    keepSel,
+  };
+}
+
+/**
  * The registry. Order matters — first entry is the default choice in
  * the dropdown on first load.
  */
@@ -633,6 +766,11 @@ const JOIN_ALGOS: JoinAlgo[] = [
     id: 'centroid-flush',
     label: 'Centroid flush',
     plan: planJoinCentroidFlush,
+  },
+  {
+    id: 'principal-axis',
+    label: 'Principal axis',
+    plan: planJoinPrincipalAxis,
   },
 ];
 
@@ -791,7 +929,8 @@ async function boot(): Promise<void> {
         highlightsGroup,
         stripsById,
         joinGroups,
-        THREE: { Vector3, Raycaster, Vector2 },
+        algos: JOIN_ALGOS,
+        THREE: { Vector3, Raycaster, Vector2, Matrix4, Quaternion },
       };
     };
 
