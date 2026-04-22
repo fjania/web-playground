@@ -44,14 +44,22 @@ interface PieceDef {
   build: (prefix: string, pair: [Species, Species]) => Panel;
 }
 
+/**
+ * Build the StripDef list for one piece. Every entry shares the same
+ * `stripId` (the piece name) — a piece is ONE logical strip, and the
+ * 10 alternating-color blocks are visual parts of that strip. Keeping
+ * one segment per block preserves the alternating species pattern
+ * through cuts/transforms; collapsing stripId is what makes "face of
+ * the strip" a well-defined cross-part concept.
+ */
 function makeAlternatingStrips(
-  prefix: string,
+  pieceId: string,
   pair: [Species, Species],
 ): StripDef[] {
   const strips: StripDef[] = [];
   for (let i = 0; i < STRIP_COUNT; i++) {
     strips.push({
-      stripId: `${prefix}-${i}`,
+      stripId: pieceId,
       species: pair[i % 2],
       width: STRIP_WIDTH,
     });
@@ -238,35 +246,46 @@ const NORMAL_DOT_TOL = 1e-4;
 const PLANE_D_TOL = 0.01;
 
 /**
- * Compute per-triangle face IDs by scanning the mesh's triangles and
- * grouping any that share the same supporting plane (normal + offset).
+ * One planar face of a segment mesh, in world-space coordinates. The
+ * normal is a unit vector; `planeD = n·p` for any p on the face.
+ * Faces with matching (normal, planeD) across meshes of the same
+ * strip form one "strip face" (the user-facing selection target).
+ */
+interface FaceInfo {
+  normal: Vector3;
+  planeD: number;
+}
+
+/**
+ * Group the triangles of a mesh by their supporting plane. Returns
+ * `{ ids, faces }`:
+ *   - `ids[t]` = face index for triangle t.
+ *   - `faces[i]` = the supporting plane (normal + offset) for face i.
  *
  * We roll our own grouping rather than use manifold's `mesh.faceID`
- * because the latter gets unreliable after our cut pipeline: manifold's
- * ID pool reuses IDs across "above"/"below" splits, and we've seen
- * single IDs end up covering triangles on two non-coplanar planes on
- * every wedge and doorstop strip. A direct coplanarity scan sidesteps
- * the kernel's bookkeeping entirely.
+ * because the latter is unreliable through our cut pipeline: the
+ * kernel's ID pool reuses IDs across "above"/"below" splits, and we
+ * observed single manifold faceIDs covering triangles on two
+ * non-coplanar planes on every wedge and doorstop strip.
  *
- * This is O(T·F) per mesh (T triangles, F distinct faces) — fine for
- * our strip segments which have at most ~12 triangles and ~6 faces.
+ * Complexity is O(T·F) per mesh (T triangles, F distinct faces) —
+ * fine for strip segments which have ~12 triangles and ~6 faces.
  *
- * Safety: each of our strip segments is CONVEX, so a face is always
- * a single connected region. Two coplanar-but-disjoint polygons
- * cannot both belong to one segment's mesh, which means lumping by
- * plane-match is equivalent to lumping by face.
+ * Safety: each segment is CONVEX, so a plane supports at most one
+ * connected region of its surface. Grouping by plane match is
+ * therefore equivalent to grouping by face, within a single mesh.
  */
-function computeFaceIDs(mesh: Mesh): Uint32Array | null {
+function computeFaceGrouping(
+  mesh: Mesh,
+): { ids: Uint32Array; faces: FaceInfo[] } | null {
   const posAttr = mesh.geometry.getAttribute('position') as
     | BufferAttribute
     | undefined;
   const indexAttr = mesh.geometry.getIndex();
   if (!posAttr || !indexAttr) return null;
   const numTri = indexAttr.count / 3;
-  const faceIDs = new Uint32Array(numTri);
-
-  const faceNormals: Vector3[] = [];
-  const faceDs: number[] = [];
+  const ids = new Uint32Array(numTri);
+  const faces: FaceInfo[] = [];
 
   const a = new Vector3();
   const b = new Vector3();
@@ -284,49 +303,60 @@ function computeFaceIDs(mesh: Mesh): Uint32Array | null {
     n.crossVectors(ab, ac);
     const len = n.length();
     if (len < 1e-12) {
-      // Degenerate triangle (collinear or zero-area). Manifold
-      // shouldn't produce these, but be defensive: park it in its
-      // own face so highlight logic can still handle it.
-      faceIDs[t] = faceNormals.length;
-      faceNormals.push(new Vector3(0, 0, 0));
-      faceDs.push(0);
+      // Degenerate triangle. Park it in its own face so downstream
+      // logic doesn't choke on a zero normal.
+      ids[t] = faces.length;
+      faces.push({ normal: new Vector3(0, 0, 0), planeD: 0 });
       continue;
     }
     n.divideScalar(len);
     const d = n.dot(a);
 
     let matched = -1;
-    for (let f = 0; f < faceNormals.length; f++) {
-      // 1 - dot < tol is equivalent to angle < sqrt(2·tol) for small
-      // angles; we want near-identical normals, not just parallel.
-      if (1 - faceNormals[f].dot(n) > NORMAL_DOT_TOL) continue;
-      if (Math.abs(faceDs[f] - d) > PLANE_D_TOL) continue;
+    for (let f = 0; f < faces.length; f++) {
+      if (1 - faces[f].normal.dot(n) > NORMAL_DOT_TOL) continue;
+      if (Math.abs(faces[f].planeD - d) > PLANE_D_TOL) continue;
       matched = f;
       break;
     }
     if (matched < 0) {
-      matched = faceNormals.length;
-      faceNormals.push(n.clone());
-      faceDs.push(d);
+      matched = faces.length;
+      faces.push({ normal: n.clone(), planeD: d });
     }
-    faceIDs[t] = matched;
+    ids[t] = matched;
   }
 
-  return faceIDs;
+  return { ids, faces };
 }
 
 /**
- * Attach a per-triangle face ID array to each segment mesh in a
- * panel group. See computeFaceIDs for the rationale behind rolling
- * our own rather than using manifold's built-in labeling.
+ * Attach per-triangle face IDs + per-face (normal, planeD) to each
+ * segment mesh in a panel group. The (normal, planeD) array is what
+ * strip-level selection needs: to match "the same face" across all
+ * meshes belonging to one strip, we compare supporting planes.
  */
 function annotateFaceIDs(panelGroup: Group, _panel: Panel): void {
   panelGroup.children.forEach((child) => {
     if (!(child instanceof Mesh)) return;
     if (typeof child.userData.segIdx !== 'number') return;
-    const ids = computeFaceIDs(child);
-    if (ids) child.userData.faceID = ids;
+    const grouping = computeFaceGrouping(child);
+    if (!grouping) return;
+    child.userData.faceID = grouping.ids;
+    child.userData.faces = grouping.faces;
   });
+}
+
+/**
+ * Do two supporting planes represent the same world-space face?
+ * Uses the same tolerance the grouping step does, so any pair of
+ * plane descriptors that came out of computeFaceGrouping on a single
+ * strip's meshes will compare equal iff they describe the same
+ * logical strip face.
+ */
+function planesMatch(a: FaceInfo, b: FaceInfo): boolean {
+  if (1 - a.normal.dot(b.normal) > NORMAL_DOT_TOL) return false;
+  if (Math.abs(a.planeD - b.planeD) > PLANE_D_TOL) return false;
+  return true;
 }
 
 /**
@@ -357,17 +387,16 @@ const ISO_VIEW = {
 // ---------------------------------------------------------------------------
 
 /**
- * A picked face on a specific strip of a specific piece. `faceId` is
- * manifold's per-triangle coplanar-group identifier (a u32 from
- * mesh.faceID); combined with the mesh it uniquely identifies a face.
- * `stripId` is carried so the enforce-at-most-2-strips rule can key
- * on strip identity, not mesh identity (mesh identity is tied to
- * the current scene instance and churns on reshuffle).
+ * A user-facing strip face selection. Identified by the strip it
+ * belongs to and the world-space supporting plane of the face. The
+ * plane is carried directly (not a mesh-local face ID) because a
+ * strip face can span multiple segment meshes — every mesh of the
+ * strip that has triangles on this plane contributes to the
+ * highlighted region.
  */
 interface Selection {
   stripId: string;
-  mesh: Mesh;
-  faceId: number;
+  plane: FaceInfo;
 }
 
 /**
@@ -386,48 +415,52 @@ const SELECTION_COLORS = [0xffc400, 0x26c6da];
  */
 const CLICK_MAX_DRAG_PX = 5;
 
-/** Extract all triangle vertex indices whose faceID matches `faceId`. */
-function collectFaceTriangleIndices(
+/**
+ * Collect all segment meshes in the scene that belong to a given
+ * strip. Each mesh exposes its strip membership via userData, written
+ * by buildPanelGroup from the segment's contributingStripIds.
+ */
+function collectStripMeshes(root: Group, stripId: string): Mesh[] {
+  const meshes: Mesh[] = [];
+  root.traverse((obj) => {
+    if (!(obj instanceof Mesh)) return;
+    if (obj.userData.role === 'face-highlight') return;
+    const ids = obj.userData.contributingStripIds as string[] | undefined;
+    if (!ids || !ids.includes(stripId)) return;
+    if (!obj.userData.faces) return;
+    meshes.push(obj);
+  });
+  return meshes;
+}
+
+/**
+ * Subset BufferGeometry containing exactly the triangles of a given
+ * face on `mesh`. Positions are cloned (not shared) so disposing the
+ * highlight doesn't perturb the underlying face geometry.
+ */
+function buildMeshFaceOverlay(
   mesh: Mesh,
   faceId: number,
-): number[] | null {
-  const faceID = mesh.userData.faceID as Uint32Array | undefined;
-  if (!faceID) return null;
+  color: number,
+): Mesh | null {
+  const faceIDArr = mesh.userData.faceID as Uint32Array | undefined;
   const origIndex = mesh.geometry.getIndex();
-  if (!origIndex) return null;
-  const out: number[] = [];
-  for (let t = 0; t < faceID.length; t++) {
-    if (faceID[t] === faceId) {
-      out.push(
+  const posAttr = mesh.geometry.getAttribute('position') as
+    | BufferAttribute
+    | undefined;
+  if (!faceIDArr || !origIndex || !posAttr) return null;
+  const indices: number[] = [];
+  for (let t = 0; t < faceIDArr.length; t++) {
+    if (faceIDArr[t] === faceId) {
+      indices.push(
         origIndex.getX(t * 3),
         origIndex.getX(t * 3 + 1),
         origIndex.getX(t * 3 + 2),
       );
     }
   }
-  return out;
-}
-
-/**
- * Build a subset mesh covering every triangle on `faceId`. The
- * geometry reuses the source mesh's position attribute (positions
- * are already in world-space because Panel.transform bakes all rigid
- * motion into the manifold geometry). The highlight uses
- * polygonOffset to pull itself toward the camera just enough to
- * avoid z-fighting with the underlying face.
- */
-function buildFaceHighlight(
-  mesh: Mesh,
-  faceId: number,
-  color: number,
-): Mesh | null {
-  const indices = collectFaceTriangleIndices(mesh, faceId);
-  if (!indices || indices.length === 0) return null;
+  if (indices.length === 0) return null;
   const geom = new BufferGeometry();
-  // Clone the position attribute rather than share it with the
-  // source mesh — disposing the highlight then doesn't perturb the
-  // underlying face geometry. Cost is a few dozen floats per strip.
-  const posAttr = mesh.geometry.getAttribute('position') as BufferAttribute;
   geom.setAttribute('position', posAttr.clone());
   geom.setIndex(indices);
   const mat = new MeshBasicMaterial({
@@ -447,11 +480,15 @@ function buildFaceHighlight(
 }
 
 /**
- * Replace the children of `highlightsGroup` with one overlay mesh
- * per current selection. Called after every selection mutation.
+ * Replace the contents of `highlightsGroup`. For each selection, walk
+ * every mesh belonging to the selected strip and add an overlay for
+ * any face on that mesh whose plane matches the selection — that's
+ * the strip-level "entire face" semantic: if ten parts share the
+ * strip, all ten contribute their coplanar triangles.
  */
 function rebuildHighlights(
   highlightsGroup: Group,
+  root: Group,
   selections: Selection[],
 ): void {
   while (highlightsGroup.children.length > 0) {
@@ -464,38 +501,46 @@ function rebuildHighlights(
   }
   selections.forEach((sel, i) => {
     const color = SELECTION_COLORS[i % SELECTION_COLORS.length];
-    const overlay = buildFaceHighlight(sel.mesh, sel.faceId, color);
-    if (overlay) highlightsGroup.add(overlay);
+    const meshes = collectStripMeshes(root, sel.stripId);
+    for (const mesh of meshes) {
+      const faces = mesh.userData.faces as FaceInfo[];
+      for (let f = 0; f < faces.length; f++) {
+        if (!planesMatch(faces[f], sel.plane)) continue;
+        const overlay = buildMeshFaceOverlay(mesh, f, color);
+        if (overlay) highlightsGroup.add(overlay);
+      }
+    }
   });
 }
 
 /**
  * Apply the "at most 2 selections on at most 2 different strips" rule.
  * Clicking a face:
- *   - On a strip already in the list: same face → deselect;
- *     different face → update that slot in place.
- *   - On a new strip: append; if the list was already full, evict
- *     the oldest (FIFO) first.
+ *   - On a strip already selected: same face-plane → deselect;
+ *     different plane → update the selection's plane in place.
+ *   - On a new strip: append; if two strips were already selected,
+ *     FIFO-evict the older one first.
  */
 function updateSelections(
   selections: Selection[],
   stripId: string,
-  mesh: Mesh,
-  faceId: number,
+  plane: FaceInfo,
 ): void {
   const existingIdx = selections.findIndex((s) => s.stripId === stripId);
   if (existingIdx >= 0) {
     const sel = selections[existingIdx];
-    if (sel.faceId === faceId) {
+    if (planesMatch(sel.plane, plane)) {
       selections.splice(existingIdx, 1);
     } else {
-      sel.faceId = faceId;
-      sel.mesh = mesh;
+      sel.plane = { normal: plane.normal.clone(), planeD: plane.planeD };
     }
     return;
   }
   if (selections.length >= 2) selections.shift();
-  selections.push({ stripId, mesh, faceId });
+  selections.push({
+    stripId,
+    plane: { normal: plane.normal.clone(), planeD: plane.planeD },
+  });
 }
 
 /**
@@ -549,14 +594,18 @@ function wireSelection(
     if (hits.length === 0) return;
     const hit = hits[0];
     const mesh = hit.object as Mesh;
-    const faceID = mesh.userData.faceID as Uint32Array;
-    const faceId = faceID[hit.faceIndex ?? 0];
+    const faceIDArr = mesh.userData.faceID as Uint32Array | undefined;
+    const faces = mesh.userData.faces as FaceInfo[] | undefined;
+    if (!faceIDArr || !faces) return;
+    const localFaceId = faceIDArr[hit.faceIndex ?? 0];
+    const plane = faces[localFaceId];
+    if (!plane) return;
     const strips = mesh.userData.contributingStripIds as string[] | undefined;
     if (!strips || strips.length === 0) return;
     const stripId = strips[0];
 
-    updateSelections(selections, stripId, mesh, faceId);
-    rebuildHighlights(highlightsGroup, selections);
+    updateSelections(selections, stripId, plane);
+    rebuildHighlights(highlightsGroup, root, selections);
     onChange(selections);
   };
 
@@ -567,7 +616,7 @@ function wireSelection(
     handle.canvas.removeEventListener('pointerdown', onPointerDown);
     handle.canvas.removeEventListener('pointerup', onPointerUp);
     selections.length = 0;
-    rebuildHighlights(highlightsGroup, selections);
+    rebuildHighlights(highlightsGroup, root, selections);
   };
 }
 
