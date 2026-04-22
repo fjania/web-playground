@@ -1,16 +1,25 @@
 /**
- * Side-quest harness — four pieces (rectangle, parallelogram, wedge,
+ * Side-quest harness — four strips (rectangle, parallelogram, wedge,
  * doorstop) scattered into a single 3D scene at random orientation
- * and position. Each piece starts as a 500 × 50 × 50 mm bar of ten
- * 50 mm cubes alternating between its own pair of species, then gets
- * cut via the main pipeline's Manifold plane-clipping path.
+ * and position. Each strip starts as a 500 × 50 × 50 mm bar of ten
+ * alternating-species 50 mm blocks, then gets shaped via `Strip.cut`
+ * — the same plane-clip primitive the app's table-saw rip bottoms
+ * out on.
+ *
+ * This harness is the place we're defining the Strip model, so its
+ * code is the model. `Strip.ts` owns face identity as first-class
+ * state; selection and mating read `strip.faces` rather than
+ * inferring faces from rendered triangles.
  */
 
 import {
   Box3,
   BufferAttribute,
   BufferGeometry,
+  EdgesGeometry,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -18,18 +27,23 @@ import {
   Raycaster,
   Vector2,
   Vector3,
+  type Material,
 } from 'three';
 
 import { initManifold } from './domain/manifold';
-import { Panel } from './domain/Panel';
-import { buildPanelGroup } from './scene/meshBuilder';
+import {
+  Strip,
+  computePartTriangleFaceIds,
+  UNASSIGNED_FACE_ID,
+  type Part,
+  type Plane,
+} from './domain/Strip';
+import { SPECIES_DEFS } from './scene/materials';
 import { setupViewport, type ViewportHandle } from './scene/viewport';
-import type { Species, StripDef } from './state/types';
+import type { Species } from './state/types';
 
-const STRIP_COUNT = 10;
-const STRIP_WIDTH = 50;
-const BLOCK_HEIGHT = 50;
-const BLOCK_DEPTH = 50;
+const BLOCK_COUNT = 10;
+const BLOCK_SIZE = { width: 50, height: 50, depth: 50 };
 
 /** Minimum clearance between any two pieces' AABBs, in mm. */
 const PLACEMENT_MARGIN = 30;
@@ -38,114 +52,85 @@ const SCENE_HALF = { x: 320, y: 160, z: 220 };
 /** Rejection-sampling budget per piece before giving up. */
 const MAX_PLACE_ATTEMPTS = 1200;
 
+// ---------------------------------------------------------------------------
+// Piece builders — starting from a rectangular solid, cutting down
+// ---------------------------------------------------------------------------
+
 interface PieceDef {
   name: string;
   pair: [Species, Species];
-  build: (prefix: string, pair: [Species, Species]) => Panel;
+  build: (pieceId: string, pair: [Species, Species]) => Strip;
+}
+
+function buildRectangle(pieceId: string, pair: [Species, Species]): Strip {
+  return Strip.fromAlternatingBlocks(pieceId, pair, BLOCK_COUNT, BLOCK_SIZE);
 }
 
 /**
- * Build the StripDef list for one piece. Every entry shares the same
- * `stripId` (the piece name) — a piece is ONE logical strip, and the
- * 10 alternating-color blocks are visual parts of that strip. Keeping
- * one segment per block preserves the alternating species pattern
- * through cuts/transforms; collapsing stripId is what makes "face of
- * the strip" a well-defined cross-part concept.
+ * Two 45° rips in the XZ plane chop opposite short-end corners so the
+ * top-down outline becomes a parallelogram. Each rip keeps `below`
+ * (the parallelogram bulk) and discards `above` (a triangular offcut).
  */
-function makeAlternatingStrips(
+function buildParallelogram(
   pieceId: string,
   pair: [Species, Species],
-): StripDef[] {
-  const strips: StripDef[] = [];
-  for (let i = 0; i < STRIP_COUNT; i++) {
-    strips.push({
-      stripId: pieceId,
-      species: pair[i % 2],
-      width: STRIP_WIDTH,
-    });
-  }
-  return strips;
-}
-
-function buildRectangle(prefix: string, pair: [Species, Species]): Panel {
-  return Panel.fromStrips(
-    makeAlternatingStrips(prefix, pair),
-    BLOCK_HEIGHT,
-    BLOCK_DEPTH,
-  );
-}
-
-/**
- * Parallelogram: two 45° cuts in the XZ plane remove opposite corner
- * triangles at the short ends so the top-down outline becomes a
- * parallelogram. Both cuts keep the `below` half.
- */
-function buildParallelogram(prefix: string, pair: [Species, Species]): Panel {
-  const base = Panel.fromStrips(
-    makeAlternatingStrips(prefix, pair),
-    BLOCK_HEIGHT,
-    BLOCK_DEPTH,
-  );
+): Strip {
+  const base = Strip.fromAlternatingBlocks(pieceId, pair, BLOCK_COUNT, BLOCK_SIZE);
   const INV_SQRT2 = 1 / Math.SQRT2;
   const offset = 225 * INV_SQRT2;
-  const leftCut = base.cut([-INV_SQRT2, 0, INV_SQRT2], offset);
+  const leftCut = base.cut({ normal: [-INV_SQRT2, 0, INV_SQRT2], offset });
   base.dispose();
   leftCut.above.dispose();
-  const rightCut = leftCut.below.cut([INV_SQRT2, 0, -INV_SQRT2], offset);
+  const rightCut = leftCut.below.cut({
+    normal: [INV_SQRT2, 0, -INV_SQRT2],
+    offset,
+  });
   leftCut.below.dispose();
   rightCut.above.dispose();
   return rightCut.below;
 }
 
 /**
- * Wedge: two angled cuts in the YZ plane collapse the 50×50 end
- * face into a triangle with apex at (y=+25, z=0) and flat base
- * along y=-25 from z=-25 to z=+25.
+ * Two YZ-plane rips collapse the 50×50 cross-section into a triangle
+ * — apex at (y=+25, z=0), base along y=-25 from z=-25 to z=+25.
  */
-function buildWedge(prefix: string, pair: [Species, Species]): Panel {
-  const base = Panel.fromStrips(
-    makeAlternatingStrips(prefix, pair),
-    BLOCK_HEIGHT,
-    BLOCK_DEPTH,
-  );
+function buildWedge(pieceId: string, pair: [Species, Species]): Strip {
+  const base = Strip.fromAlternatingBlocks(pieceId, pair, BLOCK_COUNT, BLOCK_SIZE);
   const INV_SQRT5 = 1 / Math.sqrt(5);
   const offset = 5 * Math.sqrt(5);
-  const leftCut = base.cut([0, INV_SQRT5, -2 * INV_SQRT5], offset);
+  const leftCut = base.cut({
+    normal: [0, INV_SQRT5, -2 * INV_SQRT5],
+    offset,
+  });
   base.dispose();
   leftCut.above.dispose();
-  const rightCut = leftCut.below.cut([0, INV_SQRT5, 2 * INV_SQRT5], offset);
+  const rightCut = leftCut.below.cut({
+    normal: [0, INV_SQRT5, 2 * INV_SQRT5],
+    offset,
+  });
   leftCut.below.dispose();
   rightCut.above.dispose();
   return rightCut.below;
 }
 
 /**
- * Doorstop: both long edges of the top-down XZ rectangle taper evenly
- * inward to a point at X=+250, producing a tall isosceles triangle
- * when viewed from above. Base (Z from -25 to +25) stays at X=-250.
- * Y extent is unchanged, so the piece looks like a 500×50 rectangle
- * from the side.
- *
- * Cut planes (vertical, extruded along Y):
- *   1. through (-250, ·, +25) → (+250, ·, 0), normal (1, 0, 20)/√401
- *   2. through (-250, ·, -25) → (+250, ·, 0), normal (1, 0, -20)/√401
- * Both share offset 250/√401, and both keep the `below` half.
+ * Two XZ-plane rips taper both long edges inward to a point at
+ * x=+250, producing a tall isosceles triangle when viewed top-down.
  */
-function buildDoorstop(prefix: string, pair: [Species, Species]): Panel {
-  const base = Panel.fromStrips(
-    makeAlternatingStrips(prefix, pair),
-    BLOCK_HEIGHT,
-    BLOCK_DEPTH,
-  );
+function buildDoorstop(pieceId: string, pair: [Species, Species]): Strip {
+  const base = Strip.fromAlternatingBlocks(pieceId, pair, BLOCK_COUNT, BLOCK_SIZE);
   const INV_SQRT401 = 1 / Math.sqrt(401);
   const offset = 250 * INV_SQRT401;
-  const topCut = base.cut([INV_SQRT401, 0, 20 * INV_SQRT401], offset);
+  const topCut = base.cut({
+    normal: [INV_SQRT401, 0, 20 * INV_SQRT401],
+    offset,
+  });
   base.dispose();
   topCut.above.dispose();
-  const bottomCut = topCut.below.cut(
-    [INV_SQRT401, 0, -20 * INV_SQRT401],
+  const bottomCut = topCut.below.cut({
+    normal: [INV_SQRT401, 0, -20 * INV_SQRT401],
     offset,
-  );
+  });
   topCut.below.dispose();
   bottomCut.above.dispose();
   return bottomCut.below;
@@ -158,12 +143,12 @@ const PIECES: PieceDef[] = [
   { name: 'doorstop', pair: ['purpleheart', 'cherry'], build: buildDoorstop },
 ];
 
-/**
- * Shoemake uniform random rotation: samples three uniforms and
- * assembles a quaternion distributed uniformly on SO(3). Necessary
- * because naive Euler-angle randomization biases toward the poles.
- */
+// ---------------------------------------------------------------------------
+// Random orientation + placement
+// ---------------------------------------------------------------------------
+
 function randomRotationMatrix(): Matrix4 {
+  // Shoemake's uniform random quaternion on SO(3).
   const u1 = Math.random();
   const u2 = Math.random();
   const u3 = Math.random();
@@ -176,17 +161,11 @@ function randomRotationMatrix(): Matrix4 {
   return new Matrix4().makeRotationFromQuaternion(q);
 }
 
-/**
- * Rotate `panel` by a random orientation, then rejection-sample
- * translations until the expanded AABB clears every previously
- * placed box. Returns the placed Panel and its raw AABB so the
- * caller can track the occupied region for subsequent pieces.
- */
-function placePanel(
-  panel: Panel,
+function placeStrip(
+  strip: Strip,
   existing: Box3[],
-): { placed: Panel; box: Box3 } | null {
-  const rotated = panel.transform(randomRotationMatrix());
+): { placed: Strip; box: Box3 } | null {
+  const rotated = strip.transform(randomRotationMatrix());
   const localBox = rotated.boundingBox();
   const offset = new Vector3();
   for (let i = 0; i < MAX_PLACE_ATTEMPTS; i++) {
@@ -209,172 +188,106 @@ function placePanel(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Scene construction
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a Three.js group for a strip — one mesh per part, each tagged
+ * with `stripId`, `partId`, and a per-triangle `faceIds` Uint32Array
+ * computed once from the strip's face list.
+ */
+function buildStripGroup(strip: Strip): Group {
+  const group = new Group();
+  group.userData.stripId = strip.id;
+  strip.parts.forEach((part, i) => {
+    const mesh = partToMesh(part);
+    mesh.userData.stripId = strip.id;
+    mesh.userData.partId = part.id;
+    mesh.userData.partIdx = i;
+    mesh.userData.species = part.species;
+    mesh.userData.faceIds = computePartTriangleFaceIds(part, strip.faces);
+    group.add(mesh);
+
+    const edgesGeo = new EdgesGeometry(mesh.geometry, 1);
+    const edgesMat = new LineBasicMaterial({
+      color: 0x1a1a1a,
+      transparent: true,
+      opacity: 0.45,
+      depthTest: true,
+    });
+    const edges = new LineSegments(edgesGeo, edgesMat);
+    edges.userData.role = 'part-edges';
+    edges.userData.partId = part.id;
+    group.add(edges);
+  });
+  return group;
+}
+
+function partToMesh(part: Part): Mesh {
+  const mfMesh = part.manifold.getMesh();
+  const numVerts = mfMesh.numVert as number;
+  const numProp = mfMesh.numProp as number;
+  const positions = new Float32Array(numVerts * 3);
+  for (let i = 0; i < numVerts; i++) {
+    positions[i * 3] = mfMesh.vertProperties[i * numProp];
+    positions[i * 3 + 1] = mfMesh.vertProperties[i * numProp + 1];
+    positions[i * 3 + 2] = mfMesh.vertProperties[i * numProp + 2];
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(positions, 3));
+  geo.setIndex(new BufferAttribute(new Uint32Array(mfMesh.triVerts), 1));
+  geo.computeVertexNormals();
+
+  const mats = SPECIES_DEFS[part.species];
+  const baseMat = (mats?.[0] ?? mats?.[2]) as Material | undefined;
+  if (!baseMat) throw new Error(`no material for species ${part.species}`);
+  const m = (baseMat as any).clone();
+  m.flatShading = true;
+
+  const mesh = new Mesh(geo, m);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 /** Build a single scatter attempt. Returns null if any piece fails to place. */
-function tryBuildScene(): { root: Group; placedPanels: Panel[] } | null {
+function tryBuildScene(): {
+  root: Group;
+  placedStrips: Strip[];
+} | null {
   const root = new Group();
   const existing: Box3[] = [];
-  const placedPanels: Panel[] = [];
+  const placedStrips: Strip[] = [];
   for (const piece of PIECES) {
     const built = piece.build(piece.name, piece.pair);
-    const result = placePanel(built, existing);
+    const result = placeStrip(built, existing);
     built.dispose();
     if (!result) {
-      placedPanels.forEach((p) => p.dispose());
+      placedStrips.forEach((s) => s.dispose());
       return null;
     }
     existing.push(result.box);
-    const panelGroup = buildPanelGroup(result.placed);
-    annotateFaceIDs(panelGroup, result.placed);
-    root.add(panelGroup);
-    placedPanels.push(result.placed);
+    root.add(buildStripGroup(result.placed));
+    placedStrips.push(result.placed);
   }
-  return { root, placedPanels };
+  return { root, placedStrips };
 }
 
-/**
- * Tolerances for coplanar-face grouping. Chosen conservatively for
- * our scale (pieces ~500 mm, strips ~50 mm):
- *   - NORMAL_DOT_TOL = 1e-4  →  angular tolerance ≈ 0.8°, well below
- *     the smallest meaningful angle in our geometry (45° cuts).
- *   - PLANE_D_TOL = 0.01 mm  →  10 µm, orders of magnitude tighter
- *     than the 50 mm smallest feature size.
- * FP noise accumulated through a rotation matrix + translation is
- * well under both — rotations preserve norms exactly for unit
- * normals up to the last FP bit.
- */
-const NORMAL_DOT_TOL = 1e-4;
-const PLANE_D_TOL = 0.01;
-
-/**
- * One planar face of a segment mesh, in world-space coordinates. The
- * normal is a unit vector; `planeD = n·p` for any p on the face.
- * Faces with matching (normal, planeD) across meshes of the same
- * strip form one "strip face" (the user-facing selection target).
- */
-interface FaceInfo {
-  normal: Vector3;
-  planeD: number;
-}
-
-/**
- * Group the triangles of a mesh by their supporting plane. Returns
- * `{ ids, faces }`:
- *   - `ids[t]` = face index for triangle t.
- *   - `faces[i]` = the supporting plane (normal + offset) for face i.
- *
- * We roll our own grouping rather than use manifold's `mesh.faceID`
- * because the latter is unreliable through our cut pipeline: the
- * kernel's ID pool reuses IDs across "above"/"below" splits, and we
- * observed single manifold faceIDs covering triangles on two
- * non-coplanar planes on every wedge and doorstop strip.
- *
- * Complexity is O(T·F) per mesh (T triangles, F distinct faces) —
- * fine for strip segments which have ~12 triangles and ~6 faces.
- *
- * Safety: each segment is CONVEX, so a plane supports at most one
- * connected region of its surface. Grouping by plane match is
- * therefore equivalent to grouping by face, within a single mesh.
- */
-function computeFaceGrouping(
-  mesh: Mesh,
-): { ids: Uint32Array; faces: FaceInfo[] } | null {
-  const posAttr = mesh.geometry.getAttribute('position') as
-    | BufferAttribute
-    | undefined;
-  const indexAttr = mesh.geometry.getIndex();
-  if (!posAttr || !indexAttr) return null;
-  const numTri = indexAttr.count / 3;
-  const ids = new Uint32Array(numTri);
-  const faces: FaceInfo[] = [];
-
-  const a = new Vector3();
-  const b = new Vector3();
-  const c = new Vector3();
-  const ab = new Vector3();
-  const ac = new Vector3();
-  const n = new Vector3();
-
-  for (let t = 0; t < numTri; t++) {
-    a.fromBufferAttribute(posAttr, indexAttr.getX(t * 3));
-    b.fromBufferAttribute(posAttr, indexAttr.getX(t * 3 + 1));
-    c.fromBufferAttribute(posAttr, indexAttr.getX(t * 3 + 2));
-    ab.subVectors(b, a);
-    ac.subVectors(c, a);
-    n.crossVectors(ab, ac);
-    const len = n.length();
-    if (len < 1e-12) {
-      // Degenerate triangle. Park it in its own face so downstream
-      // logic doesn't choke on a zero normal.
-      ids[t] = faces.length;
-      faces.push({ normal: new Vector3(0, 0, 0), planeD: 0 });
-      continue;
-    }
-    n.divideScalar(len);
-    const d = n.dot(a);
-
-    let matched = -1;
-    for (let f = 0; f < faces.length; f++) {
-      if (1 - faces[f].normal.dot(n) > NORMAL_DOT_TOL) continue;
-      if (Math.abs(faces[f].planeD - d) > PLANE_D_TOL) continue;
-      matched = f;
-      break;
-    }
-    if (matched < 0) {
-      matched = faces.length;
-      faces.push({ normal: n.clone(), planeD: d });
-    }
-    ids[t] = matched;
-  }
-
-  return { ids, faces };
-}
-
-/**
- * Attach per-triangle face IDs + per-face (normal, planeD) to each
- * segment mesh in a panel group. The (normal, planeD) array is what
- * strip-level selection needs: to match "the same face" across all
- * meshes belonging to one strip, we compare supporting planes.
- */
-function annotateFaceIDs(panelGroup: Group, _panel: Panel): void {
-  panelGroup.children.forEach((child) => {
-    if (!(child instanceof Mesh)) return;
-    if (typeof child.userData.segIdx !== 'number') return;
-    const grouping = computeFaceGrouping(child);
-    if (!grouping) return;
-    child.userData.faceID = grouping.ids;
-    child.userData.faces = grouping.faces;
-  });
-}
-
-/**
- * Do two supporting planes represent the same world-space face?
- * Uses the same tolerance the grouping step does, so any pair of
- * plane descriptors that came out of computeFaceGrouping on a single
- * strip's meshes will compare equal iff they describe the same
- * logical strip face.
- */
-function planesMatch(a: FaceInfo, b: FaceInfo): boolean {
-  if (1 - a.normal.dot(b.normal) > NORMAL_DOT_TOL) return false;
-  if (Math.abs(a.planeD - b.planeD) > PLANE_D_TOL) return false;
-  return true;
-}
-
-/**
- * Retry the whole scatter on failure. Placement failure comes from an
- * unlucky rotation combination, not a fundamentally infeasible layout
- * — fresh rotations almost always fit the same scene bounds.
- */
 const MAX_SCENE_ATTEMPTS = 6;
-function buildScene(): { root: Group; placedCount: number } {
+function buildScene(): { root: Group; strips: Strip[]; placedCount: number } {
   for (let i = 0; i < MAX_SCENE_ATTEMPTS; i++) {
     const scene = tryBuildScene();
     if (scene) {
-      scene.placedPanels.forEach((p) => p.dispose());
-      return { root: scene.root, placedCount: scene.placedPanels.length };
+      return {
+        root: scene.root,
+        strips: scene.placedStrips,
+        placedCount: scene.placedStrips.length,
+      };
     }
   }
   console.warn('[3d-experiment] scene placement never fit all pieces');
-  return { root: new Group(), placedCount: 0 };
+  return { root: new Group(), strips: [], placedCount: 0 };
 }
 
 const ISO_VIEW = {
@@ -387,105 +300,38 @@ const ISO_VIEW = {
 // ---------------------------------------------------------------------------
 
 /**
- * A user-facing strip face selection. Identified by the strip it
- * belongs to and the world-space supporting plane of the face. The
- * plane is carried directly (not a mesh-local face ID) because a
- * strip face can span multiple segment meshes — every mesh of the
- * strip that has triangles on this plane contributes to the
- * highlighted region.
+ * Selection identifies a strip face by `(stripId, faceId)`. The id is
+ * first-class state on the strip (set at construction or by a cut),
+ * so click lookup is a plain integer match — no geometric tolerance
+ * at the selection layer.
  */
 interface Selection {
   stripId: string;
-  plane: FaceInfo;
+  faceId: number;
 }
 
-/**
- * Two highlight colors so the user can tell the two current
- * selections apart. Index 0 = first-placed, index 1 = second. When a
- * selection updates in place (same strip, different face), the slot
- * it occupied is preserved.
- */
 const SELECTION_COLORS = [0xffc400, 0x26c6da];
-
-/**
- * Click-vs-drag threshold. TrackballControls consumes mouse moves
- * for orbit/pan/zoom; a click is "pointer didn't travel far between
- * down and up". 5 px is generous enough to absorb hand jitter
- * without eating deliberate small drags.
- */
 const CLICK_MAX_DRAG_PX = 5;
 
-/**
- * Collect all segment meshes in the scene that belong to a given
- * strip. Each mesh exposes its strip membership via userData, written
- * by buildPanelGroup from the segment's contributingStripIds.
- */
-function collectStripMeshes(root: Group, stripId: string): Mesh[] {
-  const meshes: Mesh[] = [];
-  root.traverse((obj) => {
-    if (!(obj instanceof Mesh)) return;
-    if (obj.userData.role === 'face-highlight') return;
-    const ids = obj.userData.contributingStripIds as string[] | undefined;
-    if (!ids || !ids.includes(stripId)) return;
-    if (!obj.userData.faces) return;
-    meshes.push(obj);
-  });
-  return meshes;
-}
-
-/**
- * Subset BufferGeometry containing exactly the triangles of a given
- * face on `mesh`. Positions are cloned (not shared) so disposing the
- * highlight doesn't perturb the underlying face geometry.
- */
-function buildMeshFaceOverlay(
-  mesh: Mesh,
+function updateSelections(
+  selections: Selection[],
+  stripId: string,
   faceId: number,
-  color: number,
-): Mesh | null {
-  const faceIDArr = mesh.userData.faceID as Uint32Array | undefined;
-  const origIndex = mesh.geometry.getIndex();
-  const posAttr = mesh.geometry.getAttribute('position') as
-    | BufferAttribute
-    | undefined;
-  if (!faceIDArr || !origIndex || !posAttr) return null;
-  const indices: number[] = [];
-  for (let t = 0; t < faceIDArr.length; t++) {
-    if (faceIDArr[t] === faceId) {
-      indices.push(
-        origIndex.getX(t * 3),
-        origIndex.getX(t * 3 + 1),
-        origIndex.getX(t * 3 + 2),
-      );
+): void {
+  const existingIdx = selections.findIndex((s) => s.stripId === stripId);
+  if (existingIdx >= 0) {
+    const sel = selections[existingIdx];
+    if (sel.faceId === faceId) {
+      selections.splice(existingIdx, 1);
+    } else {
+      sel.faceId = faceId;
     }
+    return;
   }
-  if (indices.length === 0) return null;
-  const geom = new BufferGeometry();
-  geom.setAttribute('position', posAttr.clone());
-  geom.setIndex(indices);
-  const mat = new MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.55,
-    depthTest: true,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
-  const highlight = new Mesh(geom, mat);
-  highlight.userData.role = 'face-highlight';
-  highlight.renderOrder = 10;
-  return highlight;
+  if (selections.length >= 2) selections.shift();
+  selections.push({ stripId, faceId });
 }
 
-/**
- * Replace the contents of `highlightsGroup`. For each selection, walk
- * every mesh belonging to the selected strip and add an overlay for
- * any face on that mesh whose plane matches the selection — that's
- * the strip-level "entire face" semantic: if ten parts share the
- * strip, all ten contribute their coplanar triangles.
- */
 function rebuildHighlights(
   highlightsGroup: Group,
   root: Group,
@@ -499,58 +345,48 @@ function rebuildHighlights(
       (child.material as MeshBasicMaterial).dispose();
     }
   }
-  selections.forEach((sel, i) => {
-    const color = SELECTION_COLORS[i % SELECTION_COLORS.length];
-    const meshes = collectStripMeshes(root, sel.stripId);
-    for (const mesh of meshes) {
-      const faces = mesh.userData.faces as FaceInfo[];
-      for (let f = 0; f < faces.length; f++) {
-        if (!planesMatch(faces[f], sel.plane)) continue;
-        const overlay = buildMeshFaceOverlay(mesh, f, color);
-        if (overlay) highlightsGroup.add(overlay);
+  selections.forEach((sel, idx) => {
+    const color = SELECTION_COLORS[idx % SELECTION_COLORS.length];
+    root.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      if (obj.userData.role === 'face-highlight') return;
+      if (obj.userData.stripId !== sel.stripId) return;
+      const faceIds = obj.userData.faceIds as Uint32Array | undefined;
+      if (!faceIds) return;
+      const origIndex = obj.geometry.getIndex();
+      if (!origIndex) return;
+      const indices: number[] = [];
+      for (let t = 0; t < faceIds.length; t++) {
+        if (faceIds[t] !== sel.faceId) continue;
+        indices.push(
+          origIndex.getX(t * 3),
+          origIndex.getX(t * 3 + 1),
+          origIndex.getX(t * 3 + 2),
+        );
       }
-    }
+      if (indices.length === 0) return;
+      const posAttr = obj.geometry.getAttribute('position') as BufferAttribute;
+      const hgeom = new BufferGeometry();
+      hgeom.setAttribute('position', posAttr.clone());
+      hgeom.setIndex(indices);
+      const mat = new MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.55,
+        depthTest: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      });
+      const highlight = new Mesh(hgeom, mat);
+      highlight.userData.role = 'face-highlight';
+      highlight.renderOrder = 10;
+      highlightsGroup.add(highlight);
+    });
   });
 }
 
-/**
- * Apply the "at most 2 selections on at most 2 different strips" rule.
- * Clicking a face:
- *   - On a strip already selected: same face-plane → deselect;
- *     different plane → update the selection's plane in place.
- *   - On a new strip: append; if two strips were already selected,
- *     FIFO-evict the older one first.
- */
-function updateSelections(
-  selections: Selection[],
-  stripId: string,
-  plane: FaceInfo,
-): void {
-  const existingIdx = selections.findIndex((s) => s.stripId === stripId);
-  if (existingIdx >= 0) {
-    const sel = selections[existingIdx];
-    if (planesMatch(sel.plane, plane)) {
-      selections.splice(existingIdx, 1);
-    } else {
-      sel.plane = { normal: plane.normal.clone(), planeD: plane.planeD };
-    }
-    return;
-  }
-  if (selections.length >= 2) selections.shift();
-  selections.push({
-    stripId,
-    plane: { normal: plane.normal.clone(), planeD: plane.planeD },
-  });
-}
-
-/**
- * Wire pointer events on the renderer canvas for face selection.
- * Listens in bubbling phase so TrackballControls sees events first
- * (and we don't interfere with orbit). Detects click-vs-drag by
- * pointer travel distance between down and up.
- *
- * Returns a teardown function that removes all listeners.
- */
 function wireSelection(
   handle: ViewportHandle,
   root: Group,
@@ -577,13 +413,11 @@ function wireSelection(
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, handle.camera);
 
-    // Only raycast against annotated segment meshes. Skip edge
-    // LineSegments and highlight overlays.
     const targets: Mesh[] = [];
     root.traverse((obj) => {
       if (
         obj instanceof Mesh &&
-        obj.userData.faceID &&
+        obj.userData.faceIds &&
         obj.userData.role !== 'face-highlight'
       ) {
         targets.push(obj);
@@ -594,17 +428,13 @@ function wireSelection(
     if (hits.length === 0) return;
     const hit = hits[0];
     const mesh = hit.object as Mesh;
-    const faceIDArr = mesh.userData.faceID as Uint32Array | undefined;
-    const faces = mesh.userData.faces as FaceInfo[] | undefined;
-    if (!faceIDArr || !faces) return;
-    const localFaceId = faceIDArr[hit.faceIndex ?? 0];
-    const plane = faces[localFaceId];
-    if (!plane) return;
-    const strips = mesh.userData.contributingStripIds as string[] | undefined;
-    if (!strips || strips.length === 0) return;
-    const stripId = strips[0];
+    const faceIds = mesh.userData.faceIds as Uint32Array;
+    const faceId = faceIds[hit.faceIndex ?? 0];
+    if (faceId === UNASSIGNED_FACE_ID) return;
+    const stripId = mesh.userData.stripId as string | undefined;
+    if (!stripId) return;
 
-    updateSelections(selections, stripId, plane);
+    updateSelections(selections, stripId, faceId);
     rebuildHighlights(highlightsGroup, root, selections);
     onChange(selections);
   };
@@ -641,6 +471,7 @@ async function boot(): Promise<void> {
 
     let handle: ViewportHandle | null = null;
     let teardownSelection: (() => void) | null = null;
+    let currentStrips: Strip[] = [];
     let currentPlacedCount = 0;
 
     const renderStatus = (selections: Selection[]): void => {
@@ -648,7 +479,7 @@ async function boot(): Promise<void> {
         selections.length === 0
           ? 'click any face to select'
           : `selected ${selections.length}/2 · ${selections
-              .map((s) => s.stripId)
+              .map((s) => `${s.stripId}#${s.faceId}`)
               .join(' + ')}`;
       setStatus(
         `${currentPlacedCount}/${PIECES.length} pieces · drag to orbit · scroll to zoom · ${selDesc} · reshuffle for a new layout`,
@@ -659,8 +490,10 @@ async function boot(): Promise<void> {
       teardownSelection?.();
       teardownSelection = null;
       handle?.dispose();
+      currentStrips.forEach((s) => s.dispose());
 
-      const { root, placedCount } = buildScene();
+      const { root, strips, placedCount } = buildScene();
+      currentStrips = strips;
       currentPlacedCount = placedCount;
 
       const highlightsGroup = new Group();
@@ -677,13 +510,12 @@ async function boot(): Promise<void> {
       renderStatus([]);
 
       // Expose live references for debug / automated verification.
-      // This harness exists to reason about an interaction, so
-      // having the scene pokeable from the console is useful.
       (window as any).__experiment = {
         camera: handle.camera,
         canvas: handle.canvas,
         root,
         highlightsGroup,
+        strips,
         THREE: { Vector3, Raycaster, Vector2 },
       };
     };
