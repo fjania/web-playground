@@ -82,16 +82,14 @@
     .add-controls {
       position: absolute;
       top: 1.25rem;
-      /* Leave clearance for the 22px home button (injected inside .render at top:8px; right:8px). */
-      right: 3.25rem;
+      left: 1.25rem;
       display: flex;
       gap: 0.5rem;
       align-items: stretch;
       z-index: 2;
     }
     .algo-select,
-    .join-btn,
-    .add-btn {
+    .join-btn {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.78rem;
       padding: 0.5rem 0.75rem;
@@ -116,11 +114,26 @@
       background: #f0f0ea;
     }
     .add-btn {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      border: 1px solid #d4d4d0;
+      background: #fff;
+      border-radius: 4px;
+      color: #444;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       transition: background 120ms ease;
     }
     .add-btn:hover {
       background: #f0f0ea;
+    }
+    .add-btn svg {
+      width: 1.1rem;
+      height: 1.1rem;
     }
     .log-panel {
       flex: 0 0 auto;
@@ -189,10 +202,26 @@
     <section class="tile" data-tile="scene">
       <div class="render" data-slot="render"></div>
       <div class="add-controls">
-        <button type="button" class="add-btn" data-add="rect">+ rect</button>
-        <button type="button" class="add-btn" data-add="parallelogram">+ parallelogram</button>
-        <button type="button" class="add-btn" data-add="wedge">+ wedge</button>
-        <button type="button" class="add-btn" data-add="doorstop">+ doorstop</button>
+        <button type="button" class="add-btn" data-add="rect" title="Add rect" aria-label="Add rect">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="9" width="20" height="6" rx="0.5" />
+          </svg>
+        </button>
+        <button type="button" class="add-btn" data-add="parallelogram" title="Add parallelogram" aria-label="Add parallelogram">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9 L22 9 L18 15 L2 15 Z" />
+          </svg>
+        </button>
+        <button type="button" class="add-btn" data-add="wedge" title="Add wedge" aria-label="Add wedge">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5 L20 19 L4 19 Z" />
+          </svg>
+        </button>
+        <button type="button" class="add-btn" data-add="doorstop" title="Add doorstop" aria-label="Add doorstop">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 12 L3 5 L3 19 Z" />
+          </svg>
+        </button>
       </div>
       <div class="join-controls">
         <select class="algo-select" data-slot="join-algo" aria-label="Join algorithm"></select>
