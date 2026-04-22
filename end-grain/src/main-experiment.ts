@@ -136,11 +136,52 @@ function buildDoorstop(pieceId: string, pair: [Species, Species]): Strip {
   return bottomCut.below;
 }
 
-const PIECES: PieceDef[] = [
+/**
+ * A single 45° rip along the full length chops off the +Y / +Z corner
+ * of the 50×50 cross-section. Result is a pentagonal prism: the
+ * square cross-section with one corner clipped on the y + z = 25 diag.
+ */
+function buildBevel(pieceId: string, pair: [Species, Species]): Strip {
+  const base = Strip.fromAlternatingBlocks(pieceId, pair, BLOCK_COUNT, BLOCK_SIZE);
+  const INV_SQRT2 = 1 / Math.SQRT2;
+  const cut = base.cut({
+    normal: [0, INV_SQRT2, INV_SQRT2],
+    offset: 25 * INV_SQRT2,
+  });
+  base.dispose();
+  cut.above.dispose();
+  return cut.below;
+}
+
+/**
+ * Same rectangular bar as `buildRectangle` but with a 100 mm cross-
+ * section depth (Z) instead of 50 mm — a wider "board" of the same
+ * length.
+ */
+function buildWide(pieceId: string, pair: [Species, Species]): Strip {
+  return Strip.fromAlternatingBlocks(pieceId, pair, BLOCK_COUNT, {
+    width: BLOCK_SIZE.width,
+    height: BLOCK_SIZE.height,
+    depth: 100,
+  });
+}
+
+/**
+ * The four original pieces. `reshuffle` scatters this set — the new
+ * bevel/wide types are add-only so scatter doesn't outgrow SCENE_HALF.
+ */
+const STARTING_PIECES: PieceDef[] = [
   { name: 'rect', pair: ['maple', 'walnut'], build: buildRectangle },
   { name: 'parallelogram', pair: ['cherry', 'walnut'], build: buildParallelogram },
   { name: 'wedge', pair: ['padauk', 'maple'], build: buildWedge },
   { name: 'doorstop', pair: ['purpleheart', 'cherry'], build: buildDoorstop },
+];
+
+/** Full piece-type catalogue — every type the add-buttons can spawn. */
+const PIECES: PieceDef[] = [
+  ...STARTING_PIECES,
+  { name: 'bevel', pair: ['walnut', 'maple'], build: buildBevel },
+  { name: 'wide', pair: ['purpleheart', 'walnut'], build: buildWide },
 ];
 
 // ---------------------------------------------------------------------------
@@ -256,7 +297,7 @@ function partToMesh(part: Part): Mesh {
 function tryScatterStrips(): Strip[] | null {
   const existing: Box3[] = [];
   const placed: Strip[] = [];
-  for (const piece of PIECES) {
+  for (const piece of STARTING_PIECES) {
     const built = piece.build(piece.name, piece.pair);
     const result = placeStrip(built, existing);
     built.dispose();
@@ -871,18 +912,27 @@ async function boot(): Promise<void> {
           : `selected ${selections.length}/2 · ${selections
               .map((s) => `${s.stripId}#${s.faceId}`)
               .join(' + ')}`;
+      const pieceNote = `${placed} piece${placed === 1 ? '' : 's'}`;
+      const guidance =
+        placed === 0
+          ? 'add a strip from the upper-left to begin'
+          : `drag to orbit · scroll to zoom · ${selDesc}`;
       setStatus(
-        `${placed}/${PIECES.length} pieces${groupNote} · drag to orbit · scroll to zoom · ${selDesc} · reshuffle for a new layout`,
+        `${pieceNote}${groupNote} · ${guidance} · reshuffle for a scatter of the starting four`,
       );
     };
 
     /**
-     * Build the viewport for the current `stripsById`. `mode === 'fresh'`
-     * discards existing strips and scatters new ones; `'update'` keeps
-     * the existing strips as-is and just rebuilds the viewport (used
-     * after a join so the camera orientation persists).
+     * Build the viewport for the current `stripsById`.
+     *   'empty' : discard existing strips and leave the scene empty.
+     *   'fresh' : discard and scatter the starting-four pieces.
+     *   'update': keep the existing strips and rebuild the viewport,
+     *             preserving camera orientation.
+     *   'refit' : keep the existing strips but re-fit the camera to the
+     *             current bounds (used when the first strip lands in an
+     *             empty scene).
      */
-    const render = (mode: 'fresh' | 'update'): void => {
+    const render = (mode: 'fresh' | 'update' | 'empty' | 'refit'): void => {
       const previousCamera = handle?.getCameraState() ?? null;
       teardownSelection?.();
       teardownSelection = null;
@@ -891,14 +941,17 @@ async function boot(): Promise<void> {
       currentRoot = null;
       currentHighlights = null;
 
-      if (mode === 'fresh') {
+      if (mode === 'fresh' || mode === 'empty') {
         for (const s of stripsById.values()) s.dispose();
         stripsById.clear();
+        joinGroups = new Map();
+      }
+      if (mode === 'fresh') {
         const scattered = scatterStrips();
         for (const s of scattered) stripsById.set(s.id, s);
         joinGroups = makeInitialGroups(stripsById.keys());
         appendLog(
-          `scatter: ${scattered.length}/${PIECES.length} strips [${scattered
+          `scatter: ${scattered.length}/${STARTING_PIECES.length} strips [${scattered
             .map((s) => s.id)
             .join(', ')}]`,
         );
@@ -994,13 +1047,14 @@ async function boot(): Promise<void> {
         n += 1;
         id = `${piece.name}-${n}`;
       }
+      const wasEmpty = stripsById.size === 0;
       const built = piece.build(id, piece.pair);
       const existing: Box3[] = [];
       for (const s of stripsById.values()) existing.push(s.boundingBox());
-      // Try progressively larger volumes — the starting scatter packs
-      // SCENE_HALF tightly, so a 5th strip typically needs more room.
+      // Start at SCENE_HALF so the first strip lands inside the default
+      // camera frame; expand only if the scene is already packed.
       let result: ReturnType<typeof placeStrip> = null;
-      for (const mult of [1.5, 2.5, 4]) {
+      for (const mult of [1, 2, 4]) {
         result = placeStrip(built, existing, {
           x: SCENE_HALF.x * mult,
           y: SCENE_HALF.y * mult,
@@ -1016,10 +1070,13 @@ async function boot(): Promise<void> {
       stripsById.set(id, result.placed);
       joinGroups.set(id, new Set([id]));
       appendLog(`add: +${id}`);
-      render('update');
+      // First strip into an empty scene needs a camera refit — the
+      // previous-camera state was framed for "no content," so the
+      // freshly-placed strip would otherwise sit outside its frustum.
+      render(wasEmpty ? 'refit' : 'update');
     };
 
-    render('fresh');
+    render('empty');
     reshuffleBtn?.addEventListener('click', () => render('fresh'));
     joinBtn?.addEventListener('click', performJoin);
     for (const btn of document.querySelectorAll<HTMLButtonElement>(
