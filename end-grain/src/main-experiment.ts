@@ -508,9 +508,28 @@ interface JoinPlan {
   matrix: Matrix4;
   movingGroupId: string;
   movingStripIds: string[];
+  /** Which selection is the mover (useful for logs/verification). */
+  moverSel: Selection;
+  keepSel: Selection;
 }
 
-function planJoin(
+/**
+ * Join-algorithm registry. New algorithms are added as new functions
+ * (never replacing the old ones), then exposed here so they appear in
+ * the UI dropdown and we can A/B them on the same scene.
+ */
+interface JoinAlgo {
+  id: string;
+  label: string;
+  plan: (
+    selA: Selection,
+    selB: Selection,
+    stripsById: Map<string, Strip>,
+    groups: JoinGroups,
+  ) => JoinPlan | null;
+}
+
+function planJoinCentroidFlush(
   selA: Selection,
   selB: Selection,
   stripsById: Map<string, Strip>,
@@ -533,26 +552,34 @@ function planJoin(
   let movingGid: string;
   let moveStrip: Strip;
   let moveFaceId: number;
+  let moverSel: Selection;
   let keepStrip: Strip;
   let keepFaceId: number;
+  let keepSel: Selection;
   if (sizeA === 1 && sizeB > 1) {
     movingGid = gidA;
     moveStrip = stripA;
     moveFaceId = selA.faceId;
+    moverSel = selA;
     keepStrip = stripB;
     keepFaceId = selB.faceId;
+    keepSel = selB;
   } else if (sizeB === 1 && sizeA > 1) {
     movingGid = gidB;
     moveStrip = stripB;
     moveFaceId = selB.faceId;
+    moverSel = selB;
     keepStrip = stripA;
     keepFaceId = selA.faceId;
+    keepSel = selA;
   } else {
     movingGid = gidB;
     moveStrip = stripB;
     moveFaceId = selB.faceId;
+    moverSel = selB;
     keepStrip = stripA;
     keepFaceId = selA.faceId;
+    keepSel = selA;
   }
 
   const moveCenter = moveStrip.faceCenter(moveFaceId);
@@ -592,8 +619,22 @@ function planJoin(
     matrix,
     movingGroupId: movingGid,
     movingStripIds: [...groups.get(movingGid)!],
+    moverSel,
+    keepSel,
   };
 }
+
+/**
+ * The registry. Order matters — first entry is the default choice in
+ * the dropdown on first load.
+ */
+const JOIN_ALGOS: JoinAlgo[] = [
+  {
+    id: 'centroid-flush',
+    label: 'Centroid flush',
+    plan: planJoinCentroidFlush,
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -608,14 +649,57 @@ async function boot(): Promise<void> {
   const joinBtn = document.querySelector<HTMLButtonElement>(
     '[data-slot="join"]',
   );
+  const algoSelectEl = document.querySelector<HTMLSelectElement>(
+    '[data-slot="join-algo"]',
+  );
+  const logEl = document.querySelector<HTMLElement>('[data-slot="log"]');
   const setStatus = (msg: string) => {
     if (statusEl) statusEl.textContent = msg;
   };
+  const bootTime = performance.now();
+  const LOG_MAX_ENTRIES = 200;
+  const appendLog = (msg: string): void => {
+    if (!logEl) return;
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    const ts = document.createElement('span');
+    ts.className = 'log-timestamp';
+    const secs = (performance.now() - bootTime) / 1000;
+    ts.textContent = `${secs.toFixed(1).padStart(5, ' ')}s`;
+    const text = document.createElement('span');
+    text.className = 'log-msg';
+    text.textContent = msg;
+    entry.title = msg; // full text on hover if truncated
+    entry.appendChild(ts);
+    entry.appendChild(text);
+    logEl.appendChild(entry);
+    while (logEl.children.length > LOG_MAX_ENTRIES) {
+      logEl.removeChild(logEl.firstChild!);
+    }
+    logEl.scrollTop = logEl.scrollHeight;
+  };
   if (!tileEl) throw new Error('missing scene tile');
+
+  // Populate algorithm dropdown.
+  if (algoSelectEl) {
+    algoSelectEl.innerHTML = '';
+    for (const algo of JOIN_ALGOS) {
+      const opt = document.createElement('option');
+      opt.value = algo.id;
+      opt.textContent = algo.label;
+      algoSelectEl.appendChild(opt);
+    }
+  }
+  const currentAlgo = (): JoinAlgo => {
+    const id = algoSelectEl?.value;
+    return JOIN_ALGOS.find((a) => a.id === id) ?? JOIN_ALGOS[0];
+  };
 
   try {
     setStatus('loading Manifold WASM…');
+    appendLog('loading Manifold WASM…');
     await initManifold();
+    appendLog('Manifold ready');
 
     let handle: ViewportHandle | null = null;
     let teardownSelection: (() => void) | null = null;
@@ -674,6 +758,11 @@ async function boot(): Promise<void> {
         const scattered = scatterStrips();
         for (const s of scattered) stripsById.set(s.id, s);
         joinGroups = makeInitialGroups(stripsById.keys());
+        appendLog(
+          `scatter: ${scattered.length}/${PIECES.length} strips [${scattered
+            .map((s) => s.id)
+            .join(', ')}]`,
+        );
       }
 
       const root = buildRoot(stripsById.values());
@@ -710,8 +799,12 @@ async function boot(): Promise<void> {
       if (currentSelections.length !== 2) return;
       const [selA, selB] = currentSelections;
       if (selA.stripId === selB.stripId) return;
-      const plan = planJoin(selA, selB, stripsById, joinGroups);
+      const algo = currentAlgo();
+      const plan = algo.plan(selA, selB, stripsById, joinGroups);
       if (!plan) {
+        appendLog(
+          `join[${algo.id}] FAILED: ${selA.stripId}#${selA.faceId} + ${selB.stripId}#${selB.faceId}`,
+        );
         console.warn('[join] could not plan join', selA, selB);
         return;
       }
@@ -725,12 +818,25 @@ async function boot(): Promise<void> {
       }
       // Merge groups so future joins know they're rigidly linked.
       const keepGid =
-        groupIdOf(joinGroups, selA.stripId) ??
-        groupIdOf(joinGroups, selB.stripId);
+        groupIdOf(joinGroups, plan.keepSel.stripId) ??
+        groupIdOf(joinGroups, plan.moverSel.stripId);
       const absorbGid = plan.movingGroupId;
       if (keepGid && keepGid !== absorbGid) {
         mergeGroups(joinGroups, keepGid, absorbGid);
       }
+      // Post-join diagnostic: both face centers should coincide.
+      const moverStrip = stripsById.get(plan.moverSel.stripId);
+      const keepStrip = stripsById.get(plan.keepSel.stripId);
+      const moverCenter = moverStrip?.faceCenter(plan.moverSel.faceId);
+      const keepCenter = keepStrip?.faceCenter(plan.keepSel.faceId);
+      const deltaStr =
+        moverCenter && keepCenter
+          ? moverCenter.distanceTo(keepCenter).toExponential(2)
+          : 'n/a';
+      const movedCount = plan.movingStripIds.length;
+      appendLog(
+        `join[${algo.id}] ${plan.moverSel.stripId}#${plan.moverSel.faceId} → ${plan.keepSel.stripId}#${plan.keepSel.faceId} · moved ${movedCount} strip${movedCount === 1 ? '' : 's'} · flush Δ=${deltaStr}`,
+      );
       // Rebuild scene preserving camera; selection state is reset.
       render('update');
     };
