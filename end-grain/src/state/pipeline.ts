@@ -563,8 +563,7 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   ];
 
   // ---- 4. Apply PlaceEdits per slice. ----
-  // Group edits by sliceIdx. rotate and shift accumulate; reorder is
-  // collected separately and applied to the output sequence.
+  // Group edits by sliceIdx. rotate and shift accumulate.
   const editsBySlice = new Map<number, Array<{ edit: PlaceEdit; source: string }>>();
   for (const e of mergedEdits) {
     const arr = editsBySlice.get(e.edit.target.sliceIdx) ?? [];
@@ -572,8 +571,6 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
     editsBySlice.set(e.edit.target.sliceIdx, arr);
   }
 
-  // Per-slice transforms. `sliceOrder` starts as identity 0..N-1,
-  // then reorder edits mutate it.
   const transformedSlices: Panel[] = upstreamSlices.map((slice, i) => {
     const edits = editsBySlice.get(i) ?? [];
     let current = slice.clone();
@@ -595,18 +592,9 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
         current.dispose();
         current = shifted;
       }
-      // reorder is sequence-level; handled below.
     }
     return current;
   });
-
-  // Reorder: apply in edit order, last wins per slice.
-  let sliceOrder = upstreamSlices.map((_, i) => i);
-  for (const { edit } of mergedEdits) {
-    if (edit.op.kind === 'reorder') {
-      sliceOrder = reorderSequence(sliceOrder, edit.target.sliceIdx, edit.op.newIdx);
-    }
-  }
 
   // ---- 5. Mate faces successively along the panel's +Z axis. ----
   //
@@ -666,12 +654,10 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   const nZ = Math.abs(normalAxis[2]);
   const zFactor = nZ > 1e-6 ? nZ : 1;
 
-  // Cursor starts at the bench (Z=0), not at wherever the first slice
-  // happens to project to along the normal. Upstream slices are in the
-  // canonical (bench-anchored) frame, so for identity-order Arrange
-  // the first slice's d_low is already 0 and this is a no-op; for a
-  // reordered Arrange it prevents the assembled panel from drifting
-  // by up to one pitch in Z. See principle #5 (the maker's frame).
+  // Cursor starts at the bench (Z=0). Upstream slices are in the
+  // canonical (bench-anchored) frame, so for an identity Arrange the
+  // first slice's d_low is already 0 and this is a no-op.
+  // See principle #5 (the maker's frame).
   let cursor = 0;
 
   const placedSlices: Panel[] = [];
@@ -687,18 +673,14 @@ function executeArrange(f: Arrange, ctx: ExecutionContext): ArrangeResult {
   const appliedSpacerSources: string[] = [];
   let appliedSpacerCount = 0;
 
-  for (let outIdx = 0; outIdx < sliceOrder.length; outIdx++) {
-    const sliceIdx = sliceOrder[outIdx];
+  for (let sliceIdx = 0; sliceIdx < transformedSlices.length; sliceIdx++) {
     const slice = transformedSlices[sliceIdx];
     const m = slice.projectOnto(normalAxis);
     const dz = (cursor - m.min) / zFactor;
     placedSlices.push(slice.translate(0, 0, dz));
     cursor += m.extent;
 
-    // After placing slice-at-sliceIdx, insert any spacers keyed on
-    // that sliceIdx (NB: afterSliceIdx is a reference to the input
-    // slice, not the output position — spacer targets are slice
-    // references just like edits).
+    // After placing slice sliceIdx, insert any spacers keyed on it.
     const here = spacersByAfterIdx.get(sliceIdx) ?? [];
     for (const { spacer, source } of here) {
       const spacerPanel = makeSpacerPanel(spacer, upstreamSlices[0], normalAxis);
@@ -1145,20 +1127,6 @@ function computeCutNormalForArrange(cut: Cut): [number, number, number] {
     -Math.sin(alphaRad),
     Math.cos(ripRad) * Math.cos(alphaRad),
   ];
-}
-
-/**
- * Move sequence[fromIdx] to position newIdx, shifting other entries.
- * Out-of-range indices clamp to the sequence bounds. Used by the
- * reorder op.
- */
-function reorderSequence(seq: number[], fromIdx: number, newIdx: number): number[] {
-  if (fromIdx < 0 || fromIdx >= seq.length) return seq;
-  const clampedNew = Math.max(0, Math.min(seq.length - 1, newIdx));
-  const copy = seq.slice();
-  const [picked] = copy.splice(fromIdx, 1);
-  copy.splice(clampedNew, 0, picked);
-  return copy;
 }
 
 /**

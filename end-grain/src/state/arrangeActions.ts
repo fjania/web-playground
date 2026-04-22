@@ -14,7 +14,6 @@
 
 import {
   clearEditsOnSlices as editsClearOnSlices,
-  reorderSlice as editsReorderSlice,
   rotate90 as editsRotate90,
   setShift as editsSetShift,
   shiftForSlice as editsShiftForSlice,
@@ -84,14 +83,6 @@ export function rotate90Selection(a: ArrangeActionContext): void {
 export function clearSelectionEdits(a: ArrangeActionContext): void {
   if (a.selection.set.size === 0) return;
   a.setEdits(editsClearOnSlices(a.edits, a.selection.set));
-}
-
-export function reorderSlice(
-  a: ArrangeActionContext,
-  fromPos: number,
-  toPos: number,
-): void {
-  a.setEdits(editsReorderSlice(a.edits, fromPos, toPos, editCtx(a)));
 }
 
 export function applyShiftDelta(a: ArrangeActionContext, delta: number): void {

@@ -331,15 +331,10 @@ describe('compile-time type shapes', () => {
     expect(withoutProv.contributingStripIds).toBeUndefined();
   });
 
-  it('PlaceEditOp covers reorder | rotate | shift', () => {
-    const reorder: PlaceEditOp = { kind: 'reorder', newIdx: 2 };
+  it('PlaceEditOp covers rotate | shift', () => {
     const rotate: PlaceEditOp = { kind: 'rotate', degrees: 90 };
     const shift: PlaceEditOp = { kind: 'shift', delta: 12.5 };
-    expect([reorder.kind, rotate.kind, shift.kind]).toEqual([
-      'reorder',
-      'rotate',
-      'shift',
-    ]);
+    expect([rotate.kind, shift.kind]).toEqual(['rotate', 'shift']);
   });
 
   it('Preset variants type-check their params', () => {

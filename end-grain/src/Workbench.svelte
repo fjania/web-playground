@@ -46,7 +46,6 @@
   import ArrangePreview from './ui/ArrangePreview.svelte';
   import {
     handleArrangeKey as sharedHandleArrangeKey,
-    reorderSlice as sharedReorderSlice,
     type ArrangeActionContext,
   } from './state/arrangeActions';
   import type {
@@ -533,17 +532,6 @@
     }
   }
 
-  /** Append a reorder edit from a drag-and-drop on the ArrangePreview.
-   *  `fromPos` / `toPos` are positions in the currently-rendered
-   *  slice order, matching the pipeline's reorderSequence semantics. */
-  function reorderArrangeSlice(
-    feature: Arrange,
-    fromPos: number,
-    toPos: number,
-  ): void {
-    sharedReorderSlice(buildArrangeContext(feature), fromPos, toPos);
-  }
-
   function allocateIdFn(prefix: IdPrefix): string {
     return allocateId(idCounter, prefix);
   }
@@ -824,9 +812,6 @@
                         onSelectionChange={(ev) => {
                           setArrangeSelection(feature.id, ev.selection, ev.anchor);
                         }}
-                        onReorder={(ev) =>
-                          reorderArrangeSlice(feature, ev.fromPos, ev.toPos)
-                        }
                       />
                     {/if}
                   {:else if feature.kind === 'trimPanel'}

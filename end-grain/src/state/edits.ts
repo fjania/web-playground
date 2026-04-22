@@ -114,22 +114,6 @@ function buildShift(
   };
 }
 
-function buildReorder(
-  ctx: EditContext,
-  fromPos: number,
-  newIdx: number,
-): PlaceEdit {
-  return {
-    kind: 'placeEdit',
-    id: ctx.allocateId(),
-    // `target.sliceIdx` here is a POSITION in the current (post-prior-
-    // edits) sequence, per the pipeline's reorderSequence semantics.
-    target: { arrangeId: ctx.arrangeId, sliceIdx: fromPos },
-    op: { kind: 'reorder', newIdx },
-    status: 'ok',
-  };
-}
-
 interface StripResult {
   filtered: PlaceEdit[];
   existingId?: string;
@@ -215,23 +199,6 @@ export function setShift(
 }
 
 /**
- * Append a reorder edit: move the slice currently at visible
- * position `fromPos` to position `toPos`. A no-op (`fromPos ===
- * toPos`) returns the input list unchanged. Appended at the tail
- * so it composes with any prior reorders via the pipeline's
- * sequential `reorderSequence` replay.
- */
-export function reorderSlice(
-  edits: PlaceEdit[],
-  fromPos: number,
-  toPos: number,
-  ctx: EditContext,
-): PlaceEdit[] {
-  if (fromPos === toPos) return edits;
-  return [...edits, buildReorder(ctx, fromPos, toPos)];
-}
-
-/**
  * Remove all rotate + shift edits on the given slices.
  */
 export function clearEditsOnSlices(
@@ -247,7 +214,6 @@ export function clearEditsOnSlices(
  * Canonicalize an edit list:
  *   - At most one rotate + one shift per slice (last-write-wins).
  *   - Identity rotate (0°) / shift (0 mm) dropped.
- *   - `reorder` edits (legacy kind) pass through untouched.
  *
  * Use when ingesting edits from persisted designs or preset
  * expansions that may not have been authored through the new
@@ -256,13 +222,11 @@ export function clearEditsOnSlices(
 export function normalizeEdits(edits: PlaceEdit[]): PlaceEdit[] {
   const rotates = new Map<number, PlaceEdit>();
   const shifts = new Map<number, PlaceEdit>();
-  const others: PlaceEdit[] = [];
   for (const e of edits) {
     if (e.op.kind === 'rotate') rotates.set(e.target.sliceIdx, e);
     else if (e.op.kind === 'shift') shifts.set(e.target.sliceIdx, e);
-    else others.push(e);
   }
-  const out: PlaceEdit[] = [...others];
+  const out: PlaceEdit[] = [];
   for (const e of rotates.values()) {
     if (e.op.kind !== 'rotate') continue;
     const d = canonicalDegrees(e.op.degrees);

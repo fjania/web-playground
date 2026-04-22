@@ -198,7 +198,6 @@ export interface PlaceEditTarget {
  * on the type.
  */
 export type PlaceEditOp =
-  | { kind: 'reorder'; newIdx: number }
   | { kind: 'rotate'; degrees: number }
   /** mm, perpendicular to cut normal (along +X for an unrotated cut). */
   | { kind: 'shift'; delta: number };

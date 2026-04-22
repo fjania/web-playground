@@ -201,11 +201,7 @@ function paramsSummary(f: Feature): string {
     case 'placeEdit': {
       const op = f.op;
       const opStr =
-        op.kind === 'rotate'
-          ? `rotate ${op.degrees}°`
-          : op.kind === 'shift'
-            ? `shift ${op.delta}`
-            : `reorder → ${op.newIdx}`;
+        op.kind === 'rotate' ? `rotate ${op.degrees}°` : `shift ${op.delta}`;
       return `${f.target.arrangeId}[${f.target.sliceIdx}] · ${opStr}`;
     }
     case 'preset':

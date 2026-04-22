@@ -281,15 +281,4 @@ describe('normalizeEdits', () => {
     expect(shiftsFor(next, 1)).toHaveLength(1);
   });
 
-  it('passes unknown op kinds (e.g. reorder) through untouched', () => {
-    const reorder: PlaceEdit = {
-      kind: 'placeEdit',
-      id: 'r-0',
-      target: { arrangeId: 'arrange-0', sliceIdx: 2 },
-      op: { kind: 'reorder', newIdx: 5 },
-      status: 'ok',
-    };
-    const next = normalizeEdits([reorder]);
-    expect(next).toEqual([reorder]);
-  });
 });

@@ -27,7 +27,6 @@
   // ArrangePreview components, matching workbench parity.
   import {
     handleArrangeKey as sharedHandleArrangeKey,
-    reorderSlice as sharedReorderSlice,
     type ArrangeActionContext,
   } from './state/arrangeActions';
   import type { Panel } from './domain/Panel';
@@ -127,23 +126,6 @@
         id: allocateId(counter, 'edit'),
         target: { arrangeId, sliceIdx: Math.floor(idx) },
         op: { kind: 'rotate', degrees },
-        status: 'ok',
-      });
-    }
-  }
-
-  const reorderParam = params.get('reorder');
-  if (reorderParam) {
-    for (const pair of reorderParam.split(',')) {
-      const [fromStr, toStr] = pair.split(':');
-      const fromPos = Number(fromStr);
-      const newIdx = Number(toStr);
-      if (!Number.isFinite(fromPos) || !Number.isFinite(newIdx)) continue;
-      timeline.push({
-        kind: 'placeEdit',
-        id: allocateId(counter, 'edit'),
-        target: { arrangeId, sliceIdx: Math.floor(fromPos) },
-        op: { kind: 'reorder', newIdx: Math.floor(newIdx) },
         status: 'ok',
       });
     }
@@ -261,23 +243,18 @@
   }
 
   /**
-   * The "arrange1-bug" scenario reproduces the non-rectangular-upstream
-   * condition from the workbench design saved as `untitled` at the time
-   * issue #47 was written. Pipeline:
+   * The "arrange1-bug" scenario sets up a non-rectangular upstream
+   * condition for the iterated Arrange. Pipeline:
    *
    *   Compose (10 × 50 mm alternating strips, length 400)
    *     → Cut-0 (rip 4°, 4 slices)                ← produces parallelogram prisms
-   *       → Arrange-0 (2 walnut 5mm spacers after slice 0, + reorder
-   *                    sliceIdx 0→1, reorder 2→0, rotate 2 180°,
-   *                    rotate 3 180°)             ← assembled panel's outline
-   *                                                 is non-rectangular in X
+   *       → Arrange-0 (2 walnut 5mm spacers after slice 0,
+   *                    rotate 2 180°, rotate 3 180°)
    *         → Cut-1 (rip 0°, 4 slices)            ← slices inherit X asymmetry
    *           → Arrange-1 (empty — the harness's iterated target)
    *
-   * URL reorder/flip/etc. params target Arrange-1 (the last Arrange);
-   * Arrange-0's edits and the upstream Cuts are baked into the scenario
-   * so the bug's preconditions are reproducible and don't need their
-   * own knobs.
+   * URL flip/shift/etc. params target Arrange-1 (the last Arrange);
+   * Arrange-0's edits and the upstream Cuts are baked into the scenario.
    */
   function buildArrange1BugScenario(c: IdCounter): Feature[] {
     const stripSpecies: Species[] = [
@@ -354,20 +331,6 @@
         afterSliceIdx: 0,
         species: 'walnut',
         width: 5,
-        status: 'ok',
-      },
-      {
-        kind: 'placeEdit',
-        id: allocateId(c, 'edit'),
-        target: { arrangeId: arrange0Id, sliceIdx: 0 },
-        op: { kind: 'reorder', newIdx: 1 },
-        status: 'ok',
-      },
-      {
-        kind: 'placeEdit',
-        id: allocateId(c, 'edit'),
-        target: { arrangeId: arrange0Id, sliceIdx: 2 },
-        op: { kind: 'reorder', newIdx: 0 },
         status: 'ok',
       },
       {
@@ -450,10 +413,6 @@
     if (sharedHandleArrangeKey(buildActionContext(), e)) {
       e.preventDefault();
     }
-  }
-
-  function reorderArrangeSlice(fromPos: number, toPos: number): void {
-    sharedReorderSlice(buildActionContext(), fromPos, toPos);
   }
 
   // ---- Derived rendering ----
@@ -633,7 +592,6 @@
             onSelectionChange={(ev) => {
               selection = { set: ev.selection, anchor: ev.anchor };
             }}
-            onReorder={(ev) => reorderArrangeSlice(ev.fromPos, ev.toPos)}
           />
         </div>
       {:else}
@@ -670,12 +628,12 @@
       <h3>URL parameters</h3>
       <div class="hint">Scenario (full upstream preset)
   <code>?scenario=arrange1-bug</code>
-                 Reproduces #47's motivating example:
+                 Non-rectangular upstream sandbox:
                  Compose(10×50mm) → Cut(rip=4°,4) →
-                 Arrange(spacers + 2 reorders + 2 rotates)
-                 → Cut(rip=0°,4) → Arrange (iterated).
-                 Upstream is non-rectangular, so the iterated
-                 Arrange's input slices have X-asymmetric bboxes.
+                 Arrange(spacers + 2 rotates) →
+                 Cut(rip=0°,4) → Arrange (iterated).
+                 The iterated Arrange's input slices have
+                 X-asymmetric bboxes.
 
 Upstream Cut (applies to the cut feeding the last Arrange;
  in a scenario these defaults are baked in)
@@ -694,11 +652,6 @@ Per-slice edits
                  the same plane family as its neighbours, so
                  there'll be visible gaps. Useful for exploration,
                  not for producing buildable panels.
-  <code>?reorder=2:0</code>   move slice at current position 2 to
-                 position 0. Chain with comma; each move is applied
-                 in order so later moves see the already-reordered
-                 sequence (like dragging slices one at a time).
-                 Example: <code>?reorder=2:0,3:1</code>
 
 Spacers (between slices)
   <code>?spacer=1</code>   insert a 5 mm walnut spacer

@@ -394,7 +394,6 @@ function fmt(n: number): string {
  *     rotate  90  → '↻90°'
  *     rotate 270  → '↻270°'
  *     shift       → '→ Δmm' with sign
- *     reorder     → '#N' showing the slice's new position
  * - Each SpacerInsert's volumes get a diagonal-hatched overlay so
  *   inserted material reads as distinct from adjacent slice
  *   material even when the spacer's species matches a neighbour.
@@ -481,8 +480,6 @@ function editLabel(edit: PlaceEdit): string {
       const sign = d > 0 ? '+' : '';
       return `⇢ ${sign}${fmt(d)}`;
     }
-    case 'reorder':
-      return `#${edit.op.newIdx}`;
     default:
       return '';
   }
