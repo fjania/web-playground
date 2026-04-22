@@ -331,6 +331,170 @@ export class Strip {
     return new Vector3(wx / totalArea, wy / totalArea, wz / totalArea);
   }
 
+  /**
+   * Dominant in-plane direction of the face polygon — the first
+   * principal axis of its area distribution. Unit vector in world
+   * space, lying in the face plane (perpendicular to `face.plane.normal`).
+   *
+   * Uses the exact polygon-covariance formula: for a polygon
+   * triangulated into triangles i with centroid c_i, area A_i, and
+   * vertex displacements d_{i,j} = v_{i,j} - c_i, the covariance about
+   * the polygon centroid c_poly is
+   *
+   *   Σ_i [ (A_i/12) Σ_j d_{i,j} d_{i,j}^T  +  A_i (c_i - c_poly)(c_i - c_poly)^T ]
+   *
+   * The 1/12 per-triangle term is the exact second moment of a
+   * uniform-density triangle about its own centroid (from the
+   * barycentric E[α²]=1/6, E[αβ]=1/12 identities). The second is the
+   * parallel-axis shift to the polygon centroid. With both terms, a
+   * square gives degenerate (equal) eigenvalues — any direction is
+   * "principal" — as it should, while a rectangle's dominant
+   * eigenvector points along the long edge.
+   *
+   * Returns null when the face has no triangles or when the covariance
+   * is too small to decompose reliably.
+   */
+  facePrincipalAxis(faceId: number): Vector3 | null {
+    const face = this.faces.find((f) => f.id === faceId);
+    if (!face) return null;
+    const center = this.faceCenter(faceId);
+    if (!center) return null;
+
+    const normal = new Vector3(
+      face.plane.normal[0],
+      face.plane.normal[1],
+      face.plane.normal[2],
+    ).normalize();
+
+    // Orthonormal (u, v) frame on the face plane.
+    const u = new Vector3();
+    if (Math.abs(normal.x) < 0.9) u.set(1, 0, 0);
+    else u.set(0, 1, 0);
+    u.sub(normal.clone().multiplyScalar(u.dot(normal))).normalize();
+    const v = new Vector3().crossVectors(normal, u).normalize();
+
+    let Cuu = 0;
+    let Cuv = 0;
+    let Cvv = 0;
+
+    for (const part of this.parts) {
+      const mfMesh = part.manifold.getMesh();
+      const verts = mfMesh.vertProperties as Float32Array;
+      const triVerts = mfMesh.triVerts as Uint32Array;
+      const numProp = mfMesh.numProp as number;
+      const numTri = triVerts.length / 3;
+
+      for (let t = 0; t < numTri; t++) {
+        const i0 = triVerts[t * 3];
+        const i1 = triVerts[t * 3 + 1];
+        const i2 = triVerts[t * 3 + 2];
+        const ax = verts[i0 * numProp];
+        const ay = verts[i0 * numProp + 1];
+        const az = verts[i0 * numProp + 2];
+        const bx = verts[i1 * numProp];
+        const by = verts[i1 * numProp + 1];
+        const bz = verts[i1 * numProp + 2];
+        const cx = verts[i2 * numProp];
+        const cy = verts[i2 * numProp + 1];
+        const cz = verts[i2 * numProp + 2];
+
+        const abx = bx - ax;
+        const aby = by - ay;
+        const abz = bz - az;
+        const acx = cx - ax;
+        const acy = cy - ay;
+        const acz = cz - az;
+        const nx = aby * acz - abz * acy;
+        const ny = abz * acx - abx * acz;
+        const nz = abx * acy - aby * acx;
+        const len = Math.hypot(nx, ny, nz);
+        if (len < 1e-12) continue;
+        const nnx = nx / len;
+        const nny = ny / len;
+        const nnz = nz / len;
+        const d = nnx * ax + nny * ay + nnz * az;
+        const dot =
+          face.plane.normal[0] * nnx +
+          face.plane.normal[1] * nny +
+          face.plane.normal[2] * nnz;
+        if (1 - dot > PLANE_NORMAL_TOL) continue;
+        if (Math.abs(face.plane.offset - d) > PLANE_OFFSET_TOL) continue;
+
+        const area = 0.5 * len;
+
+        // Project each vertex into (u, v) relative to polygon centroid.
+        const pax = ax - center.x;
+        const pay = ay - center.y;
+        const paz = az - center.z;
+        const pbx = bx - center.x;
+        const pby = by - center.y;
+        const pbz = bz - center.z;
+        const pcx = cx - center.x;
+        const pcy = cy - center.y;
+        const pcz = cz - center.z;
+        const au = pax * u.x + pay * u.y + paz * u.z;
+        const av = pax * v.x + pay * v.y + paz * v.z;
+        const bu = pbx * u.x + pby * u.y + pbz * u.z;
+        const bv = pbx * v.x + pby * v.y + pbz * v.z;
+        const cu = pcx * u.x + pcy * u.y + pcz * u.z;
+        const cv = pcx * v.x + pcy * v.y + pcz * v.z;
+
+        // Triangle centroid in (u, v).
+        const tcu = (au + bu + cu) / 3;
+        const tcv = (av + bv + cv) / 3;
+
+        // d_j = v_j - c_tri.
+        const d0u = au - tcu;
+        const d0v = av - tcv;
+        const d1u = bu - tcu;
+        const d1v = bv - tcv;
+        const d2u = cu - tcu;
+        const d2v = cv - tcv;
+
+        // Triangle self-covariance about its own centroid, scaled by area.
+        const k = area / 12;
+        Cuu += k * (d0u * d0u + d1u * d1u + d2u * d2u);
+        Cuv += k * (d0u * d0v + d1u * d1v + d2u * d2v);
+        Cvv += k * (d0v * d0v + d1v * d1v + d2v * d2v);
+        // Parallel-axis term to polygon centroid.
+        Cuu += area * tcu * tcu;
+        Cuv += area * tcu * tcv;
+        Cvv += area * tcv * tcv;
+      }
+    }
+
+    if (Cuu + Cvv < 1e-18) return null;
+
+    // Dominant eigenvector of the symmetric 2x2 [[Cuu, Cuv], [Cuv, Cvv]].
+    const trace = Cuu + Cvv;
+    const diff = Cuu - Cvv;
+    const disc = Math.sqrt((diff * diff) / 4 + Cuv * Cuv);
+    const lambda1 = trace / 2 + disc;
+
+    let eu: number;
+    let ev: number;
+    if (Math.abs(Cuv) > 1e-18) {
+      eu = Cuv;
+      ev = lambda1 - Cuu;
+    } else if (Cuu >= Cvv) {
+      eu = 1;
+      ev = 0;
+    } else {
+      eu = 0;
+      ev = 1;
+    }
+    const en = Math.hypot(eu, ev);
+    if (en < 1e-18) return null;
+    eu /= en;
+    ev /= en;
+
+    return new Vector3(
+      eu * u.x + ev * v.x,
+      eu * u.y + ev * v.y,
+      eu * u.z + ev * v.z,
+    );
+  }
+
   dispose(): void {
     for (const p of this.parts) p.manifold.delete();
     this.parts = [];
