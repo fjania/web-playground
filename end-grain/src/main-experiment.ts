@@ -829,6 +829,9 @@ async function boot(): Promise<void> {
   const joinBtn = document.querySelector<HTMLButtonElement>(
     '[data-slot="join"]',
   );
+  const detachBtn = document.querySelector<HTMLButtonElement>(
+    '[data-slot="detach"]',
+  );
   const algoSelectEl = document.querySelector<HTMLSelectElement>(
     '[data-slot="join-algo"]',
   );
@@ -897,9 +900,23 @@ async function boot(): Promise<void> {
       joinBtn.disabled = !canJoin;
     };
 
+    const updateDetachButton = (selections: Selection[]): void => {
+      if (!detachBtn) return;
+      // Enabled when exactly one face is selected on a strip that is
+      // currently joined to at least one other strip.
+      let canDetach = false;
+      if (selections.length === 1) {
+        const gid = groupIdOf(joinGroups, selections[0].stripId);
+        const group = gid ? joinGroups.get(gid) : null;
+        canDetach = !!group && group.size > 1;
+      }
+      detachBtn.disabled = !canDetach;
+    };
+
     const renderStatus = (selections: Selection[]): void => {
       currentSelections = selections;
       updateJoinButton(selections);
+      updateDetachButton(selections);
       const placed = stripsById.size;
       const groupCount = joinGroups.size;
       const groupNote =
@@ -984,6 +1001,9 @@ async function boot(): Promise<void> {
         stripsById,
         joinGroups,
         algos: JOIN_ALGOS,
+        // Debug surface — drive selection state from devtools without
+        // synthesizing pointer events. Re-bound on every render.
+        setSelections: (sels: Selection[]) => renderStatus(sels),
         THREE: { Vector3, Raycaster, Vector2, Matrix4, Quaternion },
       };
     };
@@ -1076,9 +1096,34 @@ async function boot(): Promise<void> {
       render(wasEmpty ? 'refit' : 'update');
     };
 
+    const performDetach = (): void => {
+      if (currentSelections.length !== 1) return;
+      const { stripId } = currentSelections[0];
+      const gid = groupIdOf(joinGroups, stripId);
+      if (!gid) return;
+      const group = joinGroups.get(gid);
+      if (!group || group.size <= 1) return;
+
+      const oldMembers = [...group];
+      group.delete(stripId);
+
+      // If the detached strip's id WAS the group's key, the remaining
+      // members need a fresh key — pick any remaining member.
+      if (gid === stripId) {
+        const remaining = [...group];
+        joinGroups.delete(gid);
+        joinGroups.set(remaining[0], new Set(remaining));
+      }
+      joinGroups.set(stripId, new Set([stripId]));
+
+      appendLog(`detach: ${stripId} from [${oldMembers.join(', ')}]`);
+      render('update');
+    };
+
     render('empty');
     reshuffleBtn?.addEventListener('click', () => render('fresh'));
     joinBtn?.addEventListener('click', performJoin);
+    detachBtn?.addEventListener('click', performDetach);
     for (const btn of document.querySelectorAll<HTMLButtonElement>(
       '[data-add]',
     )) {
