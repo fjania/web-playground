@@ -284,9 +284,70 @@ function scatterStrips(): Strip[] {
   return placed;
 }
 
+/**
+ * Workbench plane — a large, thin quad at y=BENCH_Y that visualizes
+ * the bench-flush constraint. Rendered as a dimly-lit grey panel with
+ * a thin top outline, depth-tested so strips sitting on it show the
+ * expected edge-kiss.
+ */
+function buildBenchMesh(): Group {
+  const group = new Group();
+  group.userData.role = 'bench';
+  const HALF_X = 800;
+  const HALF_Z = 800;
+  const geo = new BufferGeometry();
+  const positions = new Float32Array([
+    -HALF_X, BENCH_Y, -HALF_Z,
+    HALF_X, BENCH_Y, -HALF_Z,
+    HALF_X, BENCH_Y, HALF_Z,
+    -HALF_X, BENCH_Y, HALF_Z,
+  ]);
+  geo.setAttribute('position', new BufferAttribute(positions, 3));
+  geo.setIndex(new BufferAttribute(new Uint32Array([0, 1, 2, 0, 2, 3]), 1));
+  geo.computeVertexNormals();
+  const mat = new MeshBasicMaterial({
+    color: 0x2a2a28,
+    transparent: true,
+    opacity: 0.85,
+    side: 2, // DoubleSide — bench is visible from both above and below.
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+  const mesh = new Mesh(geo, mat);
+  mesh.renderOrder = -10; // draw behind strips
+  mesh.userData.role = 'bench-panel';
+  group.add(mesh);
+
+  const edgesGeo = new BufferGeometry();
+  edgesGeo.setAttribute(
+    'position',
+    new BufferAttribute(
+      new Float32Array([
+        -HALF_X, BENCH_Y, -HALF_Z, HALF_X, BENCH_Y, -HALF_Z,
+        HALF_X, BENCH_Y, -HALF_Z, HALF_X, BENCH_Y, HALF_Z,
+        HALF_X, BENCH_Y, HALF_Z, -HALF_X, BENCH_Y, HALF_Z,
+        -HALF_X, BENCH_Y, HALF_Z, -HALF_X, BENCH_Y, -HALF_Z,
+      ]),
+      3,
+    ),
+  );
+  const edgesMat = new LineBasicMaterial({
+    color: 0x4a4a48,
+    transparent: true,
+    opacity: 0.6,
+  });
+  const edges = new LineSegments(edgesGeo, edgesMat);
+  edges.userData.role = 'bench-edges';
+  group.add(edges);
+
+  return group;
+}
+
 /** Build a Three.js root Group from the given strips, no placement. */
 function buildRoot(strips: Iterable<Strip>): Group {
   const root = new Group();
+  root.add(buildBenchMesh());
   for (const strip of strips) {
     root.add(buildStripGroup(strip));
   }
