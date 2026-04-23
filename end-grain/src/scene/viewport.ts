@@ -35,6 +35,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { disposePanelGroup } from './meshBuilder';
 
@@ -100,11 +101,23 @@ export interface ViewportHandle {
   /** Renderer canvas — DOM target for harness-level pointer events. */
   canvas: HTMLCanvasElement;
   /**
-   * Enable / disable the orbit controls. Harness sets this to false
-   * while the user is dragging a scene object so the camera doesn't
-   * also tumble in response to the same pointer motion.
+   * Enable / disable the trackball orbit controls. Kept for API
+   * parity with older callers — aliases setTrackballEnabled.
    */
   setControlsEnabled: (enabled: boolean) => void;
+  /**
+   * Enable / disable the TrackballControls instance (full 3-DoF
+   * orbit with roll). Harnesses toggle this on while a modifier key
+   * (Shift) is held so the controller owns that pointer gesture
+   * without intercepting plain-drag gestures.
+   */
+  setTrackballEnabled: (enabled: boolean) => void;
+  /**
+   * Enable / disable the OrbitControls instance (Y-up-locked orbit,
+   * no roll). Harnesses toggle this on while a modifier key (Alt) is
+   * held so the controller owns that pointer gesture.
+   */
+  setOrbitEnabled: (enabled: boolean) => void;
 }
 
 export interface ViewportOptions {
@@ -270,10 +283,14 @@ export function setupViewport(
     camera.lookAt(centre);
   }
 
-  // TrackballControls instead of OrbitControls so the user can freely
-  // rotate around every axis — including roll about the view direction
-  // (which OrbitControls prevents by keeping camera.up fixed). Full
-  // 360° around X, Y, and Z.
+  // Two orbit controllers. TrackballControls is the primary — gives
+  // full 3-DoF orbit including roll about the view direction.
+  // OrbitControls (starts disabled) is a secondary option that locks
+  // Y-up for a more constrained, map-like rotation.
+  //
+  // Harnesses that want pointer gestures owned by their own code
+  // (piece drag / face selection) call setTrackballEnabled(false) and
+  // toggle back to true only while a modifier key is held.
   const controls = new TrackballControls(camera, renderer.domElement);
   controls.target.copy(centre);
   controls.rotateSpeed = 3.0;
@@ -288,6 +305,17 @@ export function setupViewport(
   controls.maxDistance = Infinity;
   controls.update();
 
+  const orbitControls = new OrbitControls(camera, renderer.domElement);
+  orbitControls.target.copy(centre);
+  orbitControls.enableDamping = true;
+  orbitControls.dampingFactor = 0.15;
+  // Zoom is owned by the standalone wheel handler below, which works
+  // regardless of which controller is enabled. Panning is disabled so
+  // modifier-drag is pure orbit.
+  orbitControls.enableZoom = false;
+  orbitControls.enablePan = false;
+  orbitControls.enabled = false;
+
   // Treat a caller-supplied initial camera state as "user already
   // interacted" — the fit-on-resize path would otherwise snap the
   // camera back to a fresh top-down fit on the next ResizeObserver
@@ -296,16 +324,21 @@ export function setupViewport(
   controls.addEventListener('start', () => {
     userHasInteracted = true;
   });
+  orbitControls.addEventListener('start', () => {
+    userHasInteracted = true;
+  });
 
   // Fire subscribers whenever the camera state changes. Swallow
   // during setCameraState to avoid sync loops across linked viewports.
   const changeSubs = new Set<(s: CameraState) => void>();
   let suppressChange = false;
-  controls.addEventListener('change', () => {
+  const emitChange = (): void => {
     if (suppressChange) return;
     const snap = currentCameraState();
     for (const cb of changeSubs) cb(snap);
-  });
+  };
+  controls.addEventListener('change', emitChange);
+  orbitControls.addEventListener('change', emitChange);
 
   function currentCameraState(): CameraState {
     // Direction from camera TO target, normalized.
@@ -348,6 +381,10 @@ export function setupViewport(
     camera.up.set(state.up[0], state.up[1], state.up[2]);
     camera.lookAt(controls.target);
     controls.update();
+    // Keep OrbitControls in sync — it has its own target that must
+    // match, otherwise the next Alt-drag would "snap" the view.
+    orbitControls.target.copy(controls.target);
+    orbitControls.update();
   }
 
   /**
@@ -363,6 +400,8 @@ export function setupViewport(
     controls.target.set(pose.target[0], pose.target[1], pose.target[2]);
     camera.lookAt(controls.target);
     controls.update();
+    orbitControls.target.copy(controls.target);
+    orbitControls.update();
   }
 
   // Now that controls + target are set, apply any pending initial
@@ -391,6 +430,8 @@ export function setupViewport(
     positionCameraAtDistance(computeFitDistance(aspect));
     controls.target.copy(centre);
     controls.update();
+    orbitControls.target.copy(centre);
+    orbitControls.update();
     userHasInteracted = false;
   });
 
@@ -429,10 +470,34 @@ export function setupViewport(
   // Leave room above for the home button (22px button + 8 top + 8 gap).
   const GIZMO_MARGIN_TOP = 38;
 
+  // Standalone wheel-zoom handler — keeps zoom always available,
+  // regardless of which orbit controller (if any) is currently
+  // enabled, so the user doesn't need to press a modifier to zoom.
+  //
+  // Skipped when TrackballControls is enabled (it has its own wheel
+  // handler with damping). OrbitControls is configured with
+  // enableZoom=false, so when it owns the pointer this handler
+  // provides the wheel response.
+  //
+  // Deltas scale the camera→target vector; preserves direction and
+  // target, just moves the camera closer or farther.
+  const onWheel = (e: WheelEvent): void => {
+    if (controls.enabled) return;
+    e.preventDefault();
+    const factor = Math.pow(0.999, -e.deltaY);
+    const eye = new Vector3().subVectors(camera.position, controls.target);
+    eye.multiplyScalar(factor);
+    camera.position.copy(controls.target).add(eye);
+    userHasInteracted = true;
+    emitChange();
+  };
+  renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+
   let alive = true;
   function tick(): void {
     if (!alive) return;
     controls.update();
+    orbitControls.update();
     const w = slot!.clientWidth;
     const h = slot!.clientHeight;
     renderer.setViewport(0, 0, w, h);
@@ -465,11 +530,20 @@ export function setupViewport(
   }
   requestAnimationFrame(tick);
 
+  const setTrackballEnabled = (enabled: boolean): void => {
+    controls.enabled = enabled;
+  };
+  const setOrbitEnabled = (enabled: boolean): void => {
+    orbitControls.enabled = enabled;
+  };
+
   return {
     dispose(): void {
       alive = false;
       ro.disconnect();
+      renderer.domElement.removeEventListener('wheel', onWheel);
       controls.dispose();
+      orbitControls.dispose();
       disposePanelGroup(panelGroup);
       renderer.dispose();
       if (renderer.domElement.parentElement) {
@@ -502,9 +576,9 @@ export function setupViewport(
     },
     camera,
     canvas: renderer.domElement,
-    setControlsEnabled(enabled: boolean): void {
-      controls.enabled = enabled;
-    },
+    setControlsEnabled: setTrackballEnabled,
+    setTrackballEnabled,
+    setOrbitEnabled,
   };
 }
 

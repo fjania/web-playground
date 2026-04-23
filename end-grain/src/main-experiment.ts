@@ -475,12 +475,20 @@ function wireSelection(
   let downX = 0;
   let downY = 0;
 
+  // Modifier-held pointerdowns are camera-orbit gestures, not
+  // selection clicks. Track the down-modifier state so pointerup can
+  // skip even after a quick Shift+click that wouldn't exceed the
+  // CLICK_MAX_DRAG_PX threshold.
+  let downWithModifier = false;
+
   const onPointerDown = (e: PointerEvent): void => {
     downX = e.clientX;
     downY = e.clientY;
+    downWithModifier = e.shiftKey || e.altKey || e.metaKey;
   };
 
   const onPointerUp = (e: PointerEvent): void => {
+    if (downWithModifier || e.shiftKey || e.altKey || e.metaKey) return;
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_MAX_DRAG_PX) {
       return;
     }
@@ -1082,6 +1090,10 @@ async function boot(): Promise<void> {
     let currentRoot: Group | null = null;
     let currentHighlights: Group | null = null;
     let currentSelections: Selection[] = [];
+    // Callbacks invoked after each successful render(), used by
+    // persistent subsystems (modifier-key tracker) to resync state
+    // against the freshly-created handle.
+    const renderCallbacks: Array<() => void> = [];
     const stripsById = new Map<string, Strip>();
     let joinGroups: JoinGroups = new Map();
 
@@ -1409,6 +1421,10 @@ async function boot(): Promise<void> {
       };
 
       const onPointerDown = (e: PointerEvent): void => {
+        // Modifier-held pointerdown is a camera-orbit gesture (handled
+        // by TrackballControls / OrbitControls). Leave the event alone.
+        if (e.shiftKey || e.altKey || e.metaKey) return;
+
         const rect = canvas.getBoundingClientRect();
         ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1454,7 +1470,6 @@ async function boot(): Promise<void> {
           movers,
           grabWorld,
         };
-        handle.setControlsEnabled(false);
         // Pointer capture is a best-effort guarantee that all subsequent
         // move/up events route here even if the cursor leaves the canvas
         // — synthesized events in tests don't register as "real" pointers
@@ -1500,7 +1515,6 @@ async function boot(): Promise<void> {
         } catch {
           /* ignore — pointer may never have been captured. */
         }
-        handle.setControlsEnabled(true);
         drag = null;
 
         // Commit the drop delta to the Strip domain so faceCenter()
@@ -1556,10 +1570,7 @@ async function boot(): Promise<void> {
         canvas.removeEventListener('pointermove', onPointerMove);
         canvas.removeEventListener('pointerup', onPointerUp);
         canvas.removeEventListener('pointercancel', onPointerCancel);
-        if (drag) {
-          handle.setControlsEnabled(true);
-          drag = null;
-        }
+        drag = null;
       };
     };
 
@@ -1618,6 +1629,11 @@ async function boot(): Promise<void> {
           ? { initialCameraPose: previousPose }
           : { initialCameraState: ISO_VIEW };
       handle = setupViewport(tileEl, root, viewportOptions);
+      // Both orbit controllers start disabled; the harness owns plain
+      // pointer gestures for piece-drag / face-selection. Modifier-key
+      // state toggles one controller on while its modifier is held.
+      handle.setTrackballEnabled(false);
+      handle.setOrbitEnabled(false);
 
       teardownSelection =
         currentMode === 'select'
@@ -1645,6 +1661,8 @@ async function boot(): Promise<void> {
         setSelections: (sels: Selection[]) => renderStatus(sels),
         THREE: { Vector3, Raycaster, Vector2, Matrix4, Quaternion },
       };
+
+      for (const cb of renderCallbacks) cb();
     };
 
     const performJoin = (): void => {
@@ -1750,6 +1768,71 @@ async function boot(): Promise<void> {
       appendLog(`detach: ${stripId} from [${oldMembers.join(', ')}]`);
       render('update');
     };
+
+    // Modifier-gated camera controls. Shift → TrackballControls
+    // (full 3-DoF orbit with roll). Alt/Option → OrbitControls
+    // (Y-up locked, simpler). Plain drag is owned by the harness
+    // (piece-drag or face-select) — no camera motion.
+    //
+    // Toggle ON on keydown so the controller is primed and ready to
+    // handle the NEXT pointerdown; toggle OFF on keyup so subsequent
+    // plain-drags don't orbit. A release mid-orbit stops the gesture
+    // — acceptable tradeoff for a simple, predictable state machine.
+    //
+    // Mouse-wheel zoom is always on (via viewport.ts's standalone
+    // wheel handler), regardless of modifier. No modifier needed
+    // just to zoom in / out.
+    let shiftHeld = false;
+    let altHeld = false;
+    const syncControls = (): void => {
+      if (!handle) return;
+      // Alt wins over Shift when both are held. Only one controller
+      // is ever enabled at a time; the "loser" stays disabled so its
+      // own pointerdown doesn't capture the gesture.
+      if (altHeld) {
+        handle.setTrackballEnabled(false);
+        handle.setOrbitEnabled(true);
+      } else if (shiftHeld) {
+        handle.setTrackballEnabled(true);
+        handle.setOrbitEnabled(false);
+      } else {
+        handle.setTrackballEnabled(false);
+        handle.setOrbitEnabled(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Shift' && !shiftHeld) {
+        shiftHeld = true;
+        syncControls();
+      } else if ((e.key === 'Alt' || e.key === 'Meta') && !altHeld) {
+        altHeld = true;
+        syncControls();
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent): void => {
+      if (e.key === 'Shift' && shiftHeld) {
+        shiftHeld = false;
+        syncControls();
+      } else if ((e.key === 'Alt' || e.key === 'Meta') && altHeld) {
+        altHeld = false;
+        syncControls();
+      }
+    };
+    // Modifier state may need resyncing when window loses focus — a
+    // modifier keyup that happened while the tab was backgrounded is
+    // lost otherwise, leaving the controller stuck "enabled".
+    const onWindowBlur = (): void => {
+      shiftHeld = false;
+      altHeld = false;
+      syncControls();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onWindowBlur);
+    // After every render the handle is fresh and its controllers are
+    // both disabled. Resync so a modifier held across the re-render
+    // is immediately reflected in the new controllers.
+    renderCallbacks.push(syncControls);
 
     render('empty');
     reshuffleBtn?.addEventListener('click', () => render('fresh'));
