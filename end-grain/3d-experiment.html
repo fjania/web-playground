@@ -37,6 +37,9 @@
     }
     body > header .actions {
       margin-left: auto;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
     }
     body > header button {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -50,6 +53,11 @@
     }
     body > header button:hover {
       background: #f0f0ea;
+    }
+    body > header button.mode-toggle[data-active="true"] {
+      background: #1e1e1c;
+      color: #f5f3ee;
+      border-color: #1e1e1c;
     }
     main {
       flex: 1;
@@ -195,6 +203,7 @@
     <h1>End-grain — 3D shapes experiment</h1>
     <p class="subtitle">add strips · lined up on the bench · <code>3d-experiment.html</code></p>
     <div class="actions">
+      <button type="button" class="mode-toggle" data-slot="mode-toggle" data-active="false" title="Drag pieces and snap them flush on release">drag & snap</button>
       <button type="button" data-slot="reshuffle">reshuffle</button>
     </div>
   </header>

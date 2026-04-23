@@ -1085,6 +1085,14 @@ async function boot(): Promise<void> {
     const stripsById = new Map<string, Strip>();
     let joinGroups: JoinGroups = new Map();
 
+    /** Interaction mode — 'select' clicks faces for join; 'drag' grabs
+     * pieces and snaps on release. Toggled by the header button. */
+    let currentMode: 'select' | 'drag' = 'select';
+
+    const modeToggleBtn = document.querySelector<HTMLButtonElement>(
+      '[data-slot="mode-toggle"]',
+    );
+
     const updateJoinButton = (selections: Selection[]): void => {
       if (!joinBtn) return;
       const algo = currentAlgo();
@@ -1144,6 +1152,30 @@ async function boot(): Promise<void> {
     };
 
     /**
+     * Drag-and-snap interaction stub — filled in by the follow-up
+     * commit. Returns a no-op teardown so render() in 'drag' mode is
+     * safe to call.
+     *
+     * Intended behavior (not yet implemented):
+     *   - Pointer-down on a strip starts a drag; the entire join-group
+     *     moves together.
+     *   - Pointer-move translates the group along the bench (XZ only,
+     *     y preserved); orbit controls are disabled during the drag.
+     *   - Pointer-up runs a snap test: for each face of the dragged
+     *     group and each face of every strip outside the group, if
+     *     normals are anti-parallel and XZ centroid distance is under
+     *     SNAP_DIST, record as candidate. Best (closest) candidate
+     *     wins; the group translates to align the mate centroids and
+     *     the groups merge.
+     */
+    const wireDragAndSnap = (
+      _handle: ViewportHandle,
+      _root: Group,
+    ): (() => void) => {
+      return () => {};
+    };
+
+    /**
      * Build the viewport for the current `stripsById`.
      *   'empty' : discard existing strips and leave the scene empty.
      *   'fresh' : discard and scatter the starting-four pieces.
@@ -1189,13 +1221,16 @@ async function boot(): Promise<void> {
         mode === 'update' && previousCamera ? previousCamera : ISO_VIEW;
       handle = setupViewport(tileEl, root, { initialCameraState });
 
-      teardownSelection = wireSelection(
-        handle,
-        root,
-        highlightsGroup,
-        renderStatus,
-        () => currentAlgo().requiredSelections,
-      );
+      teardownSelection =
+        currentMode === 'select'
+          ? wireSelection(
+              handle,
+              root,
+              highlightsGroup,
+              renderStatus,
+              () => currentAlgo().requiredSelections,
+            )
+          : wireDragAndSnap(handle, root);
       renderStatus([]);
 
       (window as any).__experiment = {
@@ -1324,6 +1359,11 @@ async function boot(): Promise<void> {
     // Switching algorithms changes required-selection count; clear
     // selections so the user starts fresh for the new mechanic.
     algoSelectEl?.addEventListener('change', () => render('update'));
+    modeToggleBtn?.addEventListener('click', () => {
+      currentMode = currentMode === 'select' ? 'drag' : 'select';
+      modeToggleBtn.dataset.active = currentMode === 'drag' ? 'true' : 'false';
+      render('update');
+    });
     for (const btn of document.querySelectorAll<HTMLButtonElement>(
       '[data-add]',
     )) {

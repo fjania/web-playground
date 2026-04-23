@@ -83,6 +83,12 @@ export interface ViewportHandle {
   camera: PerspectiveCamera;
   /** Renderer canvas — DOM target for harness-level pointer events. */
   canvas: HTMLCanvasElement;
+  /**
+   * Enable / disable the orbit controls. Harness sets this to false
+   * while the user is dragging a scene object so the camera doesn't
+   * also tumble in response to the same pointer motion.
+   */
+  setControlsEnabled: (enabled: boolean) => void;
 }
 
 export interface ViewportOptions {
@@ -432,6 +438,9 @@ export function setupViewport(
     },
     camera,
     canvas: renderer.domElement,
+    setControlsEnabled(enabled: boolean): void {
+      controls.enabled = enabled;
+    },
   };
 }
 
