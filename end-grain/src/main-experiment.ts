@@ -1205,6 +1205,178 @@ async function boot(): Promise<void> {
       let drag: DragState | null = null;
 
       /**
+       * Find the best (dragged-face, stationary-face) snap candidate given
+       * an offset `(dx, dz)` applied to the dragged strips' face centroids.
+       *
+       * Used by both pointer-move (to drive the snap preview — Strip domain
+       * is still at drop-start, so the offset reflects the in-progress drag)
+       * and pointer-up post-commit (with dx = dz = 0 since the domain has
+       * been translated to the current drop position). Both paths apply
+       * identical ordering (smallest XZ distance wins) so the preview
+       * matches what the snap will actually produce.
+       */
+      interface SnapCand {
+        srcId: string;
+        srcFaceId: number;
+        tgtId: string;
+        tgtFaceId: number;
+        tgtGid: string;
+        d: number;
+        snapDx: number;
+        snapDz: number;
+      }
+      const findSnapCandidate = (
+        draggedSet: Set<string>,
+        dx: number,
+        dz: number,
+      ): SnapCand | null => {
+        let best: SnapCand | null = null;
+        for (const srcId of draggedSet) {
+          const srcStrip = stripsById.get(srcId);
+          if (!srcStrip) continue;
+          for (const srcFace of srcStrip.faces) {
+            const scRaw = srcStrip.faceCenter(srcFace.id);
+            if (!scRaw) continue;
+            // Offset the dragged face centroid by the in-progress drag
+            // delta. Rotation is identity during a drag, so translating
+            // the centroid is equivalent to translating the whole strip.
+            const scx = scRaw.x + dx;
+            const scz = scRaw.z + dz;
+            const srcNormal = new Vector3(
+              srcFace.plane.normal[0],
+              srcFace.plane.normal[1],
+              srcFace.plane.normal[2],
+            );
+            for (const [tgtId, tgtStrip] of stripsById.entries()) {
+              if (draggedSet.has(tgtId)) continue;
+              for (const tgtFace of tgtStrip.faces) {
+                const tc = tgtStrip.faceCenter(tgtFace.id);
+                if (!tc) continue;
+                const tgtNormal = new Vector3(
+                  tgtFace.plane.normal[0],
+                  tgtFace.plane.normal[1],
+                  tgtFace.plane.normal[2],
+                );
+                const dot = srcNormal.dot(tgtNormal);
+                if (dot > ANTI_PARALLEL_DOT) continue;
+                const d = Math.hypot(tc.x - scx, tc.z - scz);
+                if (d > SNAP_DIST) continue;
+                if (best && d >= best.d) continue;
+                const tgtGid = groupIdOf(joinGroups, tgtId);
+                if (!tgtGid) continue;
+                best = {
+                  srcId,
+                  srcFaceId: srcFace.id,
+                  tgtId,
+                  tgtFaceId: tgtFace.id,
+                  tgtGid,
+                  d,
+                  snapDx: tc.x - scx,
+                  snapDz: tc.z - scz,
+                };
+              }
+            }
+          }
+        }
+        return best;
+      };
+
+      /**
+       * Rebuild the snap preview into the highlights group.
+       *
+       * Two face highlights with a distinct color scheme (lighter green for
+       * the dragged source, darker green for the stationary target) so the
+       * preview reads differently from click selection.
+       *
+       * The dragged strip's Mesh vertices live at the pre-drag (domain)
+       * position; its Three.js parent Group carries the visual translation.
+       * We slice the highlight geometry from the Mesh's position buffer
+       * (same pattern as `rebuildHighlights`) but parent the resulting
+       * highlight Mesh to the dragged strip's parent Group so it inherits
+       * the in-progress translation. Target side has no translation so it
+       * goes into the shared `highlightsGroup` directly.
+       */
+      const PREVIEW_SRC_COLOR = 0x6ae080; // lighter / yellowish green
+      const PREVIEW_TGT_COLOR = 0x2aa050; // darker green
+      const clearSnapPreview = (): void => {
+        // Previews parent themselves to the dragged strip's Group (so the
+        // in-progress translation inherits correctly), NOT just to
+        // `highlightsGroup`, so scan the whole root.
+        const victims: Mesh[] = [];
+        root.traverse((obj) => {
+          if (obj instanceof Mesh && obj.userData.role === 'face-highlight-preview') {
+            victims.push(obj);
+          }
+        });
+        for (const m of victims) {
+          m.parent?.remove(m);
+          m.geometry.dispose();
+          (m.material as MeshBasicMaterial).dispose();
+        }
+      };
+
+      const buildPreviewHighlight = (
+        sourceMesh: Mesh,
+        faceId: number,
+        color: number,
+      ): Mesh | null => {
+        const faceIds = sourceMesh.userData.faceIds as Uint32Array | undefined;
+        if (!faceIds) return null;
+        const origIndex = sourceMesh.geometry.getIndex();
+        if (!origIndex) return null;
+        const indices: number[] = [];
+        for (let t = 0; t < faceIds.length; t++) {
+          if (faceIds[t] !== faceId) continue;
+          indices.push(
+            origIndex.getX(t * 3),
+            origIndex.getX(t * 3 + 1),
+            origIndex.getX(t * 3 + 2),
+          );
+        }
+        if (indices.length === 0) return null;
+        const posAttr = sourceMesh.geometry.getAttribute('position') as BufferAttribute;
+        const hgeom = new BufferGeometry();
+        hgeom.setAttribute('position', posAttr.clone());
+        hgeom.setIndex(indices);
+        const mat = new MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.6,
+          depthTest: true,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        });
+        const mesh = new Mesh(hgeom, mat);
+        mesh.userData.role = 'face-highlight-preview';
+        mesh.renderOrder = 11;
+        return mesh;
+      };
+
+      const rebuildSnapPreview = (cand: SnapCand | null): void => {
+        clearSnapPreview();
+        if (!cand || !currentHighlights) return;
+        // Source (dragged) side: find the Mesh under the dragged strip's
+        // parent Group, build the highlight from its geometry, then parent
+        // the highlight to that same parent Group so the in-progress
+        // translation carries through.
+        root.traverse((obj) => {
+          if (!(obj instanceof Mesh)) return;
+          if (obj.userData.role === 'face-highlight') return;
+          if (obj.userData.role === 'face-highlight-preview') return;
+          if (!obj.userData.faceIds) return;
+          if (obj.userData.stripId === cand.srcId) {
+            const h = buildPreviewHighlight(obj, cand.srcFaceId, PREVIEW_SRC_COLOR);
+            if (h && obj.parent) obj.parent.add(h);
+          } else if (obj.userData.stripId === cand.tgtId) {
+            const h = buildPreviewHighlight(obj, cand.tgtFaceId, PREVIEW_TGT_COLOR);
+            if (h) currentHighlights!.add(h);
+          }
+        });
+      };
+
+      /**
        * Intersect the ray from a pointer event with the bench plane
        * (y = BENCH_Y). Returns the world point of intersection, or null
        * if the ray is parallel to (or pointing away from) the bench.
@@ -1307,6 +1479,10 @@ async function boot(): Promise<void> {
             m.initialPosition.z + dz,
           );
         }
+        // Drive snap preview from the delta-offset centroid query (Strip
+        // domain is still at drop-start position during a drag).
+        const cand = findSnapCandidate(new Set(drag.memberIds), dx, dz);
+        rebuildSnapPreview(cand);
       };
 
       const finishDrag = (e: PointerEvent): void => {
@@ -1339,64 +1515,10 @@ async function boot(): Promise<void> {
           }
         }
 
-        // Snap detection — for each (dragged-face, stationary-face)
-        // pair, if world normals are anti-parallel and XZ centroid
-        // distance is within SNAP_DIST, keep the closest candidate.
-        interface SnapCand {
-          srcId: string;
-          srcFaceId: number;
-          tgtId: string;
-          tgtFaceId: number;
-          tgtGid: string;
-          d: number;
-          snapDx: number;
-          snapDz: number;
-        }
-        let best: SnapCand | null = null;
-
-        const draggedSet = new Set(memberIds);
-        for (const srcId of memberIds) {
-          const srcStrip = stripsById.get(srcId);
-          if (!srcStrip) continue;
-          for (const srcFace of srcStrip.faces) {
-            const sc = srcStrip.faceCenter(srcFace.id);
-            if (!sc) continue;
-            const srcNormal = new Vector3(
-              srcFace.plane.normal[0],
-              srcFace.plane.normal[1],
-              srcFace.plane.normal[2],
-            );
-            for (const [tgtId, tgtStrip] of stripsById.entries()) {
-              if (draggedSet.has(tgtId)) continue;
-              for (const tgtFace of tgtStrip.faces) {
-                const tc = tgtStrip.faceCenter(tgtFace.id);
-                if (!tc) continue;
-                const tgtNormal = new Vector3(
-                  tgtFace.plane.normal[0],
-                  tgtFace.plane.normal[1],
-                  tgtFace.plane.normal[2],
-                );
-                const dot = srcNormal.dot(tgtNormal);
-                if (dot > ANTI_PARALLEL_DOT) continue;
-                const d = Math.hypot(tc.x - sc.x, tc.z - sc.z);
-                if (d > SNAP_DIST) continue;
-                if (best && d >= best.d) continue;
-                const tgtGid = groupIdOf(joinGroups, tgtId);
-                if (!tgtGid) continue;
-                best = {
-                  srcId,
-                  srcFaceId: srcFace.id,
-                  tgtId,
-                  tgtFaceId: tgtFace.id,
-                  tgtGid,
-                  d,
-                  snapDx: tc.x - sc.x,
-                  snapDz: tc.z - sc.z,
-                };
-              }
-            }
-          }
-        }
+        // Snap detection — domain is now at the drop position, so query
+        // with zero offset. Same helper the preview uses: identical
+        // ordering guarantees the snap matches the last-previewed pair.
+        const best = findSnapCandidate(new Set(memberIds), 0, 0);
 
         if (best) {
           // Apply snap translation to every strip in the dragged group.
