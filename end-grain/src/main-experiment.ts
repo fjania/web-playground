@@ -374,25 +374,36 @@ interface Selection {
   faceId: number;
 }
 
-const SELECTION_COLORS = [0xffc400, 0x26c6da];
+/**
+ * Selection slot colors, ordered by click index.
+ *   [0] yellow  — first click (anchor mate face)
+ *   [1] cyan    — second click (solo mate face)
+ *   [2] orange  — third click (solo bench face, bench-flush algo only)
+ */
+const SELECTION_COLORS = [0xffc400, 0x26c6da, 0xff9050];
 const CLICK_MAX_DRAG_PX = 5;
 
+/**
+ * Toggle-based selection: clicking a face that's already selected
+ * deselects it; otherwise appends up to `maxSelections` items,
+ * dropping the oldest if we're at cap. Unlike the old per-strip-
+ * uniqueness rule, this allows two faces on the same strip — bench-
+ * flush needs the solo's mate AND bench face simultaneously selected.
+ */
 function updateSelections(
   selections: Selection[],
   stripId: string,
   faceId: number,
+  maxSelections: number,
 ): void {
-  const existingIdx = selections.findIndex((s) => s.stripId === stripId);
+  const existingIdx = selections.findIndex(
+    (s) => s.stripId === stripId && s.faceId === faceId,
+  );
   if (existingIdx >= 0) {
-    const sel = selections[existingIdx];
-    if (sel.faceId === faceId) {
-      selections.splice(existingIdx, 1);
-    } else {
-      sel.faceId = faceId;
-    }
+    selections.splice(existingIdx, 1);
     return;
   }
-  if (selections.length >= 2) selections.shift();
+  if (selections.length >= maxSelections) selections.shift();
   selections.push({ stripId, faceId });
 }
 
@@ -456,6 +467,7 @@ function wireSelection(
   root: Group,
   highlightsGroup: Group,
   onChange: (selections: Selection[]) => void,
+  getMaxSelections: () => number,
 ): () => void {
   const selections: Selection[] = [];
   const raycaster = new Raycaster();
@@ -498,7 +510,7 @@ function wireSelection(
     const stripId = mesh.userData.stripId as string | undefined;
     if (!stripId) return;
 
-    updateSelections(selections, stripId, faceId);
+    updateSelections(selections, stripId, faceId, getMaxSelections());
     rebuildHighlights(highlightsGroup, root, selections);
     onChange(selections);
   };
@@ -583,24 +595,29 @@ interface JoinPlan {
  * Join-algorithm registry. New algorithms are added as new functions
  * (never replacing the old ones), then exposed here so they appear in
  * the UI dropdown and we can A/B them on the same scene.
+ *
+ * `requiredSelections` is the number of face-clicks the algorithm
+ * consumes. 2 for flush mates (anchor face + solo face); 3 for the
+ * bench-flush family (anchor mate + solo mate + solo bench).
  */
 interface JoinAlgo {
   id: string;
   label: string;
+  requiredSelections: number;
   plan: (
-    selA: Selection,
-    selB: Selection,
+    selections: Selection[],
     stripsById: Map<string, Strip>,
     groups: JoinGroups,
   ) => JoinPlan | null;
 }
 
 function planJoinCentroidFlush(
-  selA: Selection,
-  selB: Selection,
+  selections: Selection[],
   stripsById: Map<string, Strip>,
   groups: JoinGroups,
 ): JoinPlan | null {
+  if (selections.length !== 2) return null;
+  const [selA, selB] = selections;
   if (selA.stripId === selB.stripId) return null;
   const stripA = stripsById.get(selA.stripId);
   const stripB = stripsById.get(selB.stripId);
@@ -711,11 +728,12 @@ function planJoinCentroidFlush(
  *   T = T(keepCenter) · q2·q1 · T(-moveCenter).
  */
 function planJoinPrincipalAxis(
-  selA: Selection,
-  selB: Selection,
+  selections: Selection[],
   stripsById: Map<string, Strip>,
   groups: JoinGroups,
 ): JoinPlan | null {
+  if (selections.length !== 2) return null;
+  const [selA, selB] = selections;
   if (selA.stripId === selB.stripId) return null;
   const stripA = stripsById.get(selA.stripId);
   const stripB = stripsById.get(selB.stripId);
@@ -827,16 +845,167 @@ function planJoinPrincipalAxis(
  * The registry. Order matters — first entry is the default choice in
  * the dropdown on first load.
  */
+/**
+ * Bench-flush join — three selections, workbench as the anchor.
+ *
+ * Selections, in click order:
+ *   [0] anchor mating face   — on a strip already in the scene.
+ *   [1] solo mating face     — on the strip being brought in.
+ *   [2] solo bench face      — on the SAME strip as [1], perpendicular
+ *                              to [1]; this face will rest flat on the
+ *                              bench at y = BENCH_Y after the join.
+ *
+ * Fully determined rotation: two of the three local→world axis pairs
+ * are pinned (mate and bench); the third (the in-plane cross product)
+ * falls out of the orthonormal basis swap.
+ *
+ * Translation: the solo strip is moved so
+ *   (a) its mating face is coplanar with the anchor's mating face,
+ *   (b) its bench face sits at y = BENCH_Y,
+ *   (c) the mating centroids line up in the remaining horizontal
+ *       direction (the axis perpendicular to both the mating normal
+ *       and bench normal — the direction the piece slides along the
+ *       bench to butt into the anchor).
+ *
+ * If the strips have mismatched bench-to-mate-centroid heights,
+ * constraint (a) + (b) together can't both hold exactly; the log
+ * reports the residual offset.
+ */
+function planJoinBenchFlush(
+  selections: Selection[],
+  stripsById: Map<string, Strip>,
+  groups: JoinGroups,
+): JoinPlan | null {
+  if (selections.length !== 3) return null;
+  const [anchorMateSel, soloMateSel, soloBenchSel] = selections;
+
+  // Validation: anchor and solo must be different strips; solo's mate
+  // and bench selections must be on the same strip and not the same face.
+  if (anchorMateSel.stripId === soloMateSel.stripId) return null;
+  if (soloMateSel.stripId !== soloBenchSel.stripId) return null;
+  if (soloMateSel.faceId === soloBenchSel.faceId) return null;
+
+  const anchorStrip = stripsById.get(anchorMateSel.stripId);
+  const soloStrip = stripsById.get(soloMateSel.stripId);
+  if (!anchorStrip || !soloStrip) return null;
+
+  const gidA = groupIdOf(groups, anchorMateSel.stripId);
+  const gidS = groupIdOf(groups, soloMateSel.stripId);
+  if (!gidA || !gidS || gidA === gidS) return null;
+
+  const anchorMateFace = anchorStrip.faces.find(
+    (f) => f.id === anchorMateSel.faceId,
+  );
+  const soloMateFace = soloStrip.faces.find(
+    (f) => f.id === soloMateSel.faceId,
+  );
+  const soloBenchFace = soloStrip.faces.find(
+    (f) => f.id === soloBenchSel.faceId,
+  );
+  if (!anchorMateFace || !soloMateFace || !soloBenchFace) return null;
+
+  const anchorMateCenter = anchorStrip.faceCenter(anchorMateSel.faceId);
+  const soloMateCenter = soloStrip.faceCenter(soloMateSel.faceId);
+  const soloBenchCenter = soloStrip.faceCenter(soloBenchSel.faceId);
+  if (!anchorMateCenter || !soloMateCenter || !soloBenchCenter) return null;
+
+  const anchorMateNormal = new Vector3(
+    anchorMateFace.plane.normal[0],
+    anchorMateFace.plane.normal[1],
+    anchorMateFace.plane.normal[2],
+  ).normalize();
+  const soloMateNormal = new Vector3(
+    soloMateFace.plane.normal[0],
+    soloMateFace.plane.normal[1],
+    soloMateFace.plane.normal[2],
+  ).normalize();
+  const soloBenchNormal = new Vector3(
+    soloBenchFace.plane.normal[0],
+    soloBenchFace.plane.normal[1],
+    soloBenchFace.plane.normal[2],
+  ).normalize();
+
+  // Solo's mate and bench faces must be perpendicular — otherwise the
+  // rotation is unsolvable (we'd need two identical-axis mappings).
+  if (Math.abs(soloMateNormal.dot(soloBenchNormal)) > 1e-3) return null;
+
+  // Target world orientations:
+  //   solo mate  → anti-parallel to anchor mate   (flush mating)
+  //   solo bench → (0, -1, 0)                     (resting on bench)
+  const targetMate = anchorMateNormal.clone().negate();
+  const targetBench = new Vector3(0, -1, 0);
+
+  // Build source and target orthonormal frames, pick R so the frames
+  // coincide: R · src = tgt  ⇒  R = tgt · srcᵀ (orthogonal inverse).
+  const aSrc = soloMateNormal.clone();
+  const bSrc = soloBenchNormal.clone();
+  const cSrc = new Vector3().crossVectors(aSrc, bSrc).normalize();
+
+  const aTgt = targetMate.clone();
+  const bTgt = targetBench.clone();
+  const cTgt = new Vector3().crossVectors(aTgt, bTgt).normalize();
+
+  const srcMat = new Matrix4().makeBasis(aSrc, bSrc, cSrc);
+  const srcInv = new Matrix4().copy(srcMat).transpose();
+  const tgtMat = new Matrix4().makeBasis(aTgt, bTgt, cTgt);
+  const R = new Matrix4().multiplyMatrices(tgtMat, srcInv);
+
+  // Rotated world positions of the solo's key face centroids (still
+  // needs translation to land correctly).
+  const rotatedMate = soloMateCenter.clone().applyMatrix4(R);
+  const rotatedBench = soloBenchCenter.clone().applyMatrix4(R);
+
+  // Translation components, broken out by direction:
+  //   (a) Along anchor mate normal: slide so solo mate plane = anchor mate plane.
+  //   (b) Along world Y: drop so bench centroid sits at BENCH_Y.
+  //   (c) Along the remaining horizontal axis: center solo mate centroid
+  //       on anchor mate centroid (the "slide along the bench" direction).
+  const benchUp = new Vector3(0, 1, 0);
+  const slideAxis = new Vector3()
+    .crossVectors(anchorMateNormal, benchUp)
+    .normalize();
+
+  const delta = anchorMateCenter.clone().sub(rotatedMate);
+  const tAlongMate = delta.dot(anchorMateNormal);
+  const tAlongSlide = delta.dot(slideAxis);
+  const tAlongY = BENCH_Y - rotatedBench.y;
+
+  const T = new Vector3(0, 0, 0)
+    .add(anchorMateNormal.clone().multiplyScalar(tAlongMate))
+    .add(slideAxis.clone().multiplyScalar(tAlongSlide))
+    .add(benchUp.clone().multiplyScalar(tAlongY));
+
+  const matrix = new Matrix4()
+    .makeTranslation(T.x, T.y, T.z)
+    .multiply(R);
+
+  return {
+    matrix,
+    movingGroupId: gidS,
+    movingStripIds: [...groups.get(gidS)!],
+    moverSel: soloMateSel,
+    keepSel: anchorMateSel,
+  };
+}
+
 const JOIN_ALGOS: JoinAlgo[] = [
   {
     id: 'centroid-flush',
     label: 'Centroid flush',
+    requiredSelections: 2,
     plan: planJoinCentroidFlush,
   },
   {
     id: 'principal-axis',
     label: 'Principal axis',
+    requiredSelections: 2,
     plan: planJoinPrincipalAxis,
+  },
+  {
+    id: 'bench-flush',
+    label: 'Bench flush (3-click)',
+    requiredSelections: 3,
+    plan: planJoinBenchFlush,
   },
 ];
 
@@ -918,9 +1087,19 @@ async function boot(): Promise<void> {
 
     const updateJoinButton = (selections: Selection[]): void => {
       if (!joinBtn) return;
-      const canJoin =
-        selections.length === 2 &&
-        selections[0].stripId !== selections[1].stripId;
+      const algo = currentAlgo();
+      const N = algo.requiredSelections;
+      let canJoin = selections.length === N;
+      if (canJoin && N === 2) {
+        canJoin = selections[0].stripId !== selections[1].stripId;
+      } else if (canJoin && N === 3) {
+        // Bench-flush: [0] anchor, [1] & [2] on the same solo strip
+        // (different faces), and that solo strip ≠ the anchor.
+        canJoin =
+          selections[0].stripId !== selections[1].stripId &&
+          selections[1].stripId === selections[2].stripId &&
+          selections[1].faceId !== selections[2].faceId;
+      }
       joinBtn.disabled = !canJoin;
     };
 
@@ -947,10 +1126,11 @@ async function boot(): Promise<void> {
         groupCount < placed
           ? ` · ${placed - groupCount + 1} strips joined`
           : '';
+      const need = currentAlgo().requiredSelections;
       const selDesc =
         selections.length === 0
-          ? 'click any face to select'
-          : `selected ${selections.length}/2 · ${selections
+          ? `click any face to select (${need} to join)`
+          : `selected ${selections.length}/${need} · ${selections
               .map((s) => `${s.stripId}#${s.faceId}`)
               .join(' + ')}`;
       const pieceNote = `${placed} piece${placed === 1 ? '' : 's'}`;
@@ -1014,6 +1194,7 @@ async function boot(): Promise<void> {
         root,
         highlightsGroup,
         renderStatus,
+        () => currentAlgo().requiredSelections,
       );
       renderStatus([]);
 
@@ -1033,16 +1214,15 @@ async function boot(): Promise<void> {
     };
 
     const performJoin = (): void => {
-      if (currentSelections.length !== 2) return;
-      const [selA, selB] = currentSelections;
-      if (selA.stripId === selB.stripId) return;
       const algo = currentAlgo();
-      const plan = algo.plan(selA, selB, stripsById, joinGroups);
+      if (currentSelections.length !== algo.requiredSelections) return;
+      const plan = algo.plan(currentSelections, stripsById, joinGroups);
       if (!plan) {
-        appendLog(
-          `join[${algo.id}] FAILED: ${selA.stripId}#${selA.faceId} + ${selB.stripId}#${selB.faceId}`,
-        );
-        console.warn('[join] could not plan join', selA, selB);
+        const selStr = currentSelections
+          .map((s) => `${s.stripId}#${s.faceId}`)
+          .join(' + ');
+        appendLog(`join[${algo.id}] FAILED: ${selStr}`);
+        console.warn('[join] could not plan join', currentSelections);
         return;
       }
       // Apply the transform to every strip in the moving group.
@@ -1061,7 +1241,8 @@ async function boot(): Promise<void> {
       if (keepGid && keepGid !== absorbGid) {
         mergeGroups(joinGroups, keepGid, absorbGid);
       }
-      // Post-join diagnostic: both face centers should coincide.
+      // Post-join diagnostics: flush Δ and, for bench-flush, the
+      // residual bench-face-y offset so height mismatches are visible.
       const moverStrip = stripsById.get(plan.moverSel.stripId);
       const keepStrip = stripsById.get(plan.keepSel.stripId);
       const moverCenter = moverStrip?.faceCenter(plan.moverSel.faceId);
@@ -1070,9 +1251,15 @@ async function boot(): Promise<void> {
         moverCenter && keepCenter
           ? moverCenter.distanceTo(keepCenter).toExponential(2)
           : 'n/a';
+      let benchNote = '';
+      if (algo.id === 'bench-flush' && currentSelections.length === 3) {
+        const soloBenchSel = currentSelections[2];
+        const bc = moverStrip?.faceCenter(soloBenchSel.faceId);
+        if (bc) benchNote = ` · benchΔy=${(bc.y - BENCH_Y).toExponential(2)}`;
+      }
       const movedCount = plan.movingStripIds.length;
       appendLog(
-        `join[${algo.id}] ${plan.moverSel.stripId}#${plan.moverSel.faceId} → ${plan.keepSel.stripId}#${plan.keepSel.faceId} · moved ${movedCount} strip${movedCount === 1 ? '' : 's'} · flush Δ=${deltaStr}`,
+        `join[${algo.id}] ${plan.moverSel.stripId}#${plan.moverSel.faceId} → ${plan.keepSel.stripId}#${plan.keepSel.faceId} · moved ${movedCount} strip${movedCount === 1 ? '' : 's'} · flush Δ=${deltaStr}${benchNote}`,
       );
       // Rebuild scene preserving camera; selection state is reset.
       render('update');
@@ -1134,6 +1321,9 @@ async function boot(): Promise<void> {
     reshuffleBtn?.addEventListener('click', () => render('fresh'));
     joinBtn?.addEventListener('click', performJoin);
     detachBtn?.addEventListener('click', performDetach);
+    // Switching algorithms changes required-selection count; clear
+    // selections so the user starts fresh for the new mechanic.
+    algoSelectEl?.addEventListener('change', () => render('update'));
     for (const btn of document.querySelectorAll<HTMLButtonElement>(
       '[data-add]',
     )) {
