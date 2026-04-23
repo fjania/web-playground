@@ -1152,27 +1152,293 @@ async function boot(): Promise<void> {
     };
 
     /**
-     * Drag-and-snap interaction stub — filled in by the follow-up
-     * commit. Returns a no-op teardown so render() in 'drag' mode is
-     * safe to call.
+     * Drag-and-snap interaction handler.
      *
-     * Intended behavior (not yet implemented):
-     *   - Pointer-down on a strip starts a drag; the entire join-group
-     *     moves together.
-     *   - Pointer-move translates the group along the bench (XZ only,
-     *     y preserved); orbit controls are disabled during the drag.
-     *   - Pointer-up runs a snap test: for each face of the dragged
-     *     group and each face of every strip outside the group, if
-     *     normals are anti-parallel and XZ centroid distance is under
-     *     SNAP_DIST, record as candidate. Best (closest) candidate
-     *     wins; the group translates to align the mate centroids and
-     *     the groups merge.
+     * Pointer-down: raycasts against the scene and, if it hits a strip
+     * mesh, begins a drag on the hit strip's entire join-group. The
+     * initial grab point is the ray-bench-plane intersection at y=BENCH_Y
+     * so subsequent motion reads as sliding-on-the-bench regardless of
+     * where along the strip's height the user clicked. TrackballControls
+     * is suspended so the camera doesn't orbit under the same pointer.
+     *
+     * Pointer-move: translates each dragged Three.js Group in XZ only —
+     * visual-only, no domain mutation. Strip.translate() is expensive
+     * (reallocates Manifold handles), so keeping the drag cheap means
+     * not touching stripsById mid-drag.
+     *
+     * Pointer-up / cancel: commits the drop by applying the XZ delta to
+     * every dragged strip (Strip.translate → dispose old → replace).
+     * After commit, runs snap detection over the NOW-UPDATED face
+     * centroids: for every (dragged-face, stationary-face) pair with
+     * anti-parallel world normals (dot ≤ ANTI_PARALLEL_DOT) within XZ
+     * SNAP_DIST, take the closest. Applies snap as a second translate,
+     * merges the two join-groups, and logs. If no snap, logs the drop
+     * delta. Final render('update') rebuilds from stripsById.
+     *
+     * Commit-then-snap ordering matters: it means both steps are proper
+     * domain translations (not a hidden group-level transform), the
+     * snap uses up-to-date centroids rather than pre-drop ones, and
+     * either step alone is a recoverable state.
      */
     const wireDragAndSnap = (
-      _handle: ViewportHandle,
-      _root: Group,
+      handle: ViewportHandle,
+      root: Group,
     ): (() => void) => {
-      return () => {};
+      const SNAP_DIST = 40;
+      const ANTI_PARALLEL_DOT = -0.95;
+
+      const canvas = handle.canvas;
+      const raycaster = new Raycaster();
+      const ndc = new Vector2();
+
+      interface DragState {
+        pointerId: number;
+        groupId: string;
+        /** Stripids in the dragged group (captured at drag start). */
+        memberIds: string[];
+        /** Per-strip Three.js Group references + their initial positions. */
+        movers: Array<{ threeGroup: Group; initialPosition: Vector3 }>;
+        /** Bench-plane intersection at pointer-down. */
+        grabWorld: Vector3;
+      }
+
+      let drag: DragState | null = null;
+
+      /**
+       * Intersect the ray from a pointer event with the bench plane
+       * (y = BENCH_Y). Returns the world point of intersection, or null
+       * if the ray is parallel to (or pointing away from) the bench.
+       */
+      const benchPointFromPointer = (e: PointerEvent): Vector3 | null => {
+        const rect = canvas.getBoundingClientRect();
+        ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(ndc, handle.camera);
+        const origin = raycaster.ray.origin;
+        const dir = raycaster.ray.direction;
+        if (Math.abs(dir.y) < 1e-9) return null;
+        const t = (BENCH_Y - origin.y) / dir.y;
+        if (t < 0) return null;
+        return new Vector3(
+          origin.x + t * dir.x,
+          BENCH_Y,
+          origin.z + t * dir.z,
+        );
+      };
+
+      /** Find the Three.js Group under `root` whose userData.stripId matches. */
+      const findStripGroup = (stripId: string): Group | null => {
+        for (const child of root.children) {
+          if (child instanceof Group && child.userData.stripId === stripId) {
+            return child;
+          }
+        }
+        return null;
+      };
+
+      const onPointerDown = (e: PointerEvent): void => {
+        const rect = canvas.getBoundingClientRect();
+        ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(ndc, handle.camera);
+
+        const targets: Mesh[] = [];
+        root.traverse((obj) => {
+          if (
+            obj instanceof Mesh &&
+            obj.userData.stripId &&
+            obj.userData.role !== 'face-highlight'
+          ) {
+            targets.push(obj);
+          }
+        });
+        const hits = raycaster.intersectObjects(targets, false);
+        if (hits.length === 0) return;
+
+        const hitStripId = hits[0].object.userData.stripId as string;
+        const gid = groupIdOf(joinGroups, hitStripId);
+        if (!gid) return;
+        const members = joinGroups.get(gid);
+        if (!members) return;
+
+        const grabWorld = benchPointFromPointer(e);
+        if (!grabWorld) return;
+
+        const movers: Array<{ threeGroup: Group; initialPosition: Vector3 }> = [];
+        for (const id of members) {
+          const g = findStripGroup(id);
+          if (!g) continue;
+          movers.push({
+            threeGroup: g,
+            initialPosition: g.position.clone(),
+          });
+        }
+        if (movers.length === 0) return;
+
+        drag = {
+          pointerId: e.pointerId,
+          groupId: gid,
+          memberIds: [...members],
+          movers,
+          grabWorld,
+        };
+        handle.setControlsEnabled(false);
+        // Pointer capture is a best-effort guarantee that all subsequent
+        // move/up events route here even if the cursor leaves the canvas
+        // — synthesized events in tests don't register as "real" pointers
+        // and throw on capture, so we tolerate failure rather than abort.
+        try {
+          canvas.setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore — no active pointer (e.g., synthesized PointerEvent). */
+        }
+      };
+
+      const onPointerMove = (e: PointerEvent): void => {
+        if (!drag || e.pointerId !== drag.pointerId) return;
+        const now = benchPointFromPointer(e);
+        if (!now) return;
+        const dx = now.x - drag.grabWorld.x;
+        const dz = now.z - drag.grabWorld.z;
+        for (const m of drag.movers) {
+          m.threeGroup.position.set(
+            m.initialPosition.x + dx,
+            m.initialPosition.y,
+            m.initialPosition.z + dz,
+          );
+        }
+      };
+
+      const finishDrag = (e: PointerEvent): void => {
+        if (!drag || e.pointerId !== drag.pointerId) return;
+        const now = benchPointFromPointer(e);
+        const dx = now ? now.x - drag.grabWorld.x : 0;
+        const dz = now ? now.z - drag.grabWorld.z : 0;
+        const memberIds = drag.memberIds;
+        const draggedGid = drag.groupId;
+
+        try {
+          if (canvas.hasPointerCapture(e.pointerId)) {
+            canvas.releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          /* ignore — pointer may never have been captured. */
+        }
+        handle.setControlsEnabled(true);
+        drag = null;
+
+        // Commit the drop delta to the Strip domain so faceCenter()
+        // returns world-space centroids at the drop position.
+        if (dx !== 0 || dz !== 0) {
+          for (const id of memberIds) {
+            const strip = stripsById.get(id);
+            if (!strip) continue;
+            const moved = strip.translate(dx, 0, dz);
+            strip.dispose();
+            stripsById.set(id, moved);
+          }
+        }
+
+        // Snap detection — for each (dragged-face, stationary-face)
+        // pair, if world normals are anti-parallel and XZ centroid
+        // distance is within SNAP_DIST, keep the closest candidate.
+        interface SnapCand {
+          srcId: string;
+          srcFaceId: number;
+          tgtId: string;
+          tgtFaceId: number;
+          tgtGid: string;
+          d: number;
+          snapDx: number;
+          snapDz: number;
+        }
+        let best: SnapCand | null = null;
+
+        const draggedSet = new Set(memberIds);
+        for (const srcId of memberIds) {
+          const srcStrip = stripsById.get(srcId);
+          if (!srcStrip) continue;
+          for (const srcFace of srcStrip.faces) {
+            const sc = srcStrip.faceCenter(srcFace.id);
+            if (!sc) continue;
+            const srcNormal = new Vector3(
+              srcFace.plane.normal[0],
+              srcFace.plane.normal[1],
+              srcFace.plane.normal[2],
+            );
+            for (const [tgtId, tgtStrip] of stripsById.entries()) {
+              if (draggedSet.has(tgtId)) continue;
+              for (const tgtFace of tgtStrip.faces) {
+                const tc = tgtStrip.faceCenter(tgtFace.id);
+                if (!tc) continue;
+                const tgtNormal = new Vector3(
+                  tgtFace.plane.normal[0],
+                  tgtFace.plane.normal[1],
+                  tgtFace.plane.normal[2],
+                );
+                const dot = srcNormal.dot(tgtNormal);
+                if (dot > ANTI_PARALLEL_DOT) continue;
+                const d = Math.hypot(tc.x - sc.x, tc.z - sc.z);
+                if (d > SNAP_DIST) continue;
+                if (best && d >= best.d) continue;
+                const tgtGid = groupIdOf(joinGroups, tgtId);
+                if (!tgtGid) continue;
+                best = {
+                  srcId,
+                  srcFaceId: srcFace.id,
+                  tgtId,
+                  tgtFaceId: tgtFace.id,
+                  tgtGid,
+                  d,
+                  snapDx: tc.x - sc.x,
+                  snapDz: tc.z - sc.z,
+                };
+              }
+            }
+          }
+        }
+
+        if (best) {
+          // Apply snap translation to every strip in the dragged group.
+          for (const id of memberIds) {
+            const strip = stripsById.get(id);
+            if (!strip) continue;
+            const moved = strip.translate(best.snapDx, 0, best.snapDz);
+            strip.dispose();
+            stripsById.set(id, moved);
+          }
+          mergeGroups(joinGroups, best.tgtGid, draggedGid);
+          appendLog(
+            `snap: ${best.srcId}#${best.srcFaceId} → ${best.tgtId}#${best.tgtFaceId} · XZ d=${best.d.toFixed(2)}mm`,
+          );
+        } else {
+          const n = memberIds.length;
+          appendLog(
+            `drop: moved ${n} strip${n === 1 ? '' : 's'} (Δx=${dx.toFixed(2)}mm, Δz=${dz.toFixed(2)}mm)`,
+          );
+        }
+
+        render('update');
+      };
+
+      const onPointerUp = (e: PointerEvent): void => finishDrag(e);
+      const onPointerCancel = (e: PointerEvent): void => finishDrag(e);
+
+      canvas.addEventListener('pointerdown', onPointerDown);
+      canvas.addEventListener('pointermove', onPointerMove);
+      canvas.addEventListener('pointerup', onPointerUp);
+      canvas.addEventListener('pointercancel', onPointerCancel);
+
+      return () => {
+        canvas.removeEventListener('pointerdown', onPointerDown);
+        canvas.removeEventListener('pointermove', onPointerMove);
+        canvas.removeEventListener('pointerup', onPointerUp);
+        canvas.removeEventListener('pointercancel', onPointerCancel);
+        if (drag) {
+          handle.setControlsEnabled(true);
+          drag = null;
+        }
+      };
     };
 
     /**
