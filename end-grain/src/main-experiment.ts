@@ -13,6 +13,7 @@
  */
 
 import {
+  Box3,
   BufferAttribute,
   BufferGeometry,
   EdgesGeometry,
@@ -1033,6 +1034,15 @@ async function boot(): Promise<void> {
   const detachBtn = document.querySelector<HTMLButtonElement>(
     '[data-slot="detach"]',
   );
+  const rotateXBtn = document.querySelector<HTMLButtonElement>(
+    '[data-slot="rotate-x"]',
+  );
+  const rotateYBtn = document.querySelector<HTMLButtonElement>(
+    '[data-slot="rotate-y"]',
+  );
+  const rotateZBtn = document.querySelector<HTMLButtonElement>(
+    '[data-slot="rotate-z"]',
+  );
   const algoSelectEl = document.querySelector<HTMLSelectElement>(
     '[data-slot="join-algo"]',
   );
@@ -1136,10 +1146,25 @@ async function boot(): Promise<void> {
       detachBtn.disabled = !canDetach;
     };
 
+    const updateRotateButtons = (selections: Selection[]): void => {
+      // Enabled when exactly one face is selected in select mode. The
+      // selected face identifies a strip → its join-group → the whole
+      // rigid body that rotates. Drag mode doesn't track a "current
+      // piece" via selection, so rotate is disabled there.
+      const canRotate =
+        currentMode === 'select' &&
+        selections.length === 1 &&
+        !!groupIdOf(joinGroups, selections[0].stripId);
+      if (rotateXBtn) rotateXBtn.disabled = !canRotate;
+      if (rotateYBtn) rotateYBtn.disabled = !canRotate;
+      if (rotateZBtn) rotateZBtn.disabled = !canRotate;
+    };
+
     const renderStatus = (selections: Selection[]): void => {
       currentSelections = selections;
       updateJoinButton(selections);
       updateDetachButton(selections);
+      updateRotateButtons(selections);
       const placed = stripsById.size;
       const groupCount = joinGroups.size;
       const groupNote =
@@ -1769,6 +1794,85 @@ async function boot(): Promise<void> {
       render('update');
     };
 
+    /**
+     * Rotate the join-group of the currently-selected face by 90° around
+     * the chosen world axis, then translate the rotated group so its
+     * lowest y sits on the bench.
+     *
+     * Pivot: the group's world-space bounding-box centroid (union of each
+     * member's `strip.boundingBox()`). Rotation matrix is
+     * `T(p) · R(axis, π/2) · T(-p)`. Sign = counter-clockwise viewed from
+     * +axis (right-hand rule).
+     *
+     * After rotating, recompute the group's bbox and translate by
+     * `(0, BENCH_Y - newBBox.min.y, 0)` so the piece lands bench-flush.
+     * Group membership is unaffected — rigid-body rotation keeps strips
+     * joined.
+     */
+    const performRotate = (axis: 'x' | 'y' | 'z'): void => {
+      if (currentMode !== 'select') return;
+      if (currentSelections.length !== 1) return;
+      const sel = currentSelections[0];
+      const gid = groupIdOf(joinGroups, sel.stripId);
+      if (!gid) return;
+      const group = joinGroups.get(gid);
+      if (!group || group.size === 0) return;
+      const memberIds = [...group];
+
+      // Pivot: union bbox centroid of every member in the group.
+      const bbox = new Box3();
+      for (const id of memberIds) {
+        const strip = stripsById.get(id);
+        if (!strip) continue;
+        bbox.union(strip.boundingBox());
+      }
+      if (bbox.isEmpty()) return;
+      const pivot = bbox.getCenter(new Vector3());
+
+      // Build T(p) · R(axis, π/2) · T(-p).
+      const T1 = new Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
+      const R = new Matrix4();
+      const halfPi = Math.PI / 2;
+      if (axis === 'x') R.makeRotationX(halfPi);
+      else if (axis === 'y') R.makeRotationY(halfPi);
+      else R.makeRotationZ(halfPi);
+      const T2 = new Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
+      const rotMat = new Matrix4().multiplyMatrices(T2, R).multiply(T1);
+
+      // Apply rotation to every strip in the group (same pattern as performJoin).
+      for (const id of memberIds) {
+        const strip = stripsById.get(id);
+        if (!strip) continue;
+        const rotated = strip.transform(rotMat);
+        strip.dispose();
+        stripsById.set(id, rotated);
+      }
+
+      // Recompute post-rotation bbox and drop the group to bench-flush.
+      const newBbox = new Box3();
+      for (const id of memberIds) {
+        const strip = stripsById.get(id);
+        if (!strip) continue;
+        newBbox.union(strip.boundingBox());
+      }
+      const dy = BENCH_Y - newBbox.min.y;
+      if (Math.abs(dy) > 1e-9) {
+        for (const id of memberIds) {
+          const strip = stripsById.get(id);
+          if (!strip) continue;
+          const moved = strip.translate(0, dy, 0);
+          strip.dispose();
+          stripsById.set(id, moved);
+        }
+      }
+
+      const n = memberIds.length;
+      appendLog(
+        `rotate[${axis}] group [${memberIds.join(', ')}] · pivot=(${pivot.x.toFixed(1)}, ${pivot.y.toFixed(1)}, ${pivot.z.toFixed(1)}) · Δy=${dy.toFixed(2)}mm · ${n} strip${n === 1 ? '' : 's'}`,
+      );
+      render('update');
+    };
+
     // Modifier-gated camera controls. Shift → TrackballControls
     // (full 3-DoF orbit with roll). Alt/Option → OrbitControls
     // (Y-up locked, simpler). Plain drag is owned by the harness
@@ -1838,6 +1942,9 @@ async function boot(): Promise<void> {
     reshuffleBtn?.addEventListener('click', () => render('fresh'));
     joinBtn?.addEventListener('click', performJoin);
     detachBtn?.addEventListener('click', performDetach);
+    rotateXBtn?.addEventListener('click', () => performRotate('x'));
+    rotateYBtn?.addEventListener('click', () => performRotate('y'));
+    rotateZBtn?.addEventListener('click', () => performRotate('z'));
     // Switching algorithms changes required-selection count; clear
     // selections so the user starts fresh for the new mechanic.
     algoSelectEl?.addEventListener('change', () => render('update'));

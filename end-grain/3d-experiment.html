@@ -121,6 +121,20 @@
     .join-btn:not(:disabled):hover {
       background: #f0f0ea;
     }
+    .rotate-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.35rem 0.5rem;
+    }
+    .rotate-btn svg {
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+    .rotate-btn .rotate-axis {
+      font-weight: 700;
+      font-size: 0.75rem;
+    }
     .add-btn {
       width: 2rem;
       height: 2rem;
@@ -246,6 +260,27 @@
         <select class="algo-select" data-slot="join-algo" aria-label="Join algorithm"></select>
         <button type="button" class="join-btn" data-slot="join" disabled>join faces</button>
         <button type="button" class="join-btn" data-slot="detach" disabled>detach</button>
+        <button type="button" class="join-btn rotate-btn" data-slot="rotate-x" disabled title="Rotate around X" aria-label="Rotate around X">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12a7 7 0 0 1 12-4.95" />
+            <polyline points="17 3 17 7 13 7" />
+          </svg>
+          <span class="rotate-axis">X</span>
+        </button>
+        <button type="button" class="join-btn rotate-btn" data-slot="rotate-y" disabled title="Rotate around Y" aria-label="Rotate around Y">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12a7 7 0 0 1 12-4.95" />
+            <polyline points="17 3 17 7 13 7" />
+          </svg>
+          <span class="rotate-axis">Y</span>
+        </button>
+        <button type="button" class="join-btn rotate-btn" data-slot="rotate-z" disabled title="Rotate around Z" aria-label="Rotate around Z">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12a7 7 0 0 1 12-4.95" />
+            <polyline points="17 3 17 7 13 7" />
+          </svg>
+          <span class="rotate-axis">Z</span>
+        </button>
       </div>
     </section>
   </main>
