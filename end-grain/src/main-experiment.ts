@@ -13,7 +13,6 @@
  */
 
 import {
-  Box3,
   BufferAttribute,
   BufferGeometry,
   EdgesGeometry,
@@ -45,12 +44,16 @@ import type { Species } from './state/types';
 const BLOCK_COUNT = 10;
 const BLOCK_SIZE = { width: 50, height: 50, depth: 50 };
 
-/** Minimum clearance between any two pieces' AABBs, in mm. */
-const PLACEMENT_MARGIN = 30;
-/** Half-extent of the random placement volume, per axis, in mm. */
-const SCENE_HALF = { x: 320, y: 160, z: 220 };
-/** Rejection-sampling budget per piece before giving up. */
-const MAX_PLACE_ATTEMPTS = 1200;
+/** Workbench plane — strips rest with their bench face at y=0. */
+const BENCH_Y = 0;
+/**
+ * Lineup placement for new / reshuffled strips. Strips keep their
+ * default orientation (long axis along +X), center at x=0, y=25 so the
+ * -Y face sits on the bench, and successive slots stepping along +Z.
+ */
+const LINEUP_Z_START = -350;
+const LINEUP_Z_STEP = 140;
+const LINEUP_STRIP_Y = 25;
 
 // ---------------------------------------------------------------------------
 // Piece builders — starting from a rectangular solid, cutting down
@@ -167,8 +170,8 @@ function buildWide(pieceId: string, pair: [Species, Species]): Strip {
 }
 
 /**
- * The four original pieces. `reshuffle` scatters this set — the new
- * bevel/wide types are add-only so scatter doesn't outgrow SCENE_HALF.
+ * The four original pieces. `reshuffle` lays this set out in the first
+ * four lineup slots — the new bevel/wide types are add-only.
  */
 const STARTING_PIECES: PieceDef[] = [
   { name: 'rect', pair: ['maple', 'walnut'], build: buildRectangle },
@@ -185,49 +188,21 @@ const PIECES: PieceDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Random orientation + placement
+// Lineup placement — deterministic, bench-resting, default orientation
 // ---------------------------------------------------------------------------
 
-function randomRotationMatrix(): Matrix4 {
-  // Shoemake's uniform random quaternion on SO(3).
-  const u1 = Math.random();
-  const u2 = Math.random();
-  const u3 = Math.random();
-  const q = new Quaternion(
-    Math.sqrt(1 - u1) * Math.sin(2 * Math.PI * u2),
-    Math.sqrt(1 - u1) * Math.cos(2 * Math.PI * u2),
-    Math.sqrt(u1) * Math.sin(2 * Math.PI * u3),
-    Math.sqrt(u1) * Math.cos(2 * Math.PI * u3),
-  );
-  return new Matrix4().makeRotationFromQuaternion(q);
-}
-
-function placeStrip(
-  strip: Strip,
-  existing: Box3[],
-  volume: { x: number; y: number; z: number } = SCENE_HALF,
-): { placed: Strip; box: Box3 } | null {
-  const rotated = strip.transform(randomRotationMatrix());
-  const localBox = rotated.boundingBox();
-  const offset = new Vector3();
-  for (let i = 0; i < MAX_PLACE_ATTEMPTS; i++) {
-    offset.set(
-      (Math.random() - 0.5) * 2 * volume.x,
-      (Math.random() - 0.5) * 2 * volume.y,
-      (Math.random() - 0.5) * 2 * volume.z,
-    );
-    const candidate = localBox
-      .clone()
-      .translate(offset)
-      .expandByScalar(PLACEMENT_MARGIN);
-    if (!existing.some((e) => candidate.intersectsBox(e))) {
-      const placed = rotated.translate(offset.x, offset.y, offset.z);
-      rotated.dispose();
-      return { placed, box: placed.boundingBox() };
-    }
-  }
-  rotated.dispose();
-  return null;
+/**
+ * Place a freshly-built strip in lineup slot `slotIndex`. The strip
+ * keeps its `fromAlternatingBlocks` orientation (long axis along +X)
+ * and is translated so:
+ *   - `x = 0` (centered along the long axis),
+ *   - `y = LINEUP_STRIP_Y` (the -Y face rests on the bench at y=0),
+ *   - `z = LINEUP_Z_START + slotIndex · LINEUP_Z_STEP`.
+ * The strip input is not mutated — caller must dispose it.
+ */
+function placeInLineup(strip: Strip, slotIndex: number): Strip {
+  const z = LINEUP_Z_START + slotIndex * LINEUP_Z_STEP;
+  return strip.translate(0, LINEUP_STRIP_Y, z);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,32 +268,20 @@ function partToMesh(part: Part): Mesh {
   return mesh;
 }
 
-/** Build a single scatter attempt. Returns null if any piece fails to place. */
-function tryScatterStrips(): Strip[] | null {
-  const existing: Box3[] = [];
-  const placed: Strip[] = [];
-  for (const piece of STARTING_PIECES) {
-    const built = piece.build(piece.name, piece.pair);
-    const result = placeStrip(built, existing);
-    built.dispose();
-    if (!result) {
-      placed.forEach((s) => s.dispose());
-      return null;
-    }
-    existing.push(result.box);
-    placed.push(result.placed);
-  }
-  return placed;
-}
-
-const MAX_SCENE_ATTEMPTS = 6;
+/**
+ * Lay out the starting pieces along the lineup, slot 0 through
+ * `STARTING_PIECES.length - 1`. No randomness — reshuffle now just
+ * rebuilds the same lineup (equivalent to "clear then re-add").
+ */
 function scatterStrips(): Strip[] {
-  for (let i = 0; i < MAX_SCENE_ATTEMPTS; i++) {
-    const strips = tryScatterStrips();
-    if (strips) return strips;
-  }
-  console.warn('[3d-experiment] scene placement never fit all pieces');
-  return [];
+  const placed: Strip[] = [];
+  STARTING_PIECES.forEach((piece, i) => {
+    const built = piece.build(piece.name, piece.pair);
+    const positioned = placeInLineup(built, i);
+    built.dispose();
+    placed.push(positioned);
+  });
+  return placed;
 }
 
 /** Build a Three.js root Group from the given strips, no placement. */
@@ -935,7 +898,7 @@ async function boot(): Promise<void> {
           ? 'add a strip from the upper-left to begin'
           : `drag to orbit · scroll to zoom · ${selDesc}`;
       setStatus(
-        `${pieceNote}${groupNote} · ${guidance} · reshuffle for a scatter of the starting four`,
+        `${pieceNote}${groupNote} · ${guidance} · reshuffle for the starting-four lineup`,
       );
     };
 
@@ -1068,28 +1031,14 @@ async function boot(): Promise<void> {
         id = `${piece.name}-${n}`;
       }
       const wasEmpty = stripsById.size === 0;
+      // Slot index = current count; grows monotonically, never reused.
+      const slotIndex = stripsById.size;
       const built = piece.build(id, piece.pair);
-      const existing: Box3[] = [];
-      for (const s of stripsById.values()) existing.push(s.boundingBox());
-      // Start at SCENE_HALF so the first strip lands inside the default
-      // camera frame; expand only if the scene is already packed.
-      let result: ReturnType<typeof placeStrip> = null;
-      for (const mult of [1, 2, 4]) {
-        result = placeStrip(built, existing, {
-          x: SCENE_HALF.x * mult,
-          y: SCENE_HALF.y * mult,
-          z: SCENE_HALF.z * mult,
-        });
-        if (result) break;
-      }
+      const placed = placeInLineup(built, slotIndex);
       built.dispose();
-      if (!result) {
-        appendLog(`add[${id}]: placement failed even at 4× scene volume`);
-        return;
-      }
-      stripsById.set(id, result.placed);
+      stripsById.set(id, placed);
       joinGroups.set(id, new Set([id]));
-      appendLog(`add: +${id}`);
+      appendLog(`add: +${id} at slot ${slotIndex}`);
       // First strip into an empty scene needs a camera refit — the
       // previous-camera state was framed for "no content," so the
       // freshly-placed strip would otherwise sit outside its frustum.
