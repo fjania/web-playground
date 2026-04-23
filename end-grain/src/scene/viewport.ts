@@ -60,6 +60,20 @@ export interface CameraState {
   up: [number, number, number];
 }
 
+/**
+ * Full camera pose — position + target + up. Unlike CameraState (which
+ * is orientation-only for cross-viewport sync), CameraPose is a complete
+ * snapshot that can be round-tripped through viewport disposal without
+ * the zoom level or target-centre being lost. Used by harnesses that
+ * rebuild their viewport in response to scene changes (drag drops,
+ * piece additions) and want the user's view preserved exactly.
+ */
+export interface CameraPose {
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+}
+
 export interface ViewportHandle {
   dispose: () => void;
   /** Current camera state — position, up, target. */
@@ -70,6 +84,8 @@ export interface ViewportHandle {
    * workbench to avoid feedback loops between linked viewports.
    */
   setCameraState: (state: CameraState) => void;
+  /** Full pose snapshot — position, target, up. */
+  getCameraPose: () => CameraPose;
   /**
    * Subscribe to camera-change events. Fires whenever the user
    * tumbles / pans / zooms. Returns an unsubscribe function.
@@ -115,8 +131,21 @@ export interface ViewportOptions {
    * If provided, skip the default top-down fit and restore this
    * camera state on mount. Used by the workbench to preserve the
    * user's view across pipeline reruns.
+   *
+   * Orientation-only — distance and target are re-derived from the
+   * new scene's centroid + fit. For full pose preservation (zoom +
+   * centre across viewport rebuild) use initialCameraPose instead.
    */
   initialCameraState?: CameraState;
+  /**
+   * If provided, skip the default top-down fit and restore this
+   * full camera pose (position + target + up) on mount. Wins over
+   * initialCameraState when both are supplied. Used by harnesses
+   * that rebuild the viewport on every scene change (drag drops,
+   * piece additions) and want the user's zoom + target preserved
+   * exactly — not just the viewing direction.
+   */
+  initialCameraPose?: CameraPose;
 }
 
 export function setupViewport(
@@ -214,13 +243,15 @@ export function setupViewport(
   camera.lookAt(centre);
   positionCameraAtDistance(computeFitDistance(initialAspect));
 
-  // If the caller supplied an initial camera orientation (to
-  // preserve the user's view across pipeline reruns or to sync
+  // If the caller supplied an initial camera orientation or full pose
+  // (to preserve the user's view across pipeline reruns or to sync
   // across linked viewports), apply it after the default fit so it
   // wins. We'll finish applying after controls + target are set up
   // since rotating the camera requires knowing the target.
+  const pendingInitialPose: CameraPose | null = options.initialCameraPose ?? null;
   const pendingInitialState: CameraState | null = options.initialCameraState ?? null;
-  const appliedExternalInitial = pendingInitialState !== null;
+  const appliedExternalInitial =
+    pendingInitialPose !== null || pendingInitialState !== null;
 
   function positionCameraAtDistance(d: number): void {
     if (vertical === 'z') {
@@ -288,6 +319,14 @@ export function setupViewport(
     };
   }
 
+  function currentCameraPose(): CameraPose {
+    return {
+      position: [camera.position.x, camera.position.y, camera.position.z],
+      target: [controls.target.x, controls.target.y, controls.target.z],
+      up: [camera.up.x, camera.up.y, camera.up.z],
+    };
+  }
+
   /**
    * Apply an orientation state — keep our own target + fit distance,
    * rotate the camera so its viewing direction and up match the
@@ -311,10 +350,32 @@ export function setupViewport(
     controls.update();
   }
 
+  /**
+   * Apply a full pose — set position, target, and up directly. Unlike
+   * applyCameraState, this preserves the user's zoom (distance) and
+   * centre exactly. Used by harnesses that rebuild their viewport on
+   * every scene change (drag drops, piece adds) and want the user's
+   * view carried across the rebuild with no re-framing.
+   */
+  function applyCameraPose(pose: CameraPose): void {
+    camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
+    camera.up.set(pose.up[0], pose.up[1], pose.up[2]);
+    controls.target.set(pose.target[0], pose.target[1], pose.target[2]);
+    camera.lookAt(controls.target);
+    controls.update();
+  }
+
   // Now that controls + target are set, apply any pending initial
-  // orientation. (Must run after the default fit set the position,
-  // because applyCameraState preserves the current distance.)
-  if (pendingInitialState) {
+  // state. Pose wins over orientation-only state — it's the richer
+  // signal (zoom + centre preserved, not just direction).
+  if (pendingInitialPose) {
+    suppressChange = true;
+    try {
+      applyCameraPose(pendingInitialPose);
+    } finally {
+      suppressChange = false;
+    }
+  } else if (pendingInitialState) {
     suppressChange = true;
     try {
       applyCameraState(pendingInitialState);
@@ -420,6 +481,9 @@ export function setupViewport(
     },
     getCameraState(): CameraState {
       return currentCameraState();
+    },
+    getCameraPose(): CameraPose {
+      return currentCameraPose();
     },
     setCameraState(state: CameraState): void {
       suppressChange = true;

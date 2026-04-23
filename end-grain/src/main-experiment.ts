@@ -1568,13 +1568,21 @@ async function boot(): Promise<void> {
      *   'empty' : discard existing strips and leave the scene empty.
      *   'fresh' : discard and scatter the starting-four pieces.
      *   'update': keep the existing strips and rebuild the viewport,
-     *             preserving camera orientation.
+     *             preserving the user's camera pose exactly (position,
+     *             target, up — zoom and centre included, not just
+     *             direction). This is what makes a drag-drop not feel
+     *             like a camera reset.
      *   'refit' : keep the existing strips but re-fit the camera to the
      *             current bounds (used when the first strip lands in an
      *             empty scene).
      */
     const render = (mode: 'fresh' | 'update' | 'empty' | 'refit'): void => {
-      const previousCamera = handle?.getCameraState() ?? null;
+      // Full pose (position + target + up) beats orientation-only
+      // CameraState for 'update' — the scene's bbox centroid may shift
+      // when a piece moves, and we want the user's exact view to
+      // carry across the viewport rebuild without re-centering or
+      // re-fitting.
+      const previousPose = handle?.getCameraPose() ?? null;
       teardownSelection?.();
       teardownSelection = null;
       handle?.dispose();
@@ -1605,9 +1613,11 @@ async function boot(): Promise<void> {
       currentRoot = root;
       currentHighlights = highlightsGroup;
 
-      const initialCameraState =
-        mode === 'update' && previousCamera ? previousCamera : ISO_VIEW;
-      handle = setupViewport(tileEl, root, { initialCameraState });
+      const viewportOptions =
+        mode === 'update' && previousPose
+          ? { initialCameraPose: previousPose }
+          : { initialCameraState: ISO_VIEW };
+      handle = setupViewport(tileEl, root, viewportOptions);
 
       teardownSelection =
         currentMode === 'select'
@@ -1622,6 +1632,7 @@ async function boot(): Promise<void> {
       renderStatus([]);
 
       (window as any).__experiment = {
+        handle,
         camera: handle.camera,
         canvas: handle.canvas,
         root,
