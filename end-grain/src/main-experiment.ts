@@ -2162,10 +2162,14 @@ async function boot(): Promise<void> {
     // (there isn't one to highlight).
     //
     // Lifecycle:
-    //   - pointerenter: (re)build preview.
-    //   - pointerleave: clear preview.
-    //   - next render(): clear preview (render rebuilds the root tree).
+    //   - pointerenter: set `hoveredRotateAxis`, (re)build preview.
+    //   - pointerleave / blur: clear `hoveredRotateAxis`, clear preview.
+    //   - next render(): if `hoveredRotateAxis` is still set (cursor
+    //     didn't move off the button), rebuild the preview against the
+    //     new scene state. Otherwise just clear stale preview geometry
+    //     attached to the old root.
     let rotatePreviewGroup: Group | null = null;
+    let hoveredRotateAxis: 'x' | 'y' | 'z' | null = null;
 
     const clearRotatePreview = (): void => {
       if (!rotatePreviewGroup) return;
@@ -2180,10 +2184,6 @@ async function boot(): Promise<void> {
       });
       rotatePreviewGroup = null;
     };
-
-    // Re-clear on every render so stale previews don't survive a
-    // scene rebuild (the preview group is attached to the old root).
-    renderCallbacks.push(clearRotatePreview);
 
     const PREVIEW_COLOR_X = 0xe74c3c; // red — matches the X axis gizmo
     const PREVIEW_COLOR_Z = 0x3498db; // blue — matches the Z axis gizmo
@@ -2318,16 +2318,35 @@ async function boot(): Promise<void> {
       rotatePreviewGroup = previewGroup;
     };
 
+    // After every render() the root is rebuilt, so any preview group
+    // attached to the old root is orphaned. Clear that stale geometry
+    // and — if the cursor is still sitting on a rotate button (e.g. the
+    // user clicked the button without moving the pointer off) —
+    // recompute and show the preview against the new scene state.
+    renderCallbacks.push(() => {
+      clearRotatePreview();
+      if (hoveredRotateAxis !== null) showRotatePreview(hoveredRotateAxis);
+    });
+
     const wireRotateHover = (
       btn: HTMLButtonElement | null,
       axis: 'x' | 'y' | 'z',
     ): void => {
       if (!btn) return;
-      btn.addEventListener('pointerenter', () => showRotatePreview(axis));
-      btn.addEventListener('pointerleave', () => clearRotatePreview());
+      btn.addEventListener('pointerenter', () => {
+        hoveredRotateAxis = axis;
+        showRotatePreview(axis);
+      });
+      btn.addEventListener('pointerleave', () => {
+        hoveredRotateAxis = null;
+        clearRotatePreview();
+      });
       // Blur / focus loss — treat like pointerleave so a tap-then-hover-out
       // doesn't leave a stale preview.
-      btn.addEventListener('blur', () => clearRotatePreview());
+      btn.addEventListener('blur', () => {
+        hoveredRotateAxis = null;
+        clearRotatePreview();
+      });
     };
     wireRotateHover(rotateXBtn, 'x');
     wireRotateHover(rotateYBtn, 'y');
