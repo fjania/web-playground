@@ -22,10 +22,15 @@ import { extractFaceBoundary, Strip, type StripFace } from './Strip';
 
 export interface RotationPlan {
   /** Unit rotation axis in world space. For the tip case this is the
-   *  direction of `pivotEdge`; for Y it's world +Y; for 180° flips
-   *  it's the requested world axis (X or Z). */
+   *  direction of `pivotEdge`, oriented so its component along the
+   *  requested world axis is positive; for Y it's world +Y; for 180°
+   *  flips it's the requested world axis (X or Z). With axisVec pinned
+   *  to the positive world-axis side, the sign of `theta` directly
+   *  encodes rotation direction (positive = right-hand-rule CCW). */
   axisVec: Vector3;
-  /** Rotation angle in radians, always positive. */
+  /** Rotation angle in radians — signed. Magnitude is the dihedral
+   *  from F_current to F_next (or π/2 for Y, π for 180° fallback);
+   *  sign is the requested direction (+1 / -1). */
   theta: number;
   /** A point on the rotation axis — translation anchor for the conjugation. */
   pivot: Vector3;
@@ -95,9 +100,17 @@ export function findAdjacentFace(
   return best;
 }
 
+/** Rotation direction: +1 = right-hand-rule CCW about the requested
+ *  world axis; -1 = the opposite (CW). The two directions share the
+ *  same pivot-edge + θ-magnitude math — they differ only in which side
+ *  of F_current becomes the leading edge (+1 picks the tip-toward edge,
+ *  -1 picks the opposite side) and in the sign of the returned θ. */
+export type RotationDirection = 1 | -1;
+
 /**
  * Compute a `RotationPlan` for rotating the given strip group around
- * the world `axis`. Returns null if no plan exists.
+ * the world `axis` in the given `direction` (+1 = CCW, -1 = CW).
+ * Returns null if no plan exists.
  *
  * X/Z algorithm:
  *   1. Find the current bench face F_current (first strip that has
@@ -114,28 +127,43 @@ export function findAdjacentFace(
  *      caller log "no candidate edge aligned with X|Z — skipped".
  *   4. Among the passing edges, pick the leading one in the tip
  *      direction:
- *        axis='x' (tips toward +Z) → edge whose midpoint has the
- *          largest z-coordinate.
- *        axis='z' (tips toward -X) → edge whose midpoint has the
- *          smallest x-coordinate.
+ *        axis='x', direction=+1 (tips toward +Z) → max midpoint.z.
+ *        axis='x', direction=-1 (tips toward -Z) → min midpoint.z.
+ *        axis='z', direction=+1 (tips toward -X) → min midpoint.x.
+ *        axis='z', direction=-1 (tips toward +X) → max midpoint.x.
  *   5. axisVec = unit edge direction, oriented so its component along
- *      the requested world axis is positive (CCW intent).
- *   6. Find F_next adjacent to F_current across this edge; compute θ
- *      so F_next's normal lands on (0,-1,0) about axisVec.
+ *      the requested world axis is positive. This keeps the axis
+ *      consistent between + and -, so the sign of the returned θ
+ *      unambiguously maps to right-hand-rule CCW/CW.
+ *   6. Find F_next adjacent to F_current across this edge; compute the
+ *      unsigned dihedral θ₀ that brings F_next's normal onto (0,-1,0).
+ *      Return `direction · θ₀` so the pose lands on the bench either
+ *      way.
  *   7. Fallback 180° flip if no F_next found: rotate about the
- *      requested world axis through the bbox center.
+ *      requested world axis through the bbox center. (180° is its own
+ *      inverse, so direction doesn't affect the landing pose — we
+ *      still return direction·π for consistency with preview arcs.)
  *
- * Y algorithm: classic 90° spin around world +Y through the bbox center.
+ * Y algorithm: 90° spin around world +Y through the bbox center,
+ * signed by direction.
+ *
+ * Round-trip property: for any axis where a plan exists both ways,
+ * `computeRotationPlan(strips, axis, +1)` followed by applying the
+ * plan, then `computeRotationPlan(newStrips, axis, -1)` and applying
+ * THAT plan, returns the strips to their original pose — because the
+ * two plans pivot about the same tilted edge (the rotation's own
+ * contact edge), with θ negated.
  */
 export function computeRotationPlan(
   groupStrips: Strip[],
   axis: 'x' | 'y' | 'z',
   bboxCenter: Vector3,
+  direction: RotationDirection = 1,
 ): RotationPlan | null {
   if (axis === 'y') {
     return {
       axisVec: new Vector3(0, 1, 0),
-      theta: Math.PI / 2,
+      theta: direction * (Math.PI / 2),
       pivot: bboxCenter.clone(),
       pivotEdge: null,
       nextFaceId: null,
@@ -171,75 +199,141 @@ export function computeRotationPlan(
   }
   if (aligned.length === 0) return null;
 
-  // Among the aligned edges, pick the one leading in the tip direction
-  // (+Z for Rotate-X, -X for Rotate-Z).
-  const pickBy = (
-    score: (mid: Vector3) => number,
-    sign: 1 | -1,
-  ): { a: Vector3; b: Vector3 } | null => {
-    let best: { seg: { a: Vector3; b: Vector3 }; value: number } | null = null;
-    for (const seg of aligned) {
-      const mid = seg.a.clone().add(seg.b).multiplyScalar(0.5);
-      const v = sign * score(mid);
-      if (best === null || v > best.value) best = { seg, value: v };
+  // For each aligned edge, figure out whether rotating about it (CCW
+  // about +worldAxis) brings the adjacent face onto the bench with
+  // positive theta (rawTheta>0) or negative theta (rawTheta<0). The
+  // sign of rawTheta is the geometry's verdict on which physical
+  // direction this edge tips: positive = CCW about +worldAxis, negative
+  // = CW. We keep only edges whose direction matches `direction`, then
+  // pick the leading one (max/min x/z of midpoint) among the matching
+  // subset.
+  //
+  // This "filter-by-rawTheta-sign, then leading" order matters for
+  // non-rectangular bench faces (parallelogram, skewed tapers) where
+  // multiple aligned edges exist but only one tips in each direction.
+  // For a rectangular bench face, exactly one edge on each side has
+  // a valid tip; the leading-edge picker resolves ties on position.
+  const worldAxisNeg = worldAxis.clone().negate();
+  interface Candidate {
+    edge: { a: Vector3; b: Vector3 };
+    axisVec: Vector3;
+    rawTheta: number;
+    fNext: StripFace;
+  }
+  const candidates: Candidate[] = [];
+  for (const edge of aligned) {
+    const axisVecRaw = new Vector3().subVectors(edge.b, edge.a);
+    if (axisVecRaw.lengthSq() < 1e-12) continue;
+    axisVecRaw.normalize();
+    // Orient axisVec so it agrees with +worldAxis (pinned positive).
+    // With axisVec fixed, the sign of rawTheta unambiguously encodes
+    // the rotation's CCW/CW direction about +worldAxis.
+    if (axis === 'x' && axisVecRaw.x < 0) axisVecRaw.negate();
+    else if (axis === 'z' && axisVecRaw.z < 0) axisVecRaw.negate();
+    // Skip edges not aligned closely enough — shouldn't happen after
+    // the 60° filter, but defensive.
+    if (axisVecRaw.dot(worldAxis) < ALIGN_MIN && axisVecRaw.dot(worldAxisNeg) < ALIGN_MIN) continue;
+
+    const fNext = findAdjacentFace(
+      groupStrips,
+      fCurrent.face.id,
+      edge.a,
+      edge.b,
+    );
+    if (!fNext) continue;
+
+    const n = new Vector3(
+      fNext.plane.normal[0],
+      fNext.plane.normal[1],
+      fNext.plane.normal[2],
+    );
+    const down = new Vector3(0, -1, 0);
+    const nProj = n.clone().sub(axisVecRaw.clone().multiplyScalar(n.dot(axisVecRaw)));
+    const dProj = down
+      .clone()
+      .sub(axisVecRaw.clone().multiplyScalar(down.dot(axisVecRaw)));
+    if (nProj.lengthSq() < 1e-12 || dProj.lengthSq() < 1e-12) continue;
+    nProj.normalize();
+    dProj.normalize();
+    const cross = new Vector3().crossVectors(nProj, dProj);
+    const rawTheta = Math.atan2(cross.dot(axisVecRaw), nProj.dot(dProj));
+    // Skip degenerate 0° tips.
+    if (Math.abs(rawTheta) < 1e-6) continue;
+
+    candidates.push({ edge, axisVec: axisVecRaw, rawTheta, fNext });
+  }
+
+  // Filter candidates to those whose rawTheta sign matches `direction`.
+  // If none match, no valid tip exists in this direction — return null.
+  const matching = candidates.filter((c) => Math.sign(c.rawTheta) === direction);
+  if (matching.length === 0) {
+    // Fallback 180° flip: applies only when the requested direction has
+    // no valid tip AND no adjacent face existed at all (solid slab with
+    // no neighboring face to tip onto). Only reachable from the first
+    // "no fNext" branch below.
+    //
+    // If candidates existed but none matched direction, the requested
+    // direction just isn't feasible — return null. The opposite button
+    // may still work.
+    if (candidates.length === 0 && aligned.length > 0) {
+      return {
+        axisVec: axis === 'x' ? new Vector3(1, 0, 0) : new Vector3(0, 0, 1),
+        theta: direction * Math.PI,
+        pivot: bboxCenter.clone(),
+        pivotEdge: null,
+        nextFaceId: null,
+      };
     }
-    return best?.seg ?? null;
-  };
-  const pivotEdge =
-    axis === 'x' ? pickBy((m) => m.z, 1) : pickBy((m) => m.x, -1);
-  if (!pivotEdge) return null;
-
-  const axisVec = new Vector3().subVectors(pivotEdge.b, pivotEdge.a);
-  if (axisVec.lengthSq() < 1e-12) return null;
-  axisVec.normalize();
-  if (axis === 'x' && axisVec.x < 0) axisVec.negate();
-  else if (axis === 'z' && axisVec.z < 0) axisVec.negate();
-
-  const fNext = findAdjacentFace(
-    groupStrips,
-    fCurrent.face.id,
-    pivotEdge.a,
-    pivotEdge.b,
-  );
-  if (!fNext) {
-    return {
-      axisVec: axis === 'x' ? new Vector3(1, 0, 0) : new Vector3(0, 0, 1),
-      theta: Math.PI,
-      pivot: bboxCenter.clone(),
-      pivotEdge: null,
-      nextFaceId: null,
-    };
+    return null;
   }
 
-  const n = new Vector3(
-    fNext.plane.normal[0],
-    fNext.plane.normal[1],
-    fNext.plane.normal[2],
-  );
-  const down = new Vector3(0, -1, 0);
-  const nProj = n.clone().sub(axisVec.clone().multiplyScalar(n.dot(axisVec)));
-  const dProj = down
-    .clone()
-    .sub(axisVec.clone().multiplyScalar(down.dot(axisVec)));
-  if (nProj.lengthSq() < 1e-12 || dProj.lengthSq() < 1e-12) return null;
-  nProj.normalize();
-  dProj.normalize();
-  const cross = new Vector3().crossVectors(nProj, dProj);
-  let theta = Math.atan2(cross.dot(axisVec), nProj.dot(dProj));
-  // Keep θ positive — if negative we picked the wrong axis orientation
-  // (CCW vs CW is a sign convention; flip the axis to keep the magnitude
-  // positive without changing the physical rotation).
-  if (theta < 0) {
-    axisVec.negate();
-    theta = -theta;
+  // Among matching candidates, pick the "biggest" tip first — the edge
+  // with the largest |rawTheta|. This prefers edges parallel to the
+  // requested world axis (canonical 90° tips) over diagonal edges
+  // (partial tips) when a bench face has both kinds — critical for
+  // non-rectangular bench faces (e.g. parallelogram post-tip, where
+  // the rectangular cut face lands and exposes both its long edges
+  // parallel to the axis AND its short edges at 45°).
+  //
+  // Ties on |rawTheta| are broken by leading-edge position, so for
+  // rectangular bench faces (all edges equal 90°) the result matches
+  // the simple "max/min midpoint coord" heuristic:
+  //   x,+1: max midpoint.z (tips toward +Z)
+  //   x,-1: min midpoint.z (tips toward -Z)
+  //   z,+1: min midpoint.x (tips toward -X)
+  //   z,-1: max midpoint.x (tips toward +X)
+  const leadSign: 1 | -1 =
+    axis === 'x'
+      ? ((direction === 1 ? 1 : -1) as 1 | -1)
+      : ((direction === 1 ? -1 : 1) as 1 | -1);
+  const scoreFn: (m: Vector3) => number =
+    axis === 'x' ? (m) => m.z : (m) => m.x;
+  const THETA_TIE_TOL = 1e-3; // radians — ~0.06°
+  let best: Candidate | null = null;
+  let bestTheta = -Infinity;
+  let bestLead = -Infinity;
+  for (const c of matching) {
+    const mag = Math.abs(c.rawTheta);
+    const mid = c.edge.a.clone().add(c.edge.b).multiplyScalar(0.5);
+    const leadValue = leadSign * scoreFn(mid);
+    if (
+      mag > bestTheta + THETA_TIE_TOL ||
+      (Math.abs(mag - bestTheta) <= THETA_TIE_TOL && leadValue > bestLead)
+    ) {
+      best = c;
+      bestTheta = mag;
+      bestLead = leadValue;
+    }
   }
+  if (!best) return null;
 
-  const pivot = pivotEdge.a.clone().add(pivotEdge.b).multiplyScalar(0.5);
+  const theta = direction * Math.abs(best.rawTheta);
+  const pivot = best.edge.a.clone().add(best.edge.b).multiplyScalar(0.5);
   return {
-    axisVec,
+    axisVec: best.axisVec,
     theta,
     pivot,
-    pivotEdge,
-    nextFaceId: fNext.id,
+    pivotEdge: best.edge,
+    nextFaceId: best.fNext.id,
   };
 }

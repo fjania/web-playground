@@ -46,6 +46,7 @@ import {
 } from './domain/Strip';
 import {
   computeRotationPlan,
+  type RotationDirection,
   type RotationPlan,
 } from './domain/rotation';
 import {
@@ -1084,14 +1085,12 @@ async function boot(): Promise<void> {
   const detachBtn = document.querySelector<HTMLButtonElement>(
     '[data-slot="detach"]',
   );
-  const rotateXBtn = document.querySelector<HTMLButtonElement>(
-    '[data-slot="rotate-x"]',
-  );
-  const rotateYBtn = document.querySelector<HTMLButtonElement>(
-    '[data-slot="rotate-y"]',
-  );
-  const rotateZBtn = document.querySelector<HTMLButtonElement>(
-    '[data-slot="rotate-z"]',
+  // Rotate buttons are addressed by {axis, direction} via data-attrs.
+  // Six buttons: X+, X−, Y+, Y−, Z+, Z−. `direction=+1` is the original
+  // CCW behavior; `direction=-1` is the opposite (CW about +worldAxis),
+  // enabling exact round-trips (X+ followed by X− returns to origin).
+  const rotateBtns = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-rotate-axis]'),
   );
   const algoSelectEl = document.querySelector<HTMLSelectElement>(
     '[data-slot="join-algo"]',
@@ -1766,7 +1765,9 @@ async function boot(): Promise<void> {
         // Test-sweep surface — programmatically rotate the selected group
         // without reaching through DOM events. Used by the systematic
         // rotation test bench to cover initial-orientation combinations.
-        performRotate: (axis: 'x' | 'y' | 'z') => performRotate(axis),
+        // `direction` defaults to +1 (CCW) to keep old callers working.
+        performRotate: (axis: 'x' | 'y' | 'z', direction: RotationDirection = 1) =>
+          performRotate(axis, direction),
         buildWedge: (pieceId: string) =>
           buildWedge(pieceId, ['padauk', 'maple']),
         render: (mode: 'empty' | 'fresh' | 'update') => render(mode),
@@ -1961,6 +1962,7 @@ async function boot(): Promise<void> {
      */
     const computePlanForSelection = (
       axis: 'x' | 'y' | 'z',
+      direction: RotationDirection,
     ): { plan: RotationPlan; gid: string; strips: Strip[]; memberIds: string[] } | null => {
       if (selectedStripIds.size === 0) return null;
       const groupIds = new Set<string>();
@@ -1974,13 +1976,16 @@ async function boot(): Promise<void> {
       if (strips.length === 0) return null;
       const bboxCenter = groupBboxCenter(strips);
       if (!bboxCenter) return null;
-      const plan = computeRotationPlan(strips, axis, bboxCenter);
+      const plan = computeRotationPlan(strips, axis, bboxCenter, direction);
       if (!plan) return null;
       const memberIds = [...(joinGroups.get(gid) ?? [])];
       return { plan, gid, strips, memberIds };
     };
 
-    const performRotate = (axis: 'x' | 'y' | 'z'): void => {
+    const performRotate = (
+      axis: 'x' | 'y' | 'z',
+      direction: RotationDirection,
+    ): void => {
       if (currentMode !== 'select') return;
       if (selectedStripIds.size === 0) return;
 
@@ -1994,6 +1999,7 @@ async function boot(): Promise<void> {
       if (groupIds.size === 0) return;
 
       const rotatedGroupSummaries: string[] = [];
+      const dirLabel = direction === 1 ? '+' : '−';
 
       for (const gid of groupIds) {
         const memberIds = [...(joinGroups.get(gid) ?? [])];
@@ -2002,17 +2008,22 @@ async function boot(): Promise<void> {
         const bboxCenter = groupBboxCenter(strips);
         if (!bboxCenter) continue;
 
-        const plan = computeRotationPlan(strips, axis, bboxCenter);
+        const plan = computeRotationPlan(strips, axis, bboxCenter, direction);
         if (!plan) {
           appendLog(
-            `rotate[${axis}] group [${memberIds.join(', ')}]: no plan — skipped`,
+            `rotate[${axis}${dirLabel}] group [${memberIds.join(', ')}]: no plan — skipped`,
           );
           continue;
         }
 
         const { axisVec, theta, pivot, pivotEdge, nextFaceId } = plan;
 
-        // Build T(p) · R(axisVec, θ) · T(-p).
+        // Build T(p) · R(axisVec, θ) · T(-p). `theta` is signed —
+        // positive is CCW about `axisVec` (which is pinned to have a
+        // positive component along the requested world axis). Feeding
+        // a negative theta to makeRotationAxis reverses the rotation,
+        // so the "−" button flips the piece the other way about the
+        // same physical axis.
         const T1 = new Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
         const R = new Matrix4().makeRotationAxis(axisVec, theta);
         const T2 = new Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
@@ -2058,7 +2069,7 @@ async function boot(): Promise<void> {
       }
 
       appendLog(
-        `rotate[${axis}] × ${groupIds.size} group${groupIds.size === 1 ? '' : 's'}: ${rotatedGroupSummaries.join(' | ')}`,
+        `rotate[${axis}${dirLabel}] × ${groupIds.size} group${groupIds.size === 1 ? '' : 's'}: ${rotatedGroupSummaries.join(' | ')}`,
       );
       // Selection survives the rotation — strip ids are preserved by
       // Strip.transform(). `render('update')` re-applies the halos.
@@ -2169,7 +2180,7 @@ async function boot(): Promise<void> {
     //     new scene state. Otherwise just clear stale preview geometry
     //     attached to the old root.
     let rotatePreviewGroup: Group | null = null;
-    let hoveredRotateAxis: 'x' | 'y' | 'z' | null = null;
+    let hoveredRotate: { axis: 'x' | 'y' | 'z'; direction: RotationDirection } | null = null;
 
     const clearRotatePreview = (): void => {
       if (!rotatePreviewGroup) return;
@@ -2264,6 +2275,10 @@ async function boot(): Promise<void> {
       hand.normalize();
 
       // 3. Arc — sample points via axis-angle, feed to TubeGeometry.
+      //    `plan.theta` is signed — positive winds CCW about `axis`,
+      //    negative winds CW. Sampling `t` from 0 to theta in order
+      //    makes the arc trace the correct direction without a separate
+      //    branch, and the arrowhead lands on the physically-correct end.
       const arcPoints: Vector3[] = [];
       const q = new Quaternion();
       const start = hand.clone().multiplyScalar(ARC_RADIUS);
@@ -2281,9 +2296,16 @@ async function boot(): Promise<void> {
       group.add(arcMesh);
 
       // 4. Arrowhead cone at the arc's end, oriented along the arc tangent.
+      //    For negative-θ arcs, the tangent direction flips too — use
+      //    `sign(theta)` so the arrow always points along the sweep
+      //    direction rather than against it.
       const endP = arcPoints[arcPoints.length - 1];
       const radial = endP.clone().sub(plan.pivot);
-      const tangent = new Vector3().crossVectors(axis, radial).normalize();
+      const thetaSign = Math.sign(plan.theta) || 1;
+      const tangent = new Vector3()
+        .crossVectors(axis, radial)
+        .multiplyScalar(thetaSign)
+        .normalize();
       const coneGeo = new ConeGeometry(ARROW_R, ARROW_H, 16);
       const cone = new Mesh(coneGeo, makeMat());
       // Position cone so its base sits at the arc endpoint and tip
@@ -2301,11 +2323,14 @@ async function boot(): Promise<void> {
       return group;
     };
 
-    const showRotatePreview = (axis: 'x' | 'y' | 'z'): void => {
+    const showRotatePreview = (
+      axis: 'x' | 'y' | 'z',
+      direction: RotationDirection,
+    ): void => {
       clearRotatePreview();
       if (currentMode !== 'select') return;
       if (!currentRoot) return;
-      const result = computePlanForSelection(axis);
+      const result = computePlanForSelection(axis, direction);
       if (!result) return;
       const color =
         axis === 'x'
@@ -2325,36 +2350,41 @@ async function boot(): Promise<void> {
     // recompute and show the preview against the new scene state.
     renderCallbacks.push(() => {
       clearRotatePreview();
-      if (hoveredRotateAxis !== null) showRotatePreview(hoveredRotateAxis);
+      if (hoveredRotate !== null) {
+        showRotatePreview(hoveredRotate.axis, hoveredRotate.direction);
+      }
     });
 
-    const wireRotateHover = (
-      btn: HTMLButtonElement | null,
-      axis: 'x' | 'y' | 'z',
-    ): void => {
-      if (!btn) return;
+    const parseRotateBtn = (
+      btn: HTMLButtonElement,
+    ): { axis: 'x' | 'y' | 'z'; direction: RotationDirection } | null => {
+      const axisRaw = btn.dataset.rotateAxis;
+      const dirRaw = btn.dataset.rotateDir;
+      if (axisRaw !== 'x' && axisRaw !== 'y' && axisRaw !== 'z') return null;
+      const direction: RotationDirection = dirRaw === '-1' ? -1 : 1;
+      return { axis: axisRaw, direction };
+    };
+
+    for (const btn of rotateBtns) {
+      const parsed = parseRotateBtn(btn);
+      if (!parsed) continue;
+      const { axis, direction } = parsed;
       btn.addEventListener('pointerenter', () => {
-        hoveredRotateAxis = axis;
-        showRotatePreview(axis);
+        hoveredRotate = { axis, direction };
+        showRotatePreview(axis, direction);
       });
       btn.addEventListener('pointerleave', () => {
-        hoveredRotateAxis = null;
+        hoveredRotate = null;
         clearRotatePreview();
       });
       // Blur / focus loss — treat like pointerleave so a tap-then-hover-out
       // doesn't leave a stale preview.
       btn.addEventListener('blur', () => {
-        hoveredRotateAxis = null;
+        hoveredRotate = null;
         clearRotatePreview();
       });
-    };
-    wireRotateHover(rotateXBtn, 'x');
-    wireRotateHover(rotateYBtn, 'y');
-    wireRotateHover(rotateZBtn, 'z');
-
-    rotateXBtn?.addEventListener('click', () => performRotate('x'));
-    rotateYBtn?.addEventListener('click', () => performRotate('y'));
-    rotateZBtn?.addEventListener('click', () => performRotate('z'));
+      btn.addEventListener('click', () => performRotate(axis, direction));
+    }
     modeToggleBtn?.addEventListener('click', () => {
       currentMode = currentMode === 'select' ? 'drag' : 'select';
       modeToggleBtn.dataset.active = currentMode === 'drag' ? 'true' : 'false';

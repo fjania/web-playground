@@ -161,7 +161,14 @@
     .rotate-btn .rotate-axis {
       font-weight: 700;
       font-size: 0.75rem;
+      letter-spacing: -0.01em;
     }
+    /* Axis colors match the on-bench gizmo and rotate-preview arcs.
+       Applied to the glyph label so "X+"/"Z−" etc. are visually
+       parsable even without reading the title. */
+    .rotate-btn[data-rotate-axis="x"] .rotate-axis { color: #e74c3c; }
+    .rotate-btn[data-rotate-axis="y"] .rotate-axis { color: #2ecc71; }
+    .rotate-btn[data-rotate-axis="z"] .rotate-axis { color: #3498db; }
     .add-btn {
       width: 2rem;
       height: 2rem;
@@ -290,26 +297,47 @@
       </div>
       <div class="rotate-panel" data-slot="rotate-panel" hidden>
         <span class="rotate-panel-label">rotate</span>
-        <button type="button" class="join-btn rotate-btn" data-slot="rotate-x" title="Rotate selected pieces 90° around world X" aria-label="Rotate around X">
+        <button type="button" class="join-btn rotate-btn" data-rotate-axis="x" data-rotate-dir="1" title="Rotate selected pieces CCW around world X (tips toward +Z)" aria-label="Rotate CCW around X">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12a7 7 0 0 1 12-4.95" />
             <polyline points="17 3 17 7 13 7" />
           </svg>
-          <span class="rotate-axis">X</span>
+          <span class="rotate-axis">X+</span>
         </button>
-        <button type="button" class="join-btn rotate-btn" data-slot="rotate-y" title="Rotate selected pieces 90° around world Y" aria-label="Rotate around Y">
+        <button type="button" class="join-btn rotate-btn" data-rotate-axis="x" data-rotate-dir="-1" title="Rotate selected pieces CW around world X (tips toward −Z)" aria-label="Rotate CW around X">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 12a7 7 0 0 1 12-4.95" />
-            <polyline points="17 3 17 7 13 7" />
+            <path d="M19 12a7 7 0 0 0-12-4.95" />
+            <polyline points="7 3 7 7 11 7" />
           </svg>
-          <span class="rotate-axis">Y</span>
+          <span class="rotate-axis">X−</span>
         </button>
-        <button type="button" class="join-btn rotate-btn" data-slot="rotate-z" title="Rotate selected pieces 90° around world Z" aria-label="Rotate around Z">
+        <button type="button" class="join-btn rotate-btn" data-rotate-axis="y" data-rotate-dir="1" title="Rotate selected pieces CCW around world Y" aria-label="Rotate CCW around Y">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12a7 7 0 0 1 12-4.95" />
             <polyline points="17 3 17 7 13 7" />
           </svg>
-          <span class="rotate-axis">Z</span>
+          <span class="rotate-axis">Y+</span>
+        </button>
+        <button type="button" class="join-btn rotate-btn" data-rotate-axis="y" data-rotate-dir="-1" title="Rotate selected pieces CW around world Y" aria-label="Rotate CW around Y">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 12a7 7 0 0 0-12-4.95" />
+            <polyline points="7 3 7 7 11 7" />
+          </svg>
+          <span class="rotate-axis">Y−</span>
+        </button>
+        <button type="button" class="join-btn rotate-btn" data-rotate-axis="z" data-rotate-dir="1" title="Rotate selected pieces CCW around world Z (tips toward −X)" aria-label="Rotate CCW around Z">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12a7 7 0 0 1 12-4.95" />
+            <polyline points="17 3 17 7 13 7" />
+          </svg>
+          <span class="rotate-axis">Z+</span>
+        </button>
+        <button type="button" class="join-btn rotate-btn" data-rotate-axis="z" data-rotate-dir="-1" title="Rotate selected pieces CW around world Z (tips toward +X)" aria-label="Rotate CW around Z">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 12a7 7 0 0 0-12-4.95" />
+            <polyline points="7 3 7 7 11 7" />
+          </svg>
+          <span class="rotate-axis">Z−</span>
         </button>
       </div>
     </section>
