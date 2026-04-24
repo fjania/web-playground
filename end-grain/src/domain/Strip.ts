@@ -502,6 +502,213 @@ export class Strip {
 }
 
 /**
+ * Extract the polygon boundary of a face as a list of world-space line
+ * segments. The boundary is computed by walking every triangle in the
+ * strip's parts whose supporting plane matches the given face, then
+ * de-duplicating triangle edges: edges that appear in exactly one
+ * triangle are boundary edges; edges appearing in two (shared between
+ * adjacent triangles on the same face) are interior diagonals and get
+ * dropped.
+ *
+ * Collinear boundary segments are coalesced into a single segment —
+ * adjacent triangles on the same face share a vertex along the face's
+ * outer edge, and we want that single long edge back, not two short
+ * collinear pieces. This matters for the tipping algorithm, which
+ * picks "the edge furthest in +Z" and would otherwise see the midpoint
+ * of a half-edge instead of the true polygon edge.
+ *
+ * Returns an empty array if the face has no triangles (e.g., a stale
+ * face clipped to zero area by a cut) or if the face id is unknown.
+ */
+export function extractFaceBoundary(
+  strip: Strip,
+  faceId: number,
+): Array<{ a: Vector3; b: Vector3 }> {
+  const face = strip.faces.find((f) => f.id === faceId);
+  if (!face) return [];
+
+  // Collect every triangle edge that lies on this face. Key each edge
+  // by its endpoint pair, rounded to PLANE_OFFSET_TOL, so numerically
+  // identical edges match even across parts.
+  const edgeKey = (a: [number, number, number], b: [number, number, number]): string => {
+    const q = (x: number): string => (Math.round(x / PLANE_OFFSET_TOL) * PLANE_OFFSET_TOL).toFixed(4);
+    const ka = `${q(a[0])},${q(a[1])},${q(a[2])}`;
+    const kb = `${q(b[0])},${q(b[1])},${q(b[2])}`;
+    // Canonical order so (A,B) and (B,A) hash the same.
+    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+  };
+
+  interface EdgeEntry {
+    a: [number, number, number];
+    b: [number, number, number];
+    count: number;
+  }
+  const edges = new Map<string, EdgeEntry>();
+
+  for (const part of strip.parts) {
+    const mfMesh = part.manifold.getMesh();
+    const verts = mfMesh.vertProperties as Float32Array;
+    const triVerts = mfMesh.triVerts as Uint32Array;
+    const numProp = mfMesh.numProp as number;
+    const numTri = triVerts.length / 3;
+
+    for (let t = 0; t < numTri; t++) {
+      const i0 = triVerts[t * 3];
+      const i1 = triVerts[t * 3 + 1];
+      const i2 = triVerts[t * 3 + 2];
+      const ax = verts[i0 * numProp];
+      const ay = verts[i0 * numProp + 1];
+      const az = verts[i0 * numProp + 2];
+      const bx = verts[i1 * numProp];
+      const by = verts[i1 * numProp + 1];
+      const bz = verts[i1 * numProp + 2];
+      const cx = verts[i2 * numProp];
+      const cy = verts[i2 * numProp + 1];
+      const cz = verts[i2 * numProp + 2];
+
+      const abx = bx - ax;
+      const aby = by - ay;
+      const abz = bz - az;
+      const acx = cx - ax;
+      const acy = cy - ay;
+      const acz = cz - az;
+      const nx = aby * acz - abz * acy;
+      const ny = abz * acx - abx * acz;
+      const nz = abx * acy - aby * acx;
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 1e-12) continue;
+      const nnx = nx / len;
+      const nny = ny / len;
+      const nnz = nz / len;
+      const d = nnx * ax + nny * ay + nnz * az;
+
+      const dot =
+        face.plane.normal[0] * nnx +
+        face.plane.normal[1] * nny +
+        face.plane.normal[2] * nnz;
+      if (1 - dot > PLANE_NORMAL_TOL) continue;
+      if (Math.abs(face.plane.offset - d) > PLANE_OFFSET_TOL) continue;
+
+      const tri: Array<[[number, number, number], [number, number, number]]> = [
+        [[ax, ay, az], [bx, by, bz]],
+        [[bx, by, bz], [cx, cy, cz]],
+        [[cx, cy, cz], [ax, ay, az]],
+      ];
+      for (const [p, q] of tri) {
+        const k = edgeKey(p, q);
+        const existing = edges.get(k);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          edges.set(k, { a: p, b: q, count: 1 });
+        }
+      }
+    }
+  }
+
+  // Boundary = edges that appear in exactly one triangle.
+  const rawBoundary: Array<{ a: Vector3; b: Vector3 }> = [];
+  for (const entry of edges.values()) {
+    if (entry.count === 1) {
+      rawBoundary.push({
+        a: new Vector3(entry.a[0], entry.a[1], entry.a[2]),
+        b: new Vector3(entry.b[0], entry.b[1], entry.b[2]),
+      });
+    }
+  }
+
+  return coalesceCollinearSegments(rawBoundary);
+}
+
+/**
+ * Merge collinear, connected segments into single segments. Adjacent
+ * triangles on the same face produce two half-edges along the polygon's
+ * true edge (they share a vertex mid-edge); this fuses those halves.
+ *
+ * Algorithm: build an adjacency map keyed by quantized endpoint, then
+ * for each endpoint with exactly two incident segments AND both
+ * segments collinear, stitch them into one. Repeat until no more
+ * merges are possible.
+ */
+function coalesceCollinearSegments(
+  segments: Array<{ a: Vector3; b: Vector3 }>,
+): Array<{ a: Vector3; b: Vector3 }> {
+  if (segments.length === 0) return segments;
+  const COLLINEAR_TOL = 1e-6;
+  const POINT_TOL = 1e-4;
+
+  const pointKey = (v: Vector3): string =>
+    `${(Math.round(v.x / POINT_TOL) * POINT_TOL).toFixed(4)},` +
+    `${(Math.round(v.y / POINT_TOL) * POINT_TOL).toFixed(4)},` +
+    `${(Math.round(v.z / POINT_TOL) * POINT_TOL).toFixed(4)}`;
+
+  let current = segments.slice();
+  // Bounded loop — each pass either merges at least one segment (so
+  // length decreases) or halts. Cap defensively.
+  for (let pass = 0; pass < segments.length + 1; pass++) {
+    // Build endpoint → segment indices map.
+    const incident = new Map<string, number[]>();
+    current.forEach((seg, i) => {
+      const ka = pointKey(seg.a);
+      const kb = pointKey(seg.b);
+      (incident.get(ka) ?? incident.set(ka, []).get(ka)!).push(i);
+      (incident.get(kb) ?? incident.set(kb, []).get(kb)!).push(i);
+    });
+
+    let mergedAnything = false;
+    const merged: Array<{ a: Vector3; b: Vector3 }> = [];
+    const skip = new Set<number>();
+
+    current.forEach((seg, i) => {
+      if (skip.has(i)) return;
+
+      // Try to extend this segment from either endpoint across a
+      // degree-2 collinear joint.
+      let a = seg.a.clone();
+      let b = seg.b.clone();
+
+      const tryExtend = (): boolean => {
+        for (const endpoint of ['a', 'b'] as const) {
+          const v = endpoint === 'a' ? a : b;
+          const key = pointKey(v);
+          const ids = incident.get(key);
+          if (!ids || ids.length !== 2) continue;
+          const otherIdx = ids.find((id) => id !== i && !skip.has(id));
+          if (otherIdx === undefined) continue;
+          const other = current[otherIdx];
+          // Direction of this segment vs the other — must be collinear.
+          const dirThis = new Vector3().subVectors(b, a).normalize();
+          const oA = other.a;
+          const oB = other.b;
+          // Pick the far endpoint of `other` (the one that isn't v).
+          const farPoint = pointKey(oA) === key ? oB : oA;
+          const dirOther = new Vector3().subVectors(farPoint, v).normalize();
+          if (Math.abs(dirThis.dot(dirOther)) < 1 - COLLINEAR_TOL) continue;
+          // Merge: extend this segment to swallow `other`.
+          if (endpoint === 'a') a = farPoint.clone();
+          else b = farPoint.clone();
+          skip.add(otherIdx);
+          // Update incident map so subsequent extensions see the new endpoints.
+          return true;
+        }
+        return false;
+      };
+
+      while (tryExtend()) {
+        mergedAnything = true;
+      }
+
+      merged.push({ a, b });
+    });
+
+    current = merged;
+    if (!mergedAnything) break;
+  }
+
+  return current;
+}
+
+/**
  * Tolerances for matching a triangle's supporting plane to a strip
  * face. These are intentionally generous because we control cut
  * geometry upstream — the app never produces near-coplanar adversarial
