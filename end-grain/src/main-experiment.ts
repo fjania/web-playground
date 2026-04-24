@@ -40,6 +40,7 @@ import {
   Strip,
   computePartTriangleFaceIds,
   type Part,
+  type StripFace,
 } from './domain/Strip';
 import { SPECIES_DEFS } from './scene/materials';
 import { setupViewport, type ViewportHandle } from './scene/viewport';
@@ -1156,6 +1157,52 @@ const JOIN_ALGOS: JoinAlgo[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Tip-edge pivot — the line where a face meets the bench plane
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the pivot for a "tip onto face" rotation around `axis` so the
+ * strip rotates about the edge currently in contact with the bench.
+ *
+ * The tip edge is the intersection of the target face's plane with the
+ * bench plane `y = BENCH_Y`. For rotation around a horizontal world
+ * axis, this intersection (when it exists) is a line parallel to that
+ * axis — exactly the line we want to pivot around.
+ *
+ * Given the target face normal `n = (nx, ny, nz)` and offset `d`:
+ *   - Axis = X: plane line is x-parallel, at `(any, BENCH_Y, z_edge)`
+ *     where `z_edge = (d − ny·BENCH_Y) / nz`.
+ *   - Axis = Z: line is z-parallel, at `(x_edge, BENCH_Y, any)` where
+ *     `x_edge = (d − ny·BENCH_Y) / nx`.
+ *
+ * If the target face is (near-)parallel to the bench (|nz| or |nx| →
+ * 0, the 180° flip case), no tip edge exists. Fall back to the bbox
+ * centroid — for a pure 180° flip the piece returns to the same
+ * footprint regardless of the in-plane pivot, so no drift.
+ *
+ * The axis-parallel coordinate is copied from `bboxCenter` so grouped
+ * strips don't shift along the rotation axis either.
+ */
+function tipEdgePivot(
+  targetFace: StripFace,
+  axis: 'x' | 'z',
+  bboxCenter: Vector3,
+): Vector3 {
+  const [nx, ny, nz] = targetFace.plane.normal;
+  const d = targetFace.plane.offset;
+  const EDGE_COMPONENT_MIN = 1e-6;
+  if (axis === 'x') {
+    if (Math.abs(nz) < EDGE_COMPONENT_MIN) return bboxCenter.clone();
+    const zEdge = (d - ny * BENCH_Y) / nz;
+    return new Vector3(bboxCenter.x, BENCH_Y, zEdge);
+  }
+  // axis === 'z'
+  if (Math.abs(nx) < EDGE_COMPONENT_MIN) return bboxCenter.clone();
+  const xEdge = (d - ny * BENCH_Y) / nx;
+  return new Vector3(xEdge, BENCH_Y, bboxCenter.z);
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -1850,6 +1897,24 @@ async function boot(): Promise<void> {
           }
           renderStatus();
         },
+        // Test-sweep surface — programmatically rotate the selected group
+        // without reaching through DOM events. Used by the systematic
+        // rotation test bench to cover initial-orientation combinations.
+        performRotate: (axis: 'x' | 'y' | 'z') => performRotate(axis),
+        buildWedge: (pieceId: string) =>
+          buildWedge(pieceId, ['padauk', 'maple']),
+        render: (mode: 'empty' | 'fresh' | 'update') => render(mode),
+        clearStrips: () => {
+          for (const strip of stripsById.values()) strip.dispose();
+          stripsById.clear();
+          joinGroups.clear();
+          selectedStripIds.clear();
+        },
+        addStrip: (id: string, strip: Strip) => {
+          stripsById.set(id, strip);
+          joinGroups.set(id, new Set([id]));
+        },
+        BENCH_Y,
         THREE: { Vector3, Raycaster, Vector2, Matrix4, Quaternion },
       };
 
@@ -1991,13 +2056,25 @@ async function boot(): Promise<void> {
      *
      * Multi-select + shared-group dedupe is unchanged: we iterate
      * distinct group ids so one group rotates once even if multiple
-     * selected strips belong to it. Pivot is per-group: the union
-     * bbox centroid of all members. Per-group θ is derived from the
+     * selected strips belong to it. Per-group θ is derived from the
      * FIRST member strip's faces — for axis-aligned groups (all our
-     * strips) that's sufficient. After rotation each group is
-     * translated by `(0, BENCH_Y - newBBox.min.y, 0)` so it lands
-     * bench-flush; group membership and strip identity are preserved
-     * by `Strip.transform()`.
+     * strips) that's sufficient.
+     *
+     * Pivot — the important distinction:
+     *   - Y (spin in place): bbox center of the group.
+     *   - X / Z (tip onto next face): the *tip edge*, i.e., the line
+     *     where the target face's plane meets the bench plane (y =
+     *     BENCH_Y), constrained to the rotation axis. Pivoting here
+     *     keeps the strip in physical contact with the bench along a
+     *     fixed edge as it tips, preserving its footprint. If the
+     *     target face is parallel to the bench (180° flip), the tip
+     *     edge doesn't exist and we fall back to the bbox center —
+     *     which for a pure 180° flip produces no drift anyway.
+     *
+     * After rotation each group is translated by
+     * `(0, BENCH_Y - newBBox.min.y, 0)` so it lands bench-flush; group
+     * membership and strip identity are preserved by
+     * `Strip.transform()`.
      */
     const performRotate = (axis: 'x' | 'y' | 'z'): void => {
       if (currentMode !== 'select') return;
@@ -2052,18 +2129,29 @@ async function boot(): Promise<void> {
        *   - Of the rest, pick the smallest strictly-positive θ (CCW
        *     around axis — matches the old fixed-90° sign convention).
        */
-      const tipAngleForStrip = (strip: Strip): number | null => {
-        let bestTheta: number | null = null;
+      const tipAngleForStrip = (
+        strip: Strip,
+      ): { theta: number; face: StripFace } | null => {
+        let best: { theta: number; face: StripFace } | null = null;
+        const traceEnabled = (window as any).__rotateTrace === true;
+        const trace: any[] = [];
         for (const face of strip.faces) {
           // Skip stale faces (clipped to zero area by a subsequent cut).
-          if (strip.faceCenter(face.id) === null) continue;
+          const fc = strip.faceCenter(face.id);
+          if (fc === null) {
+            if (traceEnabled) trace.push({ faceId: face.id, reject: 'no-center', normal: [...face.plane.normal] });
+            continue;
+          }
 
           const n = new Vector3(
             face.plane.normal[0],
             face.plane.normal[1],
             face.plane.normal[2],
           );
-          if (Math.abs(n.dot(axisVec)) >= AXIS_PERP_TOL) continue;
+          if (Math.abs(n.dot(axisVec)) >= AXIS_PERP_TOL) {
+            if (traceEnabled) trace.push({ faceId: face.id, reject: 'axis-parallel', normal: [n.x, n.y, n.z], ndotAxis: n.dot(axisVec) });
+            continue;
+          }
 
           // Project n and down onto the plane perpendicular to axis.
           const nProj = n.clone().sub(axisVec.clone().multiplyScalar(n.dot(axisVec)));
@@ -2086,12 +2174,30 @@ async function boot(): Promise<void> {
           // (−π would otherwise be rejected by the θ<=0 filter).
           if (Math.PI - Math.abs(theta) < CURRENT_BENCH_TOL) theta = Math.PI;
 
-          if (Math.abs(theta) < CURRENT_BENCH_TOL) continue; // current bench face
-          if (theta <= 0) continue; // want the smallest positive (CCW) tip
+          if (Math.abs(theta) < CURRENT_BENCH_TOL) {
+            if (traceEnabled) trace.push({ faceId: face.id, reject: 'current-bench', theta, normal: [n.x, n.y, n.z] });
+            continue;
+          }
+          if (theta <= 0) {
+            if (traceEnabled) trace.push({ faceId: face.id, reject: 'negative', theta, normal: [n.x, n.y, n.z] });
+            continue;
+          }
 
-          if (bestTheta === null || theta < bestTheta) bestTheta = theta;
+          if (traceEnabled) trace.push({ faceId: face.id, accept: true, theta, normal: [n.x, n.y, n.z] });
+          if (best === null || theta < best.theta) {
+            best = { theta, face };
+          }
         }
-        return bestTheta;
+        if (traceEnabled) {
+          (window as any).__rotateTraceLog = (window as any).__rotateTraceLog || [];
+          (window as any).__rotateTraceLog.push({
+            axis,
+            bestTheta: best?.theta ?? null,
+            bestFaceId: best?.face.id ?? null,
+            trace,
+          });
+        }
+        return best;
       };
 
       const rotatedGroupSummaries: string[] = [];
@@ -2101,7 +2207,8 @@ async function boot(): Promise<void> {
         if (!group || group.size === 0) continue;
         const memberIds = [...group];
 
-        // Per-group pivot: union bbox centroid.
+        // Group bbox used for the Y-spin pivot and as a fallback for
+        // 180° flips (where there's no tip-edge to pivot around).
         const bbox = new Box3();
         for (const id of memberIds) {
           const strip = stripsById.get(id);
@@ -2109,26 +2216,34 @@ async function boot(): Promise<void> {
           bbox.union(strip.boundingBox());
         }
         if (bbox.isEmpty()) continue;
-        const pivot = bbox.getCenter(new Vector3());
+        const bboxCenter = bbox.getCenter(new Vector3());
 
-        // Compute rotation angle θ.
-        //   Y axis: always 90° (spin in place — no face tips onto -Y).
+        // Compute rotation angle θ and, for X/Z, pick the pivot so the
+        // piece pivots around the *tip edge* — the line where the
+        // target face meets the current bench plane. Without this, the
+        // rotation happens around the bbox center and the strip walks
+        // across the bench with each rotation instead of staying in
+        // contact along a fixed edge.
+        //   Y axis: always 90°, pivot = bbox center (spin in place).
         //   X/Z axis: tip onto the next face of the first member strip.
         //            That's enough for axis-aligned groups (all ours).
         let theta: number;
+        let pivot: Vector3;
         if (axis === 'y') {
           theta = Math.PI / 2;
+          pivot = bboxCenter;
         } else {
           const firstStrip = stripsById.get(memberIds[0]);
           if (!firstStrip) continue;
-          const computed = tipAngleForStrip(firstStrip);
-          if (computed === null) {
+          const tip = tipAngleForStrip(firstStrip);
+          if (tip === null) {
             appendLog(
               `rotate[${axis}] group [${memberIds.join(', ')}]: no candidate face — skipped`,
             );
             continue;
           }
-          theta = computed;
+          theta = tip.theta;
+          pivot = tipEdgePivot(tip.face, axis, bboxCenter);
         }
 
         // Build T(p) · R(axis, θ) · T(-p).
