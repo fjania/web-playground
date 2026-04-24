@@ -2042,6 +2042,11 @@ async function boot(): Promise<void> {
        *     θ = atan2((n̂ × d̂) · axis, n̂ · d̂) after projecting both
        *     onto the plane perpendicular to axis.
        *   - Skip the current bench face (|θ| < CURRENT_BENCH_TOL).
+       *   - Collapse ±π to +π — a 180° flip is the same rotation
+       *     either direction. Without this, a strip whose only
+       *     non-bench candidate is the ±Y flip (e.g. doorstop around
+       *     X, where ±X is the axis and ±Z faces are clipped to zero
+       *     area by the taper cut) would have no candidate at all.
        *   - Of the rest, pick the smallest strictly-positive θ (CCW
        *     around axis — matches the old fixed-90° sign convention).
        */
@@ -2069,7 +2074,13 @@ async function boot(): Promise<void> {
 
           // Signed angle from nProj → dProj around axisVec.
           const cross = new Vector3().crossVectors(nProj, dProj);
-          const theta = Math.atan2(cross.dot(axisVec), nProj.dot(dProj));
+          let theta = Math.atan2(cross.dot(axisVec), nProj.dot(dProj));
+
+          // atan2 returns θ ∈ (−π, π]; a face exactly opposite −Y
+          // lands on either side of that branch cut depending on
+          // sign-of-zero in the cross product. Normalize ±π to +π
+          // so the 180° flip is always a positive candidate.
+          if (theta < -Math.PI + CURRENT_BENCH_TOL) theta = Math.PI;
 
           if (Math.abs(theta) < CURRENT_BENCH_TOL) continue; // current bench face
           if (theta <= 0) continue; // want the smallest positive (CCW) tip
