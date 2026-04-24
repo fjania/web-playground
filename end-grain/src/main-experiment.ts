@@ -34,9 +34,7 @@ import { initManifold } from './domain/manifold';
 import {
   Strip,
   computePartTriangleFaceIds,
-  UNASSIGNED_FACE_ID,
   type Part,
-  type Plane,
 } from './domain/Strip';
 import { SPECIES_DEFS } from './scene/materials';
 import { setupViewport, type ViewportHandle } from './scene/viewport';
@@ -361,167 +359,166 @@ const ISO_VIEW = {
 };
 
 // ---------------------------------------------------------------------------
-// Face selection
+// Selection — pieces, not faces
 // ---------------------------------------------------------------------------
+//
+// The current pass disables the face-driven join / detach / algo flows
+// and replaces select-mode with piece-level selection: a click on a
+// strip toggles a persistent selection on that piece, rendered as an
+// edge-line halo. Multi-select via shift. Plain click on empty space
+// clears; shift-click on empty is a no-op.
+//
+// `Selection` and `Selection[]` remain in the file as a reference for
+// the face-selection flows we plan to revive — they're referenced by
+// `JoinAlgo.plan(...)` signatures below. While parked, `currentSelections`
+// is always `[]`.
 
 /**
  * Selection identifies a strip face by `(stripId, faceId)`. The id is
  * first-class state on the strip (set at construction or by a cut),
  * so click lookup is a plain integer match — no geometric tolerance
  * at the selection layer.
+ *
+ * Parked: the face-selection flow is disabled for this pass; kept as a
+ * reference for future re-introduction.
  */
 interface Selection {
   stripId: string;
   faceId: number;
 }
 
-/**
- * Selection slot colors, ordered by click index.
- *   [0] yellow  — first click (anchor mate face)
- *   [1] cyan    — second click (solo mate face)
- *   [2] orange  — third click (solo bench face, bench-flush algo only)
- */
-const SELECTION_COLORS = [0xffc400, 0x26c6da, 0xff9050];
 const CLICK_MAX_DRAG_PX = 5;
+/** Edge-line halo color for piece-level selection. Same yellow as the
+ *  old face-highlight #0 for visual continuity. */
+const HALO_COLOR = 0xffc400;
 
 /**
- * Toggle-based selection: clicking a face that's already selected
- * deselects it; otherwise appends up to `maxSelections` items,
- * dropping the oldest if we're at cap. Unlike the old per-strip-
- * uniqueness rule, this allows two faces on the same strip — bench-
- * flush needs the solo's mate AND bench face simultaneously selected.
+ * Rebuild the selection halo group from the current `selectedStripIds`.
+ *
+ * For each selected strip, generate an `EdgesGeometry` per part mesh,
+ * grouped under that strip's Three.js Group so the halo inherits any
+ * in-group transform. The halo is a `LineSegments` drawn thicker and
+ * brighter than the baked-in part edges, with `depthTest: false` so it
+ * reads through occlusion.
  */
-function updateSelections(
-  selections: Selection[],
-  stripId: string,
-  faceId: number,
-  maxSelections: number,
-): void {
-  const existingIdx = selections.findIndex(
-    (s) => s.stripId === stripId && s.faceId === faceId,
-  );
-  if (existingIdx >= 0) {
-    selections.splice(existingIdx, 1);
-    return;
-  }
-  if (selections.length >= maxSelections) selections.shift();
-  selections.push({ stripId, faceId });
-}
-
-function rebuildHighlights(
-  highlightsGroup: Group,
-  root: Group,
-  selections: Selection[],
-): void {
-  while (highlightsGroup.children.length > 0) {
-    const child = highlightsGroup.children[0];
-    highlightsGroup.remove(child);
-    if (child instanceof Mesh) {
+function rebuildHalos(haloGroup: Group, root: Group, selectedIds: Set<string>): void {
+  // Clear existing halo children.
+  while (haloGroup.children.length > 0) {
+    const child = haloGroup.children[0];
+    haloGroup.remove(child);
+    if (child instanceof LineSegments) {
       child.geometry.dispose();
-      (child.material as MeshBasicMaterial).dispose();
+      (child.material as LineBasicMaterial).dispose();
     }
   }
-  selections.forEach((sel, idx) => {
-    const color = SELECTION_COLORS[idx % SELECTION_COLORS.length];
-    root.traverse((obj) => {
-      if (!(obj instanceof Mesh)) return;
-      if (obj.userData.role === 'face-highlight') return;
-      if (obj.userData.stripId !== sel.stripId) return;
-      const faceIds = obj.userData.faceIds as Uint32Array | undefined;
-      if (!faceIds) return;
-      const origIndex = obj.geometry.getIndex();
-      if (!origIndex) return;
-      const indices: number[] = [];
-      for (let t = 0; t < faceIds.length; t++) {
-        if (faceIds[t] !== sel.faceId) continue;
-        indices.push(
-          origIndex.getX(t * 3),
-          origIndex.getX(t * 3 + 1),
-          origIndex.getX(t * 3 + 2),
-        );
-      }
-      if (indices.length === 0) return;
-      const posAttr = obj.geometry.getAttribute('position') as BufferAttribute;
-      const hgeom = new BufferGeometry();
-      hgeom.setAttribute('position', posAttr.clone());
-      hgeom.setIndex(indices);
-      const mat = new MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.55,
-        depthTest: true,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
-      });
-      const highlight = new Mesh(hgeom, mat);
-      highlight.userData.role = 'face-highlight';
-      highlight.renderOrder = 10;
-      highlightsGroup.add(highlight);
+  if (selectedIds.size === 0) return;
+
+  root.traverse((obj) => {
+    if (!(obj instanceof Mesh)) return;
+    if (obj.userData.role === 'face-highlight') return;
+    if (obj.userData.role === 'face-highlight-preview') return;
+    const stripId = obj.userData.stripId as string | undefined;
+    if (!stripId) return;
+    if (!selectedIds.has(stripId)) return;
+
+    const edgesGeo = new EdgesGeometry(obj.geometry, 1);
+    const mat = new LineBasicMaterial({
+      color: HALO_COLOR,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
     });
+    const halo = new LineSegments(edgesGeo, mat);
+    halo.userData.role = 'strip-halo';
+    halo.userData.stripId = stripId;
+    halo.renderOrder = 20;
+    haloGroup.add(halo);
   });
 }
 
-function wireSelection(
+/**
+ * Piece-level pointer selection.
+ *
+ * Plain click → `selected = {clickedId}`.
+ * Shift+click on strip → toggle that id in/out of `selected`.
+ * Plain click on empty (raycast misses all strip meshes; bench ignored) → clear.
+ * Shift+click on empty → no-op.
+ *
+ * Camera-modifier handling: shift doubles as "extend selection" in
+ * select-mode and as "orbit camera" via the global modifier-key
+ * tracker. Both get a pointerdown, but TrackballControls only acts on
+ * drags — a shift+click (no drag, ≤ CLICK_MAX_DRAG_PX movement) falls
+ * through to the selection handler. shift+drag orbits as before.
+ */
+function wireStripSelection(
   handle: ViewportHandle,
   root: Group,
-  highlightsGroup: Group,
-  onChange: (selections: Selection[]) => void,
-  getMaxSelections: () => number,
+  haloGroup: Group,
+  selectedIds: Set<string>,
+  onChange: (ids: Set<string>) => void,
 ): () => void {
-  const selections: Selection[] = [];
   const raycaster = new Raycaster();
   const ndc = new Vector2();
   let downX = 0;
   let downY = 0;
-
-  // Modifier-held pointerdowns are camera-orbit gestures, not
-  // selection clicks. Track the down-modifier state so pointerup can
-  // skip even after a quick Shift+click that wouldn't exceed the
-  // CLICK_MAX_DRAG_PX threshold.
-  let downWithModifier = false;
+  // Alt / Meta is strictly a camera-orbit gesture; suppress the click
+  // even if it stayed under the drag threshold so orbit taps don't
+  // accidentally clear selection.
+  let downWithOrbitModifier = false;
 
   const onPointerDown = (e: PointerEvent): void => {
     downX = e.clientX;
     downY = e.clientY;
-    downWithModifier = e.shiftKey || e.altKey || e.metaKey;
+    downWithOrbitModifier = e.altKey || e.metaKey;
   };
 
   const onPointerUp = (e: PointerEvent): void => {
-    if (downWithModifier || e.shiftKey || e.altKey || e.metaKey) return;
+    if (downWithOrbitModifier || e.altKey || e.metaKey) return;
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_MAX_DRAG_PX) {
       return;
     }
+    const shift = e.shiftKey;
     const rect = handle.canvas.getBoundingClientRect();
     ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, handle.camera);
 
+    // Raycast only against strip meshes — skip the bench, skip halos,
+    // skip highlight previews. `userData.stripId` is the discriminator
+    // and `userData.role` filters out non-part overlays.
     const targets: Mesh[] = [];
     root.traverse((obj) => {
-      if (
-        obj instanceof Mesh &&
-        obj.userData.faceIds &&
-        obj.userData.role !== 'face-highlight'
-      ) {
-        targets.push(obj);
-      }
+      if (!(obj instanceof Mesh)) return;
+      if (!obj.userData.stripId) return;
+      const role = obj.userData.role;
+      if (role === 'face-highlight' || role === 'face-highlight-preview') return;
+      targets.push(obj);
     });
 
     const hits = raycaster.intersectObjects(targets, false);
-    if (hits.length === 0) return;
-    const hit = hits[0];
-    const mesh = hit.object as Mesh;
-    const faceIds = mesh.userData.faceIds as Uint32Array;
-    const faceId = faceIds[hit.faceIndex ?? 0];
-    if (faceId === UNASSIGNED_FACE_ID) return;
-    const stripId = mesh.userData.stripId as string | undefined;
+    if (hits.length === 0) {
+      // Empty-space click. Shift-click on empty is a no-op; plain
+      // click clears selection.
+      if (shift) return;
+      if (selectedIds.size === 0) return;
+      selectedIds.clear();
+      rebuildHalos(haloGroup, root, selectedIds);
+      onChange(selectedIds);
+      return;
+    }
+    const stripId = hits[0].object.userData.stripId as string | undefined;
     if (!stripId) return;
 
-    updateSelections(selections, stripId, faceId, getMaxSelections());
-    rebuildHighlights(highlightsGroup, root, selections);
-    onChange(selections);
+    if (shift) {
+      if (selectedIds.has(stripId)) selectedIds.delete(stripId);
+      else selectedIds.add(stripId);
+    } else {
+      selectedIds.clear();
+      selectedIds.add(stripId);
+    }
+    rebuildHalos(haloGroup, root, selectedIds);
+    onChange(selectedIds);
   };
 
   handle.canvas.addEventListener('pointerdown', onPointerDown);
@@ -530,8 +527,6 @@ function wireSelection(
   return () => {
     handle.canvas.removeEventListener('pointerdown', onPointerDown);
     handle.canvas.removeEventListener('pointerup', onPointerUp);
-    selections.length = 0;
-    rebuildHighlights(highlightsGroup, root, selections);
   };
 }
 
@@ -1099,7 +1094,15 @@ async function boot(): Promise<void> {
     let teardownSelection: (() => void) | null = null;
     let currentRoot: Group | null = null;
     let currentHighlights: Group | null = null;
-    let currentSelections: Selection[] = [];
+    // Parked reference for future face-selection revival. Stays empty
+    // while the face-driven flow is disabled.
+    const currentSelections: Selection[] = [];
+    /**
+     * Piece-level selection set — the actual select-mode state. Persists
+     * across `render('update')`; filtered after every render to drop
+     * ids that no longer exist in `stripsById`.
+     */
+    const selectedStripIds: Set<string> = new Set();
     // Callbacks invoked after each successful render(), used by
     // persistent subsystems (modifier-key tracker) to resync state
     // against the freshly-created handle.
@@ -1107,82 +1110,54 @@ async function boot(): Promise<void> {
     const stripsById = new Map<string, Strip>();
     let joinGroups: JoinGroups = new Map();
 
-    /** Interaction mode — 'select' clicks faces for join; 'drag' grabs
-     * pieces and snaps on release. Toggled by the header button. */
+    /** Interaction mode — 'select' highlights pieces for rotation; 'drag'
+     * grabs pieces and snaps on release. Toggled by the header button. */
     let currentMode: 'select' | 'drag' = 'select';
 
     const modeToggleBtn = document.querySelector<HTMLButtonElement>(
       '[data-slot="mode-toggle"]',
     );
+    const rotatePanelEl = document.querySelector<HTMLElement>(
+      '[data-slot="rotate-panel"]',
+    );
 
-    const updateJoinButton = (selections: Selection[]): void => {
-      if (!joinBtn) return;
-      const algo = currentAlgo();
-      const N = algo.requiredSelections;
-      let canJoin = selections.length === N;
-      if (canJoin && N === 2) {
-        canJoin = selections[0].stripId !== selections[1].stripId;
-      } else if (canJoin && N === 3) {
-        // Bench-flush: [0] anchor, [1] & [2] on the same solo strip
-        // (different faces), and that solo strip ≠ the anchor.
-        canJoin =
-          selections[0].stripId !== selections[1].stripId &&
-          selections[1].stripId === selections[2].stripId &&
-          selections[1].faceId !== selections[2].faceId;
-      }
-      joinBtn.disabled = !canJoin;
+    // Face-driven flow (join / detach / algorithm dropdown) is parked for
+    // this pass. DOM elements stay in place so future revival is a one-
+    // line toggle; handlers are no-ops and the buttons are always
+    // disabled.
+    if (joinBtn) joinBtn.disabled = true;
+    if (detachBtn) detachBtn.disabled = true;
+    if (algoSelectEl) algoSelectEl.disabled = true;
+
+    const updateRotatePanel = (): void => {
+      // Panel is visible iff we're in select mode with ≥1 strip selected.
+      // Individual axis buttons stay enabled whenever the panel is shown;
+      // there's no degenerate state once a piece is selected.
+      const visible = currentMode === 'select' && selectedStripIds.size > 0;
+      if (rotatePanelEl) rotatePanelEl.hidden = !visible;
     };
 
-    const updateDetachButton = (selections: Selection[]): void => {
-      if (!detachBtn) return;
-      // Enabled when exactly one face is selected on a strip that is
-      // currently joined to at least one other strip.
-      let canDetach = false;
-      if (selections.length === 1) {
-        const gid = groupIdOf(joinGroups, selections[0].stripId);
-        const group = gid ? joinGroups.get(gid) : null;
-        canDetach = !!group && group.size > 1;
-      }
-      detachBtn.disabled = !canDetach;
-    };
-
-    const updateRotateButtons = (selections: Selection[]): void => {
-      // Enabled when exactly one face is selected in select mode. The
-      // selected face identifies a strip → its join-group → the whole
-      // rigid body that rotates. Drag mode doesn't track a "current
-      // piece" via selection, so rotate is disabled there.
-      const canRotate =
-        currentMode === 'select' &&
-        selections.length === 1 &&
-        !!groupIdOf(joinGroups, selections[0].stripId);
-      if (rotateXBtn) rotateXBtn.disabled = !canRotate;
-      if (rotateYBtn) rotateYBtn.disabled = !canRotate;
-      if (rotateZBtn) rotateZBtn.disabled = !canRotate;
-    };
-
-    const renderStatus = (selections: Selection[]): void => {
-      currentSelections = selections;
-      updateJoinButton(selections);
-      updateDetachButton(selections);
-      updateRotateButtons(selections);
+    const renderStatus = (): void => {
+      updateRotatePanel();
       const placed = stripsById.size;
       const groupCount = joinGroups.size;
       const groupNote =
         groupCount < placed
           ? ` · ${placed - groupCount + 1} strips joined`
           : '';
-      const need = currentAlgo().requiredSelections;
-      const selDesc =
-        selections.length === 0
-          ? `click any face to select (${need} to join)`
-          : `selected ${selections.length}/${need} · ${selections
-              .map((s) => `${s.stripId}#${s.faceId}`)
-              .join(' + ')}`;
       const pieceNote = `${placed} piece${placed === 1 ? '' : 's'}`;
-      const guidance =
-        placed === 0
-          ? 'add a strip from the upper-left to begin'
-          : `drag to orbit · scroll to zoom · ${selDesc}`;
+      let guidance: string;
+      if (placed === 0) {
+        guidance = 'add a strip from the upper-left to begin';
+      } else if (currentMode === 'drag') {
+        guidance = 'drag & snap active · drag a piece to slide it on the bench';
+      } else if (selectedStripIds.size === 0) {
+        guidance =
+          'click a strip to select · shift+click to multi-select';
+      } else {
+        const ids = [...selectedStripIds].join(', ');
+        guidance = `${selectedStripIds.size} selected: [${ids}] · click empty to deselect · rotate via the panel`;
+      }
       setStatus(
         `${pieceNote}${groupNote} · ${guidance} · reshuffle for the starting-four lineup`,
       );
@@ -1643,11 +1618,25 @@ async function boot(): Promise<void> {
       }
 
       const root = buildRoot(stripsById.values());
+      // `highlightsGroup` hosts both the drag-mode snap preview (green
+      // face highlights) AND the select-mode piece halo overlay. The
+      // two systems share a parent so teardown is a single node to
+      // traverse, but use distinct `userData.role` tags so each can
+      // clean up independently.
       const highlightsGroup = new Group();
       highlightsGroup.userData.role = 'face-highlights';
       root.add(highlightsGroup);
       currentRoot = root;
       currentHighlights = highlightsGroup;
+
+      // Purge selection ids for strips that no longer exist. Today the
+      // set of ops preserves strip identity (rotate / join / drag all
+      // keep the same ids), so this is defensive rather than load-
+      // bearing — but a future detach-or-delete op would break
+      // selection invariants without it.
+      for (const id of [...selectedStripIds]) {
+        if (!stripsById.has(id)) selectedStripIds.delete(id);
+      }
 
       const viewportOptions =
         mode === 'update' && previousPose
@@ -1655,22 +1644,27 @@ async function boot(): Promise<void> {
           : { initialCameraState: ISO_VIEW };
       handle = setupViewport(tileEl, root, viewportOptions);
       // Both orbit controllers start disabled; the harness owns plain
-      // pointer gestures for piece-drag / face-selection. Modifier-key
+      // pointer gestures for piece-drag / piece-select. Modifier-key
       // state toggles one controller on while its modifier is held.
       handle.setTrackballEnabled(false);
       handle.setOrbitEnabled(false);
 
-      teardownSelection =
-        currentMode === 'select'
-          ? wireSelection(
-              handle,
-              root,
-              highlightsGroup,
-              renderStatus,
-              () => currentAlgo().requiredSelections,
-            )
-          : wireDragAndSnap(handle, root);
-      renderStatus([]);
+      if (currentMode === 'select') {
+        // Re-apply the halo overlay for any surviving selection.
+        rebuildHalos(highlightsGroup, root, selectedStripIds);
+        teardownSelection = wireStripSelection(
+          handle,
+          root,
+          highlightsGroup,
+          selectedStripIds,
+          () => renderStatus(),
+        );
+      } else {
+        // Drag mode is untouched — its snap-preview highlights coexist
+        // with any surviving (but visually inert) piece selection.
+        teardownSelection = wireDragAndSnap(handle, root);
+      }
+      renderStatus();
 
       (window as any).__experiment = {
         handle,
@@ -1680,10 +1674,18 @@ async function boot(): Promise<void> {
         highlightsGroup,
         stripsById,
         joinGroups,
+        selectedStripIds,
         algos: JOIN_ALGOS,
-        // Debug surface — drive selection state from devtools without
+        // Debug surface — drive selection from devtools without
         // synthesizing pointer events. Re-bound on every render.
-        setSelections: (sels: Selection[]) => renderStatus(sels),
+        setSelectedStripIds: (ids: Iterable<string>) => {
+          selectedStripIds.clear();
+          for (const id of ids) selectedStripIds.add(id);
+          if (currentHighlights && currentRoot) {
+            rebuildHalos(currentHighlights, currentRoot, selectedStripIds);
+          }
+          renderStatus();
+        },
         THREE: { Vector3, Raycaster, Vector2, Matrix4, Quaternion },
       };
 
@@ -1795,81 +1797,107 @@ async function boot(): Promise<void> {
     };
 
     /**
-     * Rotate the join-group of the currently-selected face by 90° around
-     * the chosen world axis, then translate the rotated group so its
+     * Rotate the join-group of every selected strip by 90° around the
+     * chosen world axis, then translate each rotated group so its
      * lowest y sits on the bench.
      *
-     * Pivot: the group's world-space bounding-box centroid (union of each
-     * member's `strip.boundingBox()`). Rotation matrix is
-     * `T(p) · R(axis, π/2) · T(-p)`. Sign = counter-clockwise viewed from
-     * +axis (right-hand rule).
+     * Multi-select + shared-group dedupe: two selected strips in the
+     * SAME join-group count as one rotation, not two. We collect
+     * `Set<groupId>` up front (via `groupIdOf(joinGroups, stripId)`)
+     * then iterate that set — never the strip ids directly — so a
+     * group is rotated exactly once no matter how many of its members
+     * are selected.
      *
-     * After rotating, recompute the group's bbox and translate by
+     * Pivot is per-group: each group's world-space bounding-box centroid
+     * (union of each member's `strip.boundingBox()`). Two selected
+     * pieces in different groups rotate about their own centroids
+     * independently, keeping each piece physically sensible.
+     *
+     * Rotation matrix is `T(p) · R(axis, π/2) · T(-p)`. Sign =
+     * counter-clockwise viewed from +axis (right-hand rule).
+     *
+     * After rotating each group, recompute its bbox and translate by
      * `(0, BENCH_Y - newBBox.min.y, 0)` so the piece lands bench-flush.
      * Group membership is unaffected — rigid-body rotation keeps strips
      * joined.
      */
     const performRotate = (axis: 'x' | 'y' | 'z'): void => {
       if (currentMode !== 'select') return;
-      if (currentSelections.length !== 1) return;
-      const sel = currentSelections[0];
-      const gid = groupIdOf(joinGroups, sel.stripId);
-      if (!gid) return;
-      const group = joinGroups.get(gid);
-      if (!group || group.size === 0) return;
-      const memberIds = [...group];
+      if (selectedStripIds.size === 0) return;
 
-      // Pivot: union bbox centroid of every member in the group.
-      const bbox = new Box3();
-      for (const id of memberIds) {
-        const strip = stripsById.get(id);
-        if (!strip) continue;
-        bbox.union(strip.boundingBox());
+      // Dedupe selected strips to their group ids so multi-select
+      // within one group doesn't double-rotate that group.
+      const groupIds = new Set<string>();
+      for (const stripId of selectedStripIds) {
+        const gid = groupIdOf(joinGroups, stripId);
+        if (gid) groupIds.add(gid);
       }
-      if (bbox.isEmpty()) return;
-      const pivot = bbox.getCenter(new Vector3());
+      if (groupIds.size === 0) return;
 
-      // Build T(p) · R(axis, π/2) · T(-p).
-      const T1 = new Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
-      const R = new Matrix4();
       const halfPi = Math.PI / 2;
-      if (axis === 'x') R.makeRotationX(halfPi);
-      else if (axis === 'y') R.makeRotationY(halfPi);
-      else R.makeRotationZ(halfPi);
-      const T2 = new Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
-      const rotMat = new Matrix4().multiplyMatrices(T2, R).multiply(T1);
+      const rotatedGroupSummaries: string[] = [];
 
-      // Apply rotation to every strip in the group (same pattern as performJoin).
-      for (const id of memberIds) {
-        const strip = stripsById.get(id);
-        if (!strip) continue;
-        const rotated = strip.transform(rotMat);
-        strip.dispose();
-        stripsById.set(id, rotated);
-      }
+      for (const gid of groupIds) {
+        const group = joinGroups.get(gid);
+        if (!group || group.size === 0) continue;
+        const memberIds = [...group];
 
-      // Recompute post-rotation bbox and drop the group to bench-flush.
-      const newBbox = new Box3();
-      for (const id of memberIds) {
-        const strip = stripsById.get(id);
-        if (!strip) continue;
-        newBbox.union(strip.boundingBox());
-      }
-      const dy = BENCH_Y - newBbox.min.y;
-      if (Math.abs(dy) > 1e-9) {
+        // Per-group pivot: union bbox centroid.
+        const bbox = new Box3();
         for (const id of memberIds) {
           const strip = stripsById.get(id);
           if (!strip) continue;
-          const moved = strip.translate(0, dy, 0);
-          strip.dispose();
-          stripsById.set(id, moved);
+          bbox.union(strip.boundingBox());
         }
+        if (bbox.isEmpty()) continue;
+        const pivot = bbox.getCenter(new Vector3());
+
+        // Build T(p) · R(axis, π/2) · T(-p).
+        const T1 = new Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
+        const R = new Matrix4();
+        if (axis === 'x') R.makeRotationX(halfPi);
+        else if (axis === 'y') R.makeRotationY(halfPi);
+        else R.makeRotationZ(halfPi);
+        const T2 = new Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
+        const rotMat = new Matrix4().multiplyMatrices(T2, R).multiply(T1);
+
+        // Apply rotation to every strip in the group.
+        for (const id of memberIds) {
+          const strip = stripsById.get(id);
+          if (!strip) continue;
+          const rotated = strip.transform(rotMat);
+          strip.dispose();
+          stripsById.set(id, rotated);
+        }
+
+        // Recompute post-rotation bbox and drop the group to bench-flush.
+        const newBbox = new Box3();
+        for (const id of memberIds) {
+          const strip = stripsById.get(id);
+          if (!strip) continue;
+          newBbox.union(strip.boundingBox());
+        }
+        const dy = BENCH_Y - newBbox.min.y;
+        if (Math.abs(dy) > 1e-9) {
+          for (const id of memberIds) {
+            const strip = stripsById.get(id);
+            if (!strip) continue;
+            const moved = strip.translate(0, dy, 0);
+            strip.dispose();
+            stripsById.set(id, moved);
+          }
+        }
+
+        rotatedGroupSummaries.push(
+          `[${memberIds.join(', ')}] pivot=(${pivot.x.toFixed(1)}, ${pivot.y.toFixed(1)}, ${pivot.z.toFixed(1)}) Δy=${dy.toFixed(2)}mm`,
+        );
       }
 
-      const n = memberIds.length;
       appendLog(
-        `rotate[${axis}] group [${memberIds.join(', ')}] · pivot=(${pivot.x.toFixed(1)}, ${pivot.y.toFixed(1)}, ${pivot.z.toFixed(1)}) · Δy=${dy.toFixed(2)}mm · ${n} strip${n === 1 ? '' : 's'}`,
+        `rotate[${axis}] × ${groupIds.size} group${groupIds.size === 1 ? '' : 's'}: ${rotatedGroupSummaries.join(' | ')}`,
       );
+      // Selection survives the rotation — strip ids are preserved by
+      // Strip.transform(). `render('update')` re-applies the halos.
       render('update');
     };
 
@@ -1939,15 +1967,22 @@ async function boot(): Promise<void> {
     renderCallbacks.push(syncControls);
 
     render('empty');
-    reshuffleBtn?.addEventListener('click', () => render('fresh'));
-    joinBtn?.addEventListener('click', performJoin);
-    detachBtn?.addEventListener('click', performDetach);
+    reshuffleBtn?.addEventListener('click', () => {
+      // Reshuffle replaces the whole lineup — any selection that referred
+      // to the old ids is stale, so clear the set up front.
+      selectedStripIds.clear();
+      render('fresh');
+    });
+    // Face-selection-driven actions are parked for this pass while we
+    // test piece-level selection. Keeping the DOM elements so revival is
+    // a single wiring change; calling `performJoin` / `performDetach`
+    // is a no-op because `currentSelections` is never populated.
+    // `void` the references so the linter doesn't flag them as unused.
+    void performJoin;
+    void performDetach;
     rotateXBtn?.addEventListener('click', () => performRotate('x'));
     rotateYBtn?.addEventListener('click', () => performRotate('y'));
     rotateZBtn?.addEventListener('click', () => performRotate('z'));
-    // Switching algorithms changes required-selection count; clear
-    // selections so the user starts fresh for the new mechanic.
-    algoSelectEl?.addEventListener('change', () => render('update'));
     modeToggleBtn?.addEventListener('click', () => {
       currentMode = currentMode === 'select' ? 'drag' : 'select';
       modeToggleBtn.dataset.active = currentMode === 'drag' ? 'true' : 'false';

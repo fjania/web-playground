@@ -87,6 +87,33 @@
       align-items: stretch;
       z-index: 2;
     }
+    .rotate-panel {
+      position: absolute;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 0.5rem;
+      align-items: stretch;
+      padding: 0.35rem 0.5rem;
+      background: #fff;
+      border: 1px solid #d4d4d0;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      z-index: 3;
+    }
+    .rotate-panel[hidden] {
+      display: none;
+    }
+    .rotate-panel .rotate-panel-label {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.7rem;
+      color: #666;
+      align-self: center;
+      padding-right: 0.35rem;
+      border-right: 1px solid #e4e4e0;
+      margin-right: 0.15rem;
+    }
     .add-controls {
       position: absolute;
       top: 1.25rem;
@@ -257,24 +284,27 @@
         </button>
       </div>
       <div class="join-controls">
-        <select class="algo-select" data-slot="join-algo" aria-label="Join algorithm"></select>
+        <select class="algo-select" data-slot="join-algo" aria-label="Join algorithm" disabled></select>
         <button type="button" class="join-btn" data-slot="join" disabled>join faces</button>
         <button type="button" class="join-btn" data-slot="detach" disabled>detach</button>
-        <button type="button" class="join-btn rotate-btn" data-slot="rotate-x" disabled title="Rotate around X" aria-label="Rotate around X">
+      </div>
+      <div class="rotate-panel" data-slot="rotate-panel" hidden>
+        <span class="rotate-panel-label">rotate</span>
+        <button type="button" class="join-btn rotate-btn" data-slot="rotate-x" title="Rotate selected pieces 90° around world X" aria-label="Rotate around X">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12a7 7 0 0 1 12-4.95" />
             <polyline points="17 3 17 7 13 7" />
           </svg>
           <span class="rotate-axis">X</span>
         </button>
-        <button type="button" class="join-btn rotate-btn" data-slot="rotate-y" disabled title="Rotate around Y" aria-label="Rotate around Y">
+        <button type="button" class="join-btn rotate-btn" data-slot="rotate-y" title="Rotate selected pieces 90° around world Y" aria-label="Rotate around Y">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12a7 7 0 0 1 12-4.95" />
             <polyline points="17 3 17 7 13 7" />
           </svg>
           <span class="rotate-axis">Y</span>
         </button>
-        <button type="button" class="join-btn rotate-btn" data-slot="rotate-z" disabled title="Rotate around Z" aria-label="Rotate around Z">
+        <button type="button" class="join-btn rotate-btn" data-slot="rotate-z" title="Rotate selected pieces 90° around world Z" aria-label="Rotate around Z">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12a7 7 0 0 1 12-4.95" />
             <polyline points="17 3 17 7 13 7" />
