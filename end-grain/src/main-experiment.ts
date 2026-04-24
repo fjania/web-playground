@@ -14,8 +14,11 @@
 
 import {
   Box3,
+  BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
+  ConeGeometry,
   EdgesGeometry,
   Group,
   LineBasicMaterial,
@@ -25,6 +28,8 @@ import {
   MeshBasicMaterial,
   Quaternion,
   Raycaster,
+  Sprite,
+  SpriteMaterial,
   Vector2,
   Vector3,
   type Material,
@@ -343,10 +348,147 @@ function buildBenchMesh(): Group {
   return group;
 }
 
+/**
+ * Bench-edge axis gizmo — visible when the rotation panel is showing, so
+ * the user can tell which world axis each `Rotate X/Y/Z` button targets.
+ *
+ * Origin is the bench's -X/-Z corner at `(-HALF_X, 0, -HALF_Z)`. From
+ * that corner:
+ *   X axis runs +X along the bench's z=-HALF_Z edge (red).
+ *   Z axis runs +Z along the bench's x=-HALF_X edge (blue).
+ *   Y axis rises vertically out of the corner (green), 1/8 as tall as
+ *     the bench span so it doesn't overwhelm the scene.
+ *
+ * Implementation notes:
+ *   - Shafts are thin BoxGeometry bars, not LineSegments. Line widths
+ *     render at 1px on most GPUs regardless of `LineBasicMaterial.linewidth`,
+ *     which would look indistinguishable from the strip edges; slim boxes
+ *     give us controllable thickness.
+ *   - Arrowheads are ConeGeometry at the far end, oriented outward.
+ *   - Labels are CanvasTexture-on-Sprite so they billboard (always face
+ *     the camera) and stay legible as the user orbits. Label color
+ *     matches the axis.
+ *   - `depthTest: false` + high `renderOrder` keeps the gizmo visible
+ *     when strips are sitting on top of the corner.
+ *   - No `userData.stripId`, so the raycast loops in `wireStripSelection`
+ *     and `wireDragAndSnap` ignore it naturally — matching how the bench
+ *     panel is excluded.
+ */
+function buildAxisGizmo(): Group {
+  const group = new Group();
+  group.userData.role = 'axis-gizmo';
+  group.visible = false; // only shown when a strip is selected
+
+  const HALF_X = 800;
+  const HALF_Z = 800;
+  const ORIGIN_X = -HALF_X;
+  const ORIGIN_Z = -HALF_Z;
+
+  const X_LEN = HALF_X * 2; // 1600 mm along +X
+  const Z_LEN = HALF_Z * 2; // 1600 mm along +Z
+  const Y_LEN = 200; // short vertical stub
+
+  const SHAFT = 8; // shaft cross-section in mm
+  const CONE_R = 20;
+  const CONE_H = 40;
+
+  const COLOR_X = 0xe74c3c;
+  const COLOR_Y = 0x2ecc71;
+  const COLOR_Z = 0x3498db;
+
+  const makeMat = (color: number): MeshBasicMaterial =>
+    new MeshBasicMaterial({
+      color,
+      depthTest: false,
+      depthWrite: false,
+    });
+
+  // ---------------- X axis (along +X at z = -HALF_Z) ----------------
+  const xShaft = new Mesh(new BoxGeometry(X_LEN, SHAFT, SHAFT), makeMat(COLOR_X));
+  xShaft.position.set(ORIGIN_X + X_LEN / 2, 0, ORIGIN_Z);
+  xShaft.renderOrder = 30;
+  group.add(xShaft);
+
+  const xCone = new Mesh(new ConeGeometry(CONE_R, CONE_H, 24), makeMat(COLOR_X));
+  // Cone default points +Y; rotate -Z by 90° so it points +X.
+  xCone.rotation.z = -Math.PI / 2;
+  xCone.position.set(ORIGIN_X + X_LEN + CONE_H / 2, 0, ORIGIN_Z);
+  xCone.renderOrder = 30;
+  group.add(xCone);
+
+  // ---------------- Z axis (along +Z at x = -HALF_X) ----------------
+  const zShaft = new Mesh(new BoxGeometry(SHAFT, SHAFT, Z_LEN), makeMat(COLOR_Z));
+  zShaft.position.set(ORIGIN_X, 0, ORIGIN_Z + Z_LEN / 2);
+  zShaft.renderOrder = 30;
+  group.add(zShaft);
+
+  const zCone = new Mesh(new ConeGeometry(CONE_R, CONE_H, 24), makeMat(COLOR_Z));
+  // Cone default points +Y; rotate +X by 90° so it points +Z.
+  zCone.rotation.x = Math.PI / 2;
+  zCone.position.set(ORIGIN_X, 0, ORIGIN_Z + Z_LEN + CONE_H / 2);
+  zCone.renderOrder = 30;
+  group.add(zCone);
+
+  // ---------------- Y axis (vertical at corner) ---------------------
+  const yShaft = new Mesh(new BoxGeometry(SHAFT, Y_LEN, SHAFT), makeMat(COLOR_Y));
+  yShaft.position.set(ORIGIN_X, Y_LEN / 2, ORIGIN_Z);
+  yShaft.renderOrder = 30;
+  group.add(yShaft);
+
+  const yCone = new Mesh(new ConeGeometry(CONE_R, CONE_H, 24), makeMat(COLOR_Y));
+  // Cone default already points +Y.
+  yCone.position.set(ORIGIN_X, Y_LEN + CONE_H / 2, ORIGIN_Z);
+  yCone.renderOrder = 30;
+  group.add(yCone);
+
+  // ---------------- Labels ------------------------------------------
+  const LABEL_SIZE = 128;
+  const buildLabel = (text: string, hex: string): Sprite => {
+    const canvas = document.createElement('canvas');
+    canvas.width = LABEL_SIZE;
+    canvas.height = LABEL_SIZE;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, LABEL_SIZE, LABEL_SIZE);
+    ctx.fillStyle = hex;
+    ctx.font = 'bold 96px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, LABEL_SIZE / 2, LABEL_SIZE / 2);
+    const tex = new CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    const mat = new SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const sprite = new Sprite(mat);
+    // World-unit size — sprites are in mm because the scene is.
+    sprite.scale.set(100, 100, 1);
+    sprite.renderOrder = 40;
+    return sprite;
+  };
+
+  const xLabel = buildLabel('X', '#e74c3c');
+  xLabel.position.set(ORIGIN_X + X_LEN + CONE_H + 60, 0, ORIGIN_Z);
+  group.add(xLabel);
+
+  const yLabel = buildLabel('Y', '#2ecc71');
+  yLabel.position.set(ORIGIN_X, Y_LEN + CONE_H + 60, ORIGIN_Z);
+  group.add(yLabel);
+
+  const zLabel = buildLabel('Z', '#3498db');
+  zLabel.position.set(ORIGIN_X, 0, ORIGIN_Z + Z_LEN + CONE_H + 60);
+  group.add(zLabel);
+
+  return group;
+}
+
 /** Build a Three.js root Group from the given strips, no placement. */
 function buildRoot(strips: Iterable<Strip>): Group {
   const root = new Group();
   root.add(buildBenchMesh());
+  root.add(buildAxisGizmo());
   for (const strip of strips) {
     root.add(buildStripGroup(strip));
   }
@@ -1094,6 +1236,13 @@ async function boot(): Promise<void> {
     let teardownSelection: (() => void) | null = null;
     let currentRoot: Group | null = null;
     let currentHighlights: Group | null = null;
+    /**
+     * Bench-edge axis gizmo — cached after each `buildRoot` so
+     * `updateRotatePanel` can flip `group.visible` in sync with the
+     * rotation panel without rebuilding the gizmo on every selection
+     * change.
+     */
+    let currentAxisGizmo: Group | null = null;
     // Parked reference for future face-selection revival. Stays empty
     // while the face-driven flow is disabled.
     const currentSelections: Selection[] = [];
@@ -1133,8 +1282,12 @@ async function boot(): Promise<void> {
       // Panel is visible iff we're in select mode with ≥1 strip selected.
       // Individual axis buttons stay enabled whenever the panel is shown;
       // there's no degenerate state once a piece is selected.
+      // The bench-edge axis gizmo (world X / Y / Z indicator) tracks
+      // the same predicate — it's only useful when the rotation panel
+      // is actionable, and it would otherwise clutter the scene.
       const visible = currentMode === 'select' && selectedStripIds.size > 0;
       if (rotatePanelEl) rotatePanelEl.hidden = !visible;
+      if (currentAxisGizmo) currentAxisGizmo.visible = visible;
     };
 
     const renderStatus = (): void => {
@@ -1628,6 +1781,17 @@ async function boot(): Promise<void> {
       root.add(highlightsGroup);
       currentRoot = root;
       currentHighlights = highlightsGroup;
+      // Locate the bench-edge axis gizmo so `updateRotatePanel` can
+      // toggle `group.visible` in sync with the rotation panel. The
+      // gizmo is built inside `buildRoot` tagged with
+      // `userData.role = 'axis-gizmo'`.
+      currentAxisGizmo = null;
+      for (const child of root.children) {
+        if (child instanceof Group && child.userData.role === 'axis-gizmo') {
+          currentAxisGizmo = child;
+          break;
+        }
+      }
 
       // Purge selection ids for strips that no longer exist. Today the
       // set of ops preserves strip identity (rotate / join / drag all
