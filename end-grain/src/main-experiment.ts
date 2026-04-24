@@ -2173,14 +2173,19 @@ async function boot(): Promise<void> {
     // (there isn't one to highlight).
     //
     // Lifecycle:
-    //   - pointerenter: set `hoveredRotateAxis`, (re)build preview.
-    //   - pointerleave / blur: clear `hoveredRotateAxis`, clear preview.
-    //   - next render(): if `hoveredRotateAxis` is still set (cursor
+    //   - pointerenter: set `currentHoveredRotate` to {axis, direction},
+    //     (re)build preview.
+    //   - pointerleave / blur: clear `currentHoveredRotate`, clear preview.
+    //   - next render(): if `currentHoveredRotate` is still set (cursor
     //     didn't move off the button), rebuild the preview against the
-    //     new scene state. Otherwise just clear stale preview geometry
-    //     attached to the old root.
+    //     new scene state using BOTH axis and direction — direction
+    //     must carry through so a "−" button redraws with the CW arc
+    //     rather than silently defaulting to CCW. Otherwise just clear
+    //     stale preview geometry attached to the old root.
     let rotatePreviewGroup: Group | null = null;
-    let hoveredRotate: { axis: 'x' | 'y' | 'z'; direction: RotationDirection } | null = null;
+    let currentHoveredRotate:
+      | { axis: 'x' | 'y' | 'z'; direction: RotationDirection }
+      | null = null;
 
     const clearRotatePreview = (): void => {
       if (!rotatePreviewGroup) return;
@@ -2350,8 +2355,15 @@ async function boot(): Promise<void> {
     // recompute and show the preview against the new scene state.
     renderCallbacks.push(() => {
       clearRotatePreview();
-      if (hoveredRotate !== null) {
-        showRotatePreview(hoveredRotate.axis, hoveredRotate.direction);
+      if (currentHoveredRotate !== null) {
+        // Pass both fields explicitly — `direction` determines the arc's
+        // sign, so losing it here would redraw a CW-button's preview with
+        // a CCW arc (or vice versa) and cause the edge/arc to vanish when
+        // no geometric plan exists in the default (+1) direction.
+        showRotatePreview(
+          currentHoveredRotate.axis,
+          currentHoveredRotate.direction,
+        );
       }
     });
 
@@ -2370,17 +2382,17 @@ async function boot(): Promise<void> {
       if (!parsed) continue;
       const { axis, direction } = parsed;
       btn.addEventListener('pointerenter', () => {
-        hoveredRotate = { axis, direction };
+        currentHoveredRotate = { axis, direction };
         showRotatePreview(axis, direction);
       });
       btn.addEventListener('pointerleave', () => {
-        hoveredRotate = null;
+        currentHoveredRotate = null;
         clearRotatePreview();
       });
       // Blur / focus loss — treat like pointerleave so a tap-then-hover-out
       // doesn't leave a stale preview.
       btn.addEventListener('blur', () => {
-        hoveredRotate = null;
+        currentHoveredRotate = null;
         clearRotatePreview();
       });
       btn.addEventListener('click', () => performRotate(axis, direction));
