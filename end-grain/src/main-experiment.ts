@@ -1961,29 +1961,43 @@ async function boot(): Promise<void> {
     };
 
     /**
-     * Rotate the join-group of every selected strip by 90° around the
-     * chosen world axis, then translate each rotated group so its
-     * lowest y sits on the bench.
+     * "Tip onto next face" rotation for world X or Z; fixed 90° for Y.
      *
-     * Multi-select + shared-group dedupe: two selected strips in the
-     * SAME join-group count as one rotation, not two. We collect
-     * `Set<groupId>` up front (via `groupIdOf(joinGroups, stripId)`)
-     * then iterate that set — never the strip ids directly — so a
-     * group is rotated exactly once no matter how many of its members
-     * are selected.
+     * Real-world framing (user's ask): the rotation should take the
+     * current bench face off the bench and tip the piece onto the NEXT
+     * face — so it always lands flat on the bench, never balanced on
+     * an edge. For a rect (square cross-section) the next face is 90°
+     * away; for a wedge / doorstop / bevel the angle depends on the
+     * geometry.
      *
-     * Pivot is per-group: each group's world-space bounding-box centroid
-     * (union of each member's `strip.boundingBox()`). Two selected
-     * pieces in different groups rotate about their own centroids
-     * independently, keeping each piece physically sensible.
+     * X / Z algorithm (per group, computed from the group's first
+     * strip's face list):
+     *   1. Enumerate face normals. Skip any whose component along the
+     *      rotation axis is non-zero (|n·axis| >= 0.01) — those can't
+     *      be rotated to -Y by rotation around that axis.
+     *   2. For each remaining face, project the normal and (0,-1,0)
+     *      onto the plane perpendicular to the axis and compute the
+     *      signed angle θ via `atan2((n̂×d̂)·a, n̂·d̂)` taking n̂ →
+     *      d̂=(0,-1,0) via rotation around axis.
+     *   3. The current bench face has θ≈0 — skip it (|θ| > 0.01 rad).
+     *   4. Pick the smallest *positive* θ — CCW around the axis,
+     *      matching the old fixed-90° direction.
      *
-     * Rotation matrix is `T(p) · R(axis, π/2) · T(-p)`. Sign =
-     * counter-clockwise viewed from +axis (right-hand rule).
+     * Y algorithm: keep 90°. Every face normal has a Y component of
+     * the same sign before and after Y-rotation (Y-rotation doesn't
+     * change n_y), so no face can be rotated onto -Y by spinning
+     * around Y. Instead Y just spins the piece in place — 90° is the
+     * intuitive "turn 90° on the bench" quarter turn.
      *
-     * After rotating each group, recompute its bbox and translate by
-     * `(0, BENCH_Y - newBBox.min.y, 0)` so the piece lands bench-flush.
-     * Group membership is unaffected — rigid-body rotation keeps strips
-     * joined.
+     * Multi-select + shared-group dedupe is unchanged: we iterate
+     * distinct group ids so one group rotates once even if multiple
+     * selected strips belong to it. Pivot is per-group: the union
+     * bbox centroid of all members. Per-group θ is derived from the
+     * FIRST member strip's faces — for axis-aligned groups (all our
+     * strips) that's sufficient. After rotation each group is
+     * translated by `(0, BENCH_Y - newBBox.min.y, 0)` so it lands
+     * bench-flush; group membership and strip identity are preserved
+     * by `Strip.transform()`.
      */
     const performRotate = (axis: 'x' | 'y' | 'z'): void => {
       if (currentMode !== 'select') return;
@@ -1998,7 +2012,73 @@ async function boot(): Promise<void> {
       }
       if (groupIds.size === 0) return;
 
-      const halfPi = Math.PI / 2;
+      // World axis vector for rotation.
+      const axisVec =
+        axis === 'x'
+          ? new Vector3(1, 0, 0)
+          : axis === 'y'
+            ? new Vector3(0, 1, 0)
+            : new Vector3(0, 0, 1);
+      const down = new Vector3(0, -1, 0);
+
+      const AXIS_PERP_TOL = 0.01; // |n·axis| below this → face is perpendicular to the axis.
+      const CURRENT_BENCH_TOL = 0.01; // |θ| below this → this face is already on the bench.
+
+      /**
+       * Compute the tip angle θ for rotation around `axis` that takes
+       * the "next" face onto -Y. Returns `null` if no suitable face
+       * exists (shouldn't happen for our shapes — defensive).
+       *
+       * Algorithm per the spec:
+       *   - Skip stale faces — `Strip.cut` preserves every existing
+       *     face in its face list even if the cut clips it to zero
+       *     area (e.g. the wedge's +Y box face is a shadow of the pre-
+       *     cut bar). `faceCenter()` returns null for those, which is
+       *     exactly the "no polygon in this plane" filter we want.
+       *   - Skip faces whose normal has |n·axis| >= AXIS_PERP_TOL
+       *     (those can't reach -Y by rotation around `axis`).
+       *   - For each remaining face, compute signed angle taking its
+       *     projected normal onto projected `-Y` around `axis`:
+       *     θ = atan2((n̂ × d̂) · axis, n̂ · d̂) after projecting both
+       *     onto the plane perpendicular to axis.
+       *   - Skip the current bench face (|θ| < CURRENT_BENCH_TOL).
+       *   - Of the rest, pick the smallest strictly-positive θ (CCW
+       *     around axis — matches the old fixed-90° sign convention).
+       */
+      const tipAngleForStrip = (strip: Strip): number | null => {
+        let bestTheta: number | null = null;
+        for (const face of strip.faces) {
+          // Skip stale faces (clipped to zero area by a subsequent cut).
+          if (strip.faceCenter(face.id) === null) continue;
+
+          const n = new Vector3(
+            face.plane.normal[0],
+            face.plane.normal[1],
+            face.plane.normal[2],
+          );
+          if (Math.abs(n.dot(axisVec)) >= AXIS_PERP_TOL) continue;
+
+          // Project n and down onto the plane perpendicular to axis.
+          const nProj = n.clone().sub(axisVec.clone().multiplyScalar(n.dot(axisVec)));
+          const dProj = down
+            .clone()
+            .sub(axisVec.clone().multiplyScalar(down.dot(axisVec)));
+          if (nProj.lengthSq() < 1e-12 || dProj.lengthSq() < 1e-12) continue;
+          nProj.normalize();
+          dProj.normalize();
+
+          // Signed angle from nProj → dProj around axisVec.
+          const cross = new Vector3().crossVectors(nProj, dProj);
+          const theta = Math.atan2(cross.dot(axisVec), nProj.dot(dProj));
+
+          if (Math.abs(theta) < CURRENT_BENCH_TOL) continue; // current bench face
+          if (theta <= 0) continue; // want the smallest positive (CCW) tip
+
+          if (bestTheta === null || theta < bestTheta) bestTheta = theta;
+        }
+        return bestTheta;
+      };
+
       const rotatedGroupSummaries: string[] = [];
 
       for (const gid of groupIds) {
@@ -2016,12 +2096,32 @@ async function boot(): Promise<void> {
         if (bbox.isEmpty()) continue;
         const pivot = bbox.getCenter(new Vector3());
 
-        // Build T(p) · R(axis, π/2) · T(-p).
+        // Compute rotation angle θ.
+        //   Y axis: always 90° (spin in place — no face tips onto -Y).
+        //   X/Z axis: tip onto the next face of the first member strip.
+        //            That's enough for axis-aligned groups (all ours).
+        let theta: number;
+        if (axis === 'y') {
+          theta = Math.PI / 2;
+        } else {
+          const firstStrip = stripsById.get(memberIds[0]);
+          if (!firstStrip) continue;
+          const computed = tipAngleForStrip(firstStrip);
+          if (computed === null) {
+            appendLog(
+              `rotate[${axis}] group [${memberIds.join(', ')}]: no candidate face — skipped`,
+            );
+            continue;
+          }
+          theta = computed;
+        }
+
+        // Build T(p) · R(axis, θ) · T(-p).
         const T1 = new Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
         const R = new Matrix4();
-        if (axis === 'x') R.makeRotationX(halfPi);
-        else if (axis === 'y') R.makeRotationY(halfPi);
-        else R.makeRotationZ(halfPi);
+        if (axis === 'x') R.makeRotationX(theta);
+        else if (axis === 'y') R.makeRotationY(theta);
+        else R.makeRotationZ(theta);
         const T2 = new Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z);
         const rotMat = new Matrix4().multiplyMatrices(T2, R).multiply(T1);
 
@@ -2052,8 +2152,9 @@ async function boot(): Promise<void> {
           }
         }
 
+        const thetaDeg = (theta * 180) / Math.PI;
         rotatedGroupSummaries.push(
-          `[${memberIds.join(', ')}] pivot=(${pivot.x.toFixed(1)}, ${pivot.y.toFixed(1)}, ${pivot.z.toFixed(1)}) Δy=${dy.toFixed(2)}mm`,
+          `[${memberIds.join(', ')}] θ=${thetaDeg.toFixed(1)}° pivot=(${pivot.x.toFixed(1)}, ${pivot.y.toFixed(1)}, ${pivot.z.toFixed(1)}) Δy=${dy.toFixed(2)}mm`,
         );
       }
 
