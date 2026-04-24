@@ -18,7 +18,9 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  CatmullRomCurve3,
   ConeGeometry,
+  CylinderGeometry,
   EdgesGeometry,
   Group,
   LineBasicMaterial,
@@ -30,6 +32,7 @@ import {
   Raycaster,
   Sprite,
   SpriteMaterial,
+  TubeGeometry,
   Vector2,
   Vector3,
   type Material,
@@ -2141,6 +2144,195 @@ async function boot(): Promise<void> {
     // `void` the references so the linter doesn't flag them as unused.
     void performJoin;
     void performDetach;
+    // Hover-preview arc for rotation buttons. Uses the same
+    // `computePlanForSelection` path as performRotate so the preview is
+    // guaranteed to match the eventual pose.
+    //
+    // Visual:
+    //   - pivot edge: bright line along the exact contact edge, in the
+    //     axis color (red for X, blue for Z).
+    //   - direction arc: curved line in the plane perpendicular to the
+    //     pivot edge, at the edge midpoint, spanning the computed θ.
+    //     Same axis color. Radius ~40 mm.
+    //   - arrowhead: ConeGeometry at the far end of the arc, pointing
+    //     along the arc's tangent.
+    //
+    // For 180° flips and Y spins, fall back to a plain arc around the
+    // rotation axis through the bbox center. No pivot-edge highlight
+    // (there isn't one to highlight).
+    //
+    // Lifecycle:
+    //   - pointerenter: (re)build preview.
+    //   - pointerleave: clear preview.
+    //   - next render(): clear preview (render rebuilds the root tree).
+    let rotatePreviewGroup: Group | null = null;
+
+    const clearRotatePreview = (): void => {
+      if (!rotatePreviewGroup) return;
+      rotatePreviewGroup.parent?.remove(rotatePreviewGroup);
+      rotatePreviewGroup.traverse((obj) => {
+        if (obj instanceof Mesh) {
+          obj.geometry.dispose();
+          const mat = obj.material;
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else if (mat) (mat as Material).dispose();
+        }
+      });
+      rotatePreviewGroup = null;
+    };
+
+    // Re-clear on every render so stale previews don't survive a
+    // scene rebuild (the preview group is attached to the old root).
+    renderCallbacks.push(clearRotatePreview);
+
+    const PREVIEW_COLOR_X = 0xe74c3c; // red — matches the X axis gizmo
+    const PREVIEW_COLOR_Z = 0x3498db; // blue — matches the Z axis gizmo
+    const PREVIEW_COLOR_Y = 0x2ecc71; // green — matches the Y axis gizmo
+    const ARC_RADIUS = 60; // mm — large enough to read at 500 mm piece scale
+    const ARC_SEGMENTS = 32;
+    const EDGE_THICKNESS = 3; // mm — cylinder radius for pivot-edge highlight
+    const ARC_THICKNESS = 2; // mm — tube radius for the arc
+    const ARROW_R = 8;
+    const ARROW_H = 20;
+
+    /**
+     * Build the preview geometry for a given `RotationPlan` and attach
+     * it to `currentRoot`. No-op if no current root or plan.
+     *
+     * Geometry choices:
+     *  - Pivot edge: CylinderGeometry so it has visible thickness (WebGL
+     *    line widths are capped at 1 px on most GPUs, which is hard to
+     *    see against the piece's own baked-in edge lines).
+     *  - Arc: TubeGeometry along a CatmullRomCurve3 sampling the actual
+     *    axis-angle rotation. Tube has consistent world-space thickness
+     *    regardless of zoom.
+     *  - Arrow: ConeGeometry at the far end of the arc, oriented along
+     *    the arc tangent.
+     *
+     * Depth-test is OFF so the preview reads over the piece, matching
+     * how selection halos behave.
+     */
+    const buildRotatePreview = (
+      plan: RotationPlan,
+      color: number,
+    ): Group => {
+      const group = new Group();
+      group.userData.role = 'rotate-preview';
+
+      const makeMat = (): MeshBasicMaterial =>
+        new MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.95,
+          depthTest: false,
+          depthWrite: false,
+        });
+
+      // 1. Pivot edge — cylinder from a → b.
+      if (plan.pivotEdge) {
+        const a = plan.pivotEdge.a;
+        const b = plan.pivotEdge.b;
+        const dir = new Vector3().subVectors(b, a);
+        const len = dir.length();
+        if (len > 1e-6) {
+          const cyl = new CylinderGeometry(EDGE_THICKNESS, EDGE_THICKNESS, len, 12);
+          const edgeMesh = new Mesh(cyl, makeMat());
+          // Default cylinder along +Y; align to dir.
+          const q = new Quaternion().setFromUnitVectors(
+            new Vector3(0, 1, 0),
+            dir.clone().normalize(),
+          );
+          edgeMesh.setRotationFromQuaternion(q);
+          edgeMesh.position.copy(a).add(b).multiplyScalar(0.5);
+          edgeMesh.userData.role = 'rotate-preview-edge';
+          edgeMesh.renderOrder = 35;
+          group.add(edgeMesh);
+        }
+      }
+
+      // 2. Pick "hand" direction perpendicular to axisVec. For the tip
+      // case start perpendicular to the bench (world +Y) — the arc
+      // visually rises off the bench and curves to where the piece
+      // will land, which is the intuitive preview direction.
+      const axis = plan.axisVec.clone().normalize();
+      const up = new Vector3(0, 1, 0);
+      let hand = up.clone().sub(axis.clone().multiplyScalar(up.dot(axis)));
+      if (hand.lengthSq() < 1e-6) {
+        const alt = new Vector3(1, 0, 0);
+        hand = alt.clone().sub(axis.clone().multiplyScalar(alt.dot(axis)));
+      }
+      hand.normalize();
+
+      // 3. Arc — sample points via axis-angle, feed to TubeGeometry.
+      const arcPoints: Vector3[] = [];
+      const q = new Quaternion();
+      const start = hand.clone().multiplyScalar(ARC_RADIUS);
+      for (let i = 0; i <= ARC_SEGMENTS; i++) {
+        const t = i / ARC_SEGMENTS;
+        q.setFromAxisAngle(axis, plan.theta * t);
+        const p = start.clone().applyQuaternion(q).add(plan.pivot);
+        arcPoints.push(p);
+      }
+      const curve = new CatmullRomCurve3(arcPoints);
+      const tubeGeo = new TubeGeometry(curve, ARC_SEGMENTS, ARC_THICKNESS, 8, false);
+      const arcMesh = new Mesh(tubeGeo, makeMat());
+      arcMesh.userData.role = 'rotate-preview-arc';
+      arcMesh.renderOrder = 34;
+      group.add(arcMesh);
+
+      // 4. Arrowhead cone at the arc's end, oriented along the arc tangent.
+      const endP = arcPoints[arcPoints.length - 1];
+      const radial = endP.clone().sub(plan.pivot);
+      const tangent = new Vector3().crossVectors(axis, radial).normalize();
+      const coneGeo = new ConeGeometry(ARROW_R, ARROW_H, 16);
+      const cone = new Mesh(coneGeo, makeMat());
+      // Position cone so its base sits at the arc endpoint and tip
+      // points along the tangent.
+      cone.position.copy(endP).add(tangent.clone().multiplyScalar(ARROW_H / 2));
+      const coneQuat = new Quaternion().setFromUnitVectors(
+        new Vector3(0, 1, 0),
+        tangent,
+      );
+      cone.setRotationFromQuaternion(coneQuat);
+      cone.userData.role = 'rotate-preview-arrow';
+      cone.renderOrder = 35;
+      group.add(cone);
+
+      return group;
+    };
+
+    const showRotatePreview = (axis: 'x' | 'y' | 'z'): void => {
+      clearRotatePreview();
+      if (currentMode !== 'select') return;
+      if (!currentRoot) return;
+      const result = computePlanForSelection(axis);
+      if (!result) return;
+      const color =
+        axis === 'x'
+          ? PREVIEW_COLOR_X
+          : axis === 'z'
+            ? PREVIEW_COLOR_Z
+            : PREVIEW_COLOR_Y;
+      const previewGroup = buildRotatePreview(result.plan, color);
+      currentRoot.add(previewGroup);
+      rotatePreviewGroup = previewGroup;
+    };
+
+    const wireRotateHover = (
+      btn: HTMLButtonElement | null,
+      axis: 'x' | 'y' | 'z',
+    ): void => {
+      if (!btn) return;
+      btn.addEventListener('pointerenter', () => showRotatePreview(axis));
+      btn.addEventListener('pointerleave', () => clearRotatePreview());
+      // Blur / focus loss — treat like pointerleave so a tap-then-hover-out
+      // doesn't leave a stale preview.
+      btn.addEventListener('blur', () => clearRotatePreview());
+    };
+    wireRotateHover(rotateXBtn, 'x');
+    wireRotateHover(rotateYBtn, 'y');
+    wireRotateHover(rotateZBtn, 'z');
+
     rotateXBtn?.addEventListener('click', () => performRotate('x'));
     rotateYBtn?.addEventListener('click', () => performRotate('y'));
     rotateZBtn?.addEventListener('click', () => performRotate('z'));
