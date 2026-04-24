@@ -104,16 +104,25 @@ export function findAdjacentFace(
  *      one; multi-strip groups joined edge-to-edge all share the
  *      same bench plane by construction).
  *   2. Extract F_current's polygon boundary.
- *   3. Pick the leading boundary edge:
+ *   3. Of those boundary edges, keep only ones whose unit direction is
+ *      aligned with the requested world axis (|dir · worldAxis| > 0.5
+ *      — i.e. within 60°). This distinguishes X-rotations from
+ *      Z-rotations even when the bench face has slanted edges that
+ *      happen to be the leading edge in the tip direction. If no edge
+ *      passes the alignment filter, the piece can't tip in that
+ *      direction in any meaningful sense — return null and let the
+ *      caller log "no candidate edge aligned with X|Z — skipped".
+ *   4. Among the passing edges, pick the leading one in the tip
+ *      direction:
  *        axis='x' (tips toward +Z) → edge whose midpoint has the
  *          largest z-coordinate.
  *        axis='z' (tips toward -X) → edge whose midpoint has the
  *          smallest x-coordinate.
- *   4. axisVec = unit edge direction, oriented so its component along
+ *   5. axisVec = unit edge direction, oriented so its component along
  *      the requested world axis is positive (CCW intent).
- *   5. Find F_next adjacent to F_current across this edge; compute θ
+ *   6. Find F_next adjacent to F_current across this edge; compute θ
  *      so F_next's normal lands on (0,-1,0) about axisVec.
- *   6. Fallback 180° flip if no F_next found: rotate about the
+ *   7. Fallback 180° flip if no F_next found: rotate about the
  *      requested world axis through the bbox center.
  *
  * Y algorithm: classic 90° spin around world +Y through the bbox center.
@@ -146,12 +155,30 @@ export function computeRotationPlan(
   const boundary = extractFaceBoundary(fCurrent.strip, fCurrent.face.id);
   if (boundary.length === 0) return null;
 
+  // Filter boundary edges to those aligned with the requested world
+  // axis within 60° (|unitDir · worldAxis| > 0.5). The "pivot edge for
+  // Rotate-X is the edge most aligned with world X" rule is what keeps
+  // X-rotations and Z-rotations distinct even on slanted bench faces.
+  const worldAxis =
+    axis === 'x' ? new Vector3(1, 0, 0) : new Vector3(0, 0, 1);
+  const ALIGN_MIN = 0.5;
+  const aligned: Array<{ a: Vector3; b: Vector3 }> = [];
+  for (const seg of boundary) {
+    const dir = new Vector3().subVectors(seg.b, seg.a);
+    if (dir.lengthSq() < 1e-12) continue;
+    dir.normalize();
+    if (Math.abs(dir.dot(worldAxis)) > ALIGN_MIN) aligned.push(seg);
+  }
+  if (aligned.length === 0) return null;
+
+  // Among the aligned edges, pick the one leading in the tip direction
+  // (+Z for Rotate-X, -X for Rotate-Z).
   const pickBy = (
     score: (mid: Vector3) => number,
     sign: 1 | -1,
   ): { a: Vector3; b: Vector3 } | null => {
     let best: { seg: { a: Vector3; b: Vector3 }; value: number } | null = null;
-    for (const seg of boundary) {
+    for (const seg of aligned) {
       const mid = seg.a.clone().add(seg.b).multiplyScalar(0.5);
       const v = sign * score(mid);
       if (best === null || v > best.value) best = { seg, value: v };
